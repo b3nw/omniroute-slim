@@ -1,0 +1,1 @@
+- Added a dedicated, sortable TTFT (Time to First Token) column next to TPS in RequestLoggerV2 with end-to-end telemetry and SQLite persistence.
