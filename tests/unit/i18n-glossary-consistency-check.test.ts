@@ -85,12 +85,8 @@ test("empty synonyms list for a concept never produces violations", () => {
 });
 
 // Regression guard: the one-shot 提供商→提供者 normalization pass (#8038) must
-// not silently regress. Load the REAL zh-CN catalogs and assert the retired
-// synonym is gone.
-test("regression: src/i18n/messages/zh-CN.json no longer contains 提供商", () => {
-  const raw = readFileSync(path.join(ROOT, "src/i18n/messages/zh-CN.json"), "utf8");
-  assert.equal(raw.includes("提供商"), false);
-});
+// not silently regress in the CLI catalog. (The UI-side `src/i18n/messages`
+// zh-CN bundle retired with the other non-English bundles.)
 
 test("regression: bin/cli/locales/zh-CN.json no longer contains 提供商", () => {
   const raw = readFileSync(path.join(ROOT, "bin/cli/locales/zh-CN.json"), "utf8");
@@ -137,51 +133,15 @@ test("legacy KNOWN_MISTRANSLATIONS still fire when the glossary has no mistransl
 });
 
 // Regression guard for the #8224 ko.json mistranslation cleanup: the garbled
-// product names and wrong-sense homonyms must not reappear in either ko catalog
-// (e.g. via a future machine-translation run).
+// product names and wrong-sense homonyms must not reappear in the ko CLI
+// catalog (e.g. via a future machine-translation run). The `src/i18n/messages`
+// half of this guard retired with the non-English UI bundles.
 for (const badTerm of ["응록", "인류", "쌍둥이자리", "반중력", "달리기", "장애인"]) {
-  test(`regression: src/i18n/messages/ko.json no longer contains ${badTerm}`, () => {
-    const raw = readFileSync(path.join(ROOT, "src/i18n/messages/ko.json"), "utf8");
-    assert.equal(raw.includes(badTerm), false);
-  });
-
   test(`regression: bin/cli/locales/ko.json no longer contains ${badTerm}`, () => {
     const raw = readFileSync(path.join(ROOT, "bin/cli/locales/ko.json"), "utf8");
     assert.equal(raw.includes(badTerm), false);
   });
 }
-
-test("real ko.json + real ko glossary + real protected terms pass the gate", () => {
-  const realMessages = JSON.parse(
-    readFileSync(path.join(ROOT, "src/i18n/messages/ko.json"), "utf8")
-  );
-  const realGlossary = JSON.parse(
-    readFileSync(path.join(ROOT, "scripts/i18n/glossary/ko.json"), "utf8")
-  );
-  const realProtected = JSON.parse(
-    readFileSync(path.join(ROOT, "scripts/i18n/glossary/protected-terms.json"), "utf8")
-  );
-  const { violations } = checkGlossaryConsistency(
-    realMessages,
-    realGlossary,
-    realProtected.terms
-  );
-  assert.deepEqual(violations, []);
-});
-
-test("real zh-CN.json + real glossary + real protected terms pass the gate", () => {
-  const realMessages = JSON.parse(
-    readFileSync(path.join(ROOT, "src/i18n/messages/zh-CN.json"), "utf8")
-  );
-  const realGlossary = JSON.parse(
-    readFileSync(path.join(ROOT, "scripts/i18n/glossary/zh-CN.json"), "utf8")
-  );
-  const realProtected = JSON.parse(
-    readFileSync(path.join(ROOT, "scripts/i18n/glossary/protected-terms.json"), "utf8")
-  );
-  const { violations } = checkGlossaryConsistency(realMessages, realGlossary, realProtected.terms);
-  assert.deepEqual(violations, []);
-});
 
 // ---------------------------------------------------------------------------
 // zh-TW terminology normalization
@@ -243,25 +203,4 @@ test("normalizeLocaleText never corrupts legitimate uses of a blocked term", () 
 test("normalizeLocaleText leaves locales without a glossary untouched", () => {
   assert.equal(normalizeLocaleText("默認", "de"), "默認");
   assert.equal(normalizeLocaleText("默認", ""), "默認");
-});
-
-test("real zh-TW.json + real zh-TW glossary pass the gate", () => {
-  const realMessages = JSON.parse(
-    readFileSync(path.join(ROOT, "src/i18n/messages/zh-TW.json"), "utf8")
-  );
-  const realGlossary = JSON.parse(
-    readFileSync(path.join(ROOT, "scripts/i18n/glossary/zh-TW.json"), "utf8")
-  );
-  const realProtected = JSON.parse(
-    readFileSync(path.join(ROOT, "scripts/i18n/glossary/protected-terms.json"), "utf8")
-  );
-  const { violations } = checkGlossaryConsistency(realMessages, realGlossary, realProtected.terms);
-  assert.deepEqual(violations, []);
-});
-
-test("regression: src/i18n/messages/zh-TW.json is free of the retired renderings", () => {
-  const raw = readFileSync(path.join(ROOT, "src/i18n/messages/zh-TW.json"), "utf8");
-  for (const retired of ["默認", "內存", "儀錶板", "鏈接", "上遊", "後臺", "供應商", "提供商"]) {
-    assert.equal(raw.includes(retired), false, `zh-TW catalog still contains ${retired}`);
-  }
 });

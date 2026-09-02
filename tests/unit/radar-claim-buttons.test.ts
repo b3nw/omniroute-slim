@@ -70,7 +70,7 @@ test("radar page: references the 5 new claim-section t(...) keys", () => {
   }
 });
 
-test("radar page + all 43 locale files: no price/monetary value in the claim section copy (D14)", () => {
+test("radar page + every shipped locale file: no price/monetary value in the claim section copy (D14)", () => {
   // D14: no pricing anywhere in the OSS repo, only a link to the plans page.
   const PRICE_PATTERN =
     /\$\s?\d|R\$\s?\d|\d+[.,]\d{2}\s?(USD|BRL|EUR)|\b(lifetime|life-time)\b.{0,20}\$/i;
@@ -78,7 +78,7 @@ test("radar page + all 43 locale files: no price/monetary value in the claim sec
 
   const messagesDir = path.resolve(process.cwd(), "src/i18n/messages");
   const files = fs.readdirSync(messagesDir).filter((f) => f.endsWith(".json"));
-  assert.ok(files.length >= 40, `expected ~43 locale files, found ${files.length}`);
+  assert.ok(files.length > 0, "expected at least one shipped locale file");
 
   for (const file of files) {
     const data = JSON.parse(fs.readFileSync(path.join(messagesDir, file), "utf-8"));

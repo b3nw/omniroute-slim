@@ -43,7 +43,7 @@ test("guided combos render family, provider models, strategy reason and created 
   }
 });
 
-test("every locale carries the Radar combos namespace and English/pt-BR have real copy", () => {
+test("every shipped locale carries the Radar combos namespace with real copy", () => {
   const messagesDir = path.join(process.cwd(), "src/i18n/messages");
   const files = fs.readdirSync(messagesDir).filter((file) => file.endsWith(".json"));
   const requiredKeys = [
@@ -75,7 +75,7 @@ test("every locale carries the Radar combos namespace and English/pt-BR have rea
     }
   }
 
-  for (const locale of ["en", "pt-BR"]) {
+  for (const locale of ["en"]) {
     const messages = JSON.parse(
       fs.readFileSync(path.join(messagesDir, `${locale}.json`), "utf8")
     ) as { radarCombosPage: Record<string, string> };

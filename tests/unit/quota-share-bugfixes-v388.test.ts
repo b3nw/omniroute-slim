@@ -29,9 +29,6 @@ const endpointsSrc = readFileSync(join(ROOT, QS, "components/QuotaEndpointsCard.
 const en = JSON.parse(readFileSync(join(ROOT, "src/i18n/messages/en.json"), "utf8")) as {
   quotaShare: Record<string, string>;
 };
-const pt = JSON.parse(readFileSync(join(ROOT, "src/i18n/messages/pt-BR.json"), "utf8")) as {
-  quotaShare: Record<string, string>;
-};
 
 // ── B1 — wizard never persists the "all" sentinel as a real group ────────────
 
@@ -61,10 +58,7 @@ test("B1: PoolWizard resolves groupId away from 'all' before persisting", () => 
 
 test("B1: QuotaSharePageClient renders an Ungrouped bucket for orphan pools", () => {
   assert.ok(pageSrc.includes("const orphanPools = useMemo"), "must compute orphanPools");
-  assert.ok(
-    pageSrc.includes('t("ungroupedTitle")'),
-    "must render the ungrouped section heading"
-  );
+  assert.ok(pageSrc.includes('t("ungroupedTitle")'), "must render the ungrouped section heading");
   // Orphan pools must reuse the same card with edit/remove wiring.
   const orphanBlock = pageSrc.slice(pageSrc.indexOf('t("ungroupedTitle")'));
   assert.ok(
@@ -100,13 +94,16 @@ test("B3: connection→pool membership is explicit (all members, not just primar
 // ── B4 — delete-group control wired in the UI ────────────────────────────────
 
 test("B4: QuotaSharePageClient wires a delete-group control (protecting the seed)", () => {
-  assert.ok(pageSrc.includes("const handleDeleteGroup = useCallback"), "must define handleDeleteGroup");
+  assert.ok(
+    pageSrc.includes("const handleDeleteGroup = useCallback"),
+    "must define handleDeleteGroup"
+  );
   assert.ok(
     pageSrc.includes('method: "DELETE" }') && pageSrc.includes("/api/quota/groups/"),
     "handleDeleteGroup must DELETE the group via the API"
   );
   assert.ok(
-    pageSrc.includes('res.status === 409') && pageSrc.includes('t("deleteGroupHasPools")'),
+    pageSrc.includes("res.status === 409") && pageSrc.includes('t("deleteGroupHasPools")'),
     "must handle the 409 (group still has pools) response"
   );
   assert.ok(
@@ -118,7 +115,10 @@ test("B4: QuotaSharePageClient wires a delete-group control (protecting the seed
 // ── B5a — native Anthropic endpoint ──────────────────────────────────────────
 
 test("B5a: endpoints card surfaces POST /v1/messages for Anthropic providers", () => {
-  assert.ok(endpointsSrc.includes("const hasAnthropic"), "must detect Anthropic providers in scope");
+  assert.ok(
+    endpointsSrc.includes("const hasAnthropic"),
+    "must detect Anthropic providers in scope"
+  );
   assert.ok(endpointsSrc.includes("POST /v1/messages"), "must show the native Anthropic endpoint");
   assert.ok(
     /isAnthropicProvider[\s\S]*?startsWith\("claude"\)/.test(endpointsSrc),
@@ -129,13 +129,17 @@ test("B5a: endpoints card surfaces POST /v1/messages for Anthropic providers", (
 // ── B5b — collapse toggle ────────────────────────────────────────────────────
 
 test("B5b: endpoints card has a collapse/expand toggle", () => {
-  assert.ok(endpointsSrc.includes("const [collapsed, setCollapsed]"), "must hold a collapsed state");
+  assert.ok(
+    endpointsSrc.includes("const [collapsed, setCollapsed]"),
+    "must hold a collapsed state"
+  );
   assert.ok(
     endpointsSrc.includes("{!collapsed && ("),
     "the card body must be hidden while collapsed"
   );
   assert.ok(
-    endpointsSrc.includes('t("endpointsCollapse")') && endpointsSrc.includes('t("endpointsExpand")'),
+    endpointsSrc.includes('t("endpointsCollapse")') &&
+      endpointsSrc.includes('t("endpointsExpand")'),
     "toggle must use collapse/expand labels"
   );
 });
@@ -162,7 +166,10 @@ test("B5: endpoints default view uses real minted qtSd combos (not placeholders)
 // ── Responses API endpoint in the card ──────────────────────────────────────
 
 test("endpoints card surfaces POST /v1/responses for codex/github providers", () => {
-  assert.ok(endpointsSrc.includes("const hasResponses"), "must detect Responses providers in scope");
+  assert.ok(
+    endpointsSrc.includes("const hasResponses"),
+    "must detect Responses providers in scope"
+  );
   assert.ok(endpointsSrc.includes("POST /v1/responses"), "must show the Responses endpoint");
   assert.ok(
     /isResponsesProvider[\s\S]*?"codex"[\s\S]*?"github"/.test(endpointsSrc),
@@ -177,7 +184,9 @@ test("planRegistry seeds xiaomi-mimo (4.1B lite cap) and kimi-coding for manual 
   const xiaomi = getKnownPlan("xiaomi-mimo");
   assert.ok(xiaomi, "xiaomi-mimo must have a known plan so the wizard pre-fills");
   assert.ok(
-    xiaomi!.dimensions.some((d) => d.unit === "tokens" && d.window === "monthly" && d.limit === 4_100_000_000),
+    xiaomi!.dimensions.some(
+      (d) => d.unit === "tokens" && d.window === "monthly" && d.limit === 4_100_000_000
+    ),
     "xiaomi-mimo must seed the 4.1B-token monthly lite cap"
   );
   const kimiCoding = getKnownPlan("kimi-coding");
@@ -198,7 +207,7 @@ test("planRegistry seeds xiaomi-mimo (4.1B lite cap) and kimi-coding for manual 
 
 // ── i18n parity for every new key ────────────────────────────────────────────
 
-test("i18n: new quotaShare keys exist in both en and pt-BR", () => {
+test("i18n: new quotaShare keys exist in en", () => {
   const keys = [
     "deleteGroup",
     "deleteGroupConfirm",
@@ -212,6 +221,5 @@ test("i18n: new quotaShare keys exist in both en and pt-BR", () => {
   ];
   for (const k of keys) {
     assert.ok(en.quotaShare[k], `en.json quotaShare.${k} must exist`);
-    assert.ok(pt.quotaShare[k], `pt-BR.json quotaShare.${k} must exist`);
   }
 });

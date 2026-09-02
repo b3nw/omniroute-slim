@@ -83,31 +83,25 @@ test("#7258: deepMergeFallback replaces nested placeholder leaves too", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. General regression: for every shipped locale, the REAL production merge
-//    (locale ⟵ EN fallback) leaves zero raw __MISSING__: leaves.
+// 2. General regression: the shipped catalog carries no raw __MISSING__: leaf.
 // ---------------------------------------------------------------------------
 
-test("#7258: after the real EN-fallback merge, no locale has a raw __MISSING__: leaf", () => {
-  const en = loadLocale("en");
-  const locales = readdirSync(messagesDir)
+test("#7258: the shipped EN catalog has no raw __MISSING__: leaf", () => {
+  // The runtime is English-only, so there is no locale⟵EN merge left to check.
+  // What survives is the invariant that actually reaches the user: the shipped
+  // catalog must never render a raw sync-script sentinel.
+  const shipped = readdirSync(messagesDir)
     .filter((f) => f.endsWith(".json"))
-    .map((f) => f.replace(/\.json$/, ""))
-    .filter((locale) => locale !== "en");
+    .map((f) => f.replace(/\.json$/, ""));
 
-  assert.ok(locales.length > 0, "expected at least one non-EN locale file");
+  assert.deepEqual(shipped, ["en"], "expected an English-only message catalog");
 
-  const offenders: Record<string, string[]> = {};
-  for (const locale of locales) {
-    const localeMessages = loadLocale(locale);
-    const merged = deepMergeFallback({ ...localeMessages }, en);
-    const leaves: string[] = [];
-    collectPlaceholderLeaves(merged, "", leaves);
-    if (leaves.length > 0) offenders[locale] = leaves;
-  }
+  const leaves: string[] = [];
+  collectPlaceholderLeaves(loadLocale("en"), "", leaves);
 
   assert.deepEqual(
-    offenders,
-    {},
-    `expected zero __MISSING__: leaves after EN fallback merge, found: ${JSON.stringify(offenders)}`
+    leaves,
+    [],
+    `expected zero __MISSING__: leaves in en.json, found: ${JSON.stringify(leaves)}`
   );
 });

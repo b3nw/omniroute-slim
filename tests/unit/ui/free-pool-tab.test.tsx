@@ -2,7 +2,7 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import deMessages from "../../../src/i18n/messages/de.json";
+import enMessages from "../../../src/i18n/messages/en.json";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -122,7 +122,7 @@ describe("FreePoolTab source toggles", () => {
     ] as const;
 
     for (const key of requiredKeys) {
-      expect(deMessages.settings[key], `missing settings.${key}`).toBeTruthy();
+      expect(enMessages.settings[key], `missing settings.${key}`).toBeTruthy();
     }
   });
 
@@ -236,7 +236,10 @@ describe("FreePoolTab data loading", () => {
   it("disabling a source re-fetches with sources= filter", async () => {
     const mockFetch = vi.fn((url: string) => {
       if (String(url).includes("/stats")) return okJson({ stats: defaultStats });
-      return okJson({ success: true, data: { proxies: [], total: 0, hasMore: false, stats: defaultStats, syncErrors: {} } });
+      return okJson({
+        success: true,
+        data: { proxies: [], total: 0, hasMore: false, stats: defaultStats, syncErrors: {} },
+      });
     });
     vi.stubGlobal("fetch", mockFetch);
 
@@ -289,7 +292,10 @@ describe("FreePoolTab sync error surfacing (#5595)", () => {
         });
       }
       if (String(url).includes("/stats")) return okJson({ stats: defaultStats });
-      return okJson({ success: true, data: { proxies: [], total: 0, hasMore: false, stats: defaultStats, syncErrors: {} } });
+      return okJson({
+        success: true,
+        data: { proxies: [], total: 0, hasMore: false, stats: defaultStats, syncErrors: {} },
+      });
     });
     vi.stubGlobal("fetch", mockFetch);
 

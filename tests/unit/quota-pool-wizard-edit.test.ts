@@ -26,19 +26,14 @@ const WIZARD_PATH = path.join(
 );
 
 const EN_JSON_PATH = path.join(ROOT, "src", "i18n", "messages", "en.json");
-const PT_BR_JSON_PATH = path.join(ROOT, "src", "i18n", "messages", "pt-BR.json");
 
 const wizardSrc = fs.readFileSync(WIZARD_PATH, "utf-8");
 const enJson = JSON.parse(fs.readFileSync(EN_JSON_PATH, "utf-8")) as Record<string, unknown>;
-const ptBrJson = JSON.parse(fs.readFileSync(PT_BR_JSON_PATH, "utf-8")) as Record<string, unknown>;
 
 // ── PoolWizardProps: editPool field ───────────────────────────────────────────
 
 test("PoolWizard.tsx: declares editPool in PoolWizardProps", () => {
-  assert.ok(
-    wizardSrc.includes("editPool?"),
-    "Expected optional editPool field in PoolWizardProps"
-  );
+  assert.ok(wizardSrc.includes("editPool?"), "Expected optional editPool field in PoolWizardProps");
 });
 
 test("PoolWizard.tsx: imports QuotaPool type", () => {
@@ -70,10 +65,7 @@ test("PoolWizard.tsx: submit handler branches on editPool", () => {
     "Expected editPool to appear in PoolWizard source (branching in submit)"
   );
   // The branching condition inside handleFinish
-  assert.ok(
-    wizardSrc.includes("if (editPool)"),
-    "Expected if (editPool) branch in handleFinish"
-  );
+  assert.ok(wizardSrc.includes("if (editPool)"), "Expected if (editPool) branch in handleFinish");
 });
 
 // ── Pre-fill references ───────────────────────────────────────────────────────
@@ -112,17 +104,17 @@ test("PoolWizard.tsx: pre-fills groupId from editPool.groupId", () => {
 
 // ── i18n key usage ────────────────────────────────────────────────────────────
 
-test("PoolWizard.tsx: uses t(\"saveChanges\") for the submit button in edit mode", () => {
+test('PoolWizard.tsx: uses t("saveChanges") for the submit button in edit mode', () => {
   assert.ok(
     wizardSrc.includes('t("saveChanges")'),
-    "Expected t(\"saveChanges\") used in submit button (edit mode)"
+    'Expected t("saveChanges") used in submit button (edit mode)'
   );
 });
 
-test("PoolWizard.tsx: uses t(\"editPoolTitle\") for the modal title in edit mode", () => {
+test('PoolWizard.tsx: uses t("editPoolTitle") for the modal title in edit mode', () => {
   assert.ok(
     wizardSrc.includes('t("editPoolTitle")'),
-    "Expected t(\"editPoolTitle\") used in modal title (edit mode)"
+    'Expected t("editPoolTitle") used in modal title (edit mode)'
   );
 });
 
@@ -144,28 +136,6 @@ test("en.json quotaShare namespace: contains saveChanges key", () => {
   assert.ok(
     "saveChanges" in quotaShare,
     "Expected saveChanges key in en.json quotaShare namespace"
-  );
-  assert.equal(typeof quotaShare["saveChanges"], "string", "saveChanges must be a string");
-});
-
-// ── i18n parity: pt-BR.json ──────────────────────────────────────────────────
-
-test("pt-BR.json quotaShare namespace: contains editPoolTitle key", () => {
-  const quotaShare = ptBrJson["quotaShare"] as Record<string, unknown> | undefined;
-  assert.ok(quotaShare, "Expected quotaShare namespace in pt-BR.json");
-  assert.ok(
-    "editPoolTitle" in quotaShare,
-    "Expected editPoolTitle key in pt-BR.json quotaShare namespace"
-  );
-  assert.equal(typeof quotaShare["editPoolTitle"], "string", "editPoolTitle must be a string");
-});
-
-test("pt-BR.json quotaShare namespace: contains saveChanges key", () => {
-  const quotaShare = ptBrJson["quotaShare"] as Record<string, unknown> | undefined;
-  assert.ok(quotaShare, "Expected quotaShare namespace in pt-BR.json");
-  assert.ok(
-    "saveChanges" in quotaShare,
-    "Expected saveChanges key in pt-BR.json quotaShare namespace"
   );
   assert.equal(typeof quotaShare["saveChanges"], "string", "saveChanges must be a string");
 });

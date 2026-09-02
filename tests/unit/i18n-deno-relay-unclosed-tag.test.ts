@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { LOCALES } from "../../src/i18n/config";
 
 const MESSAGES_DIR = path.resolve("src/i18n/messages");
 const KEY = "denoRelayOrgDomainHint";
@@ -17,28 +18,26 @@ const ENTITY_ORG_SLUG = "&lt;org-slug&gt;";
  * protocol parser interpreted as unclosed HTML tags, corrupting the payload
  * and breaking the DenoRelayModal render.
  *
- * Fix: `<` and `>` were replaced with `&lt;` / `&gt;` in all 43 locale files,
+ * Fix: `<` and `>` were replaced with `&lt;` / `&gt;` in every locale file,
  * and BOM inserted by PowerShell's Set-Content was stripped.
  *
  * This suite guards against regressions across four axes:
  *   1. Every locale file parses as valid JSON (no BOM, no syntax errors).
- *   2. The `denoRelayOrgDomainHint` key exists in all 43 locales.
+ *   2. The `denoRelayOrgDomainHint` key exists in every shipped locale.
  *   3. No locale still carries raw `<app-name>` or `<org-slug>` literals.
  *   4. The key uses HTML entities `&lt;app-name&gt;.&lt;org-slug&gt;` everywhere.
  */
 
 describe("i18n — denoRelayOrgDomainHint UNCLOSED_TAG regression", () => {
-  const localeFiles = fs
-    .readdirSync(MESSAGES_DIR)
-    .filter((f) => f.endsWith(".json"));
-  const expectedCount = 43;
+  const localeFiles = fs.readdirSync(MESSAGES_DIR).filter((f) => f.endsWith(".json"));
+  const expectedCount = LOCALES.length;
 
   // --- Test 1: JSON validity (no BOM, no parse errors) ---
   it(`all ${expectedCount} locale JSON files are valid (no BOM, no parse errors)`, () => {
     assert.equal(
       localeFiles.length,
       expectedCount,
-      `Expected ${expectedCount} locale files, found ${localeFiles.length}`,
+      `Expected ${expectedCount} locale files, found ${localeFiles.length}`
     );
 
     const invalid: string[] = [];
@@ -64,7 +63,7 @@ describe("i18n — denoRelayOrgDomainHint UNCLOSED_TAG regression", () => {
     assert.deepEqual(
       invalid,
       [],
-      `${invalid.length} invalid JSON file(s). First few: ${invalid.slice(0, 5).join("; ")}`,
+      `${invalid.length} invalid JSON file(s). First few: ${invalid.slice(0, 5).join("; ")}`
     );
   });
 
@@ -73,9 +72,7 @@ describe("i18n — denoRelayOrgDomainHint UNCLOSED_TAG regression", () => {
     const missingKey: string[] = [];
 
     for (const file of localeFiles) {
-      const content = JSON.parse(
-        fs.readFileSync(path.join(MESSAGES_DIR, file), "utf8"),
-      );
+      const content = JSON.parse(fs.readFileSync(path.join(MESSAGES_DIR, file), "utf8"));
       const flat = flatten(content);
       // The key lives in a namespace (e.g. "settings.denoRelayOrgDomainHint")
       // — match any path that ends with the target key name.
@@ -88,7 +85,7 @@ describe("i18n — denoRelayOrgDomainHint UNCLOSED_TAG regression", () => {
     assert.deepEqual(
       missingKey,
       [],
-      `${missingKey.length} locale(s) missing key "${KEY}": ${missingKey.join(", ")}`,
+      `${missingKey.length} locale(s) missing key "${KEY}": ${missingKey.join(", ")}`
     );
   });
 
@@ -109,7 +106,7 @@ describe("i18n — denoRelayOrgDomainHint UNCLOSED_TAG regression", () => {
     assert.deepEqual(
       offenders,
       [],
-      `${offenders.length} file(s) still carry raw angle-bracket placeholders: ${offenders.join(", ")}`,
+      `${offenders.length} file(s) still carry raw angle-bracket placeholders: ${offenders.join(", ")}`
     );
   });
 
@@ -118,9 +115,7 @@ describe("i18n — denoRelayOrgDomainHint UNCLOSED_TAG regression", () => {
     const wrong: string[] = [];
 
     for (const file of localeFiles) {
-      const content = JSON.parse(
-        fs.readFileSync(path.join(MESSAGES_DIR, file), "utf8"),
-      );
+      const content = JSON.parse(fs.readFileSync(path.join(MESSAGES_DIR, file), "utf8"));
       const flat = flatten(content);
 
       // Find the full dotted path (e.g. "settings.denoRelayOrgDomainHint")
@@ -145,16 +140,14 @@ describe("i18n — denoRelayOrgDomainHint UNCLOSED_TAG regression", () => {
       }
       // Double-check: the encoded value should contain the full URL pattern
       if (!value.includes(`${ENTITY_APP_NAME}.${ENTITY_ORG_SLUG}`)) {
-        wrong.push(
-          `${file}: missing "${ENTITY_APP_NAME}.${ENTITY_ORG_SLUG}" sequence`,
-        );
+        wrong.push(`${file}: missing "${ENTITY_APP_NAME}.${ENTITY_ORG_SLUG}" sequence`);
       }
     }
 
     assert.deepEqual(
       wrong,
       [],
-      `${wrong.length} locale(s) with wrong value for "${KEY}": ${wrong.slice(0, 10).join(", ")}`,
+      `${wrong.length} locale(s) with wrong value for "${KEY}": ${wrong.slice(0, 10).join(", ")}`
     );
   });
 });
@@ -166,10 +159,7 @@ describe("i18n — denoRelayOrgDomainHint UNCLOSED_TAG regression", () => {
  * E.g. { settings: { denoRelayOrgDomainHint: "..." } } →
  *      { "settings.denoRelayOrgDomainHint": "..." }
  */
-function flatten(
-  obj: Record<string, unknown>,
-  prefix = "",
-): Record<string, unknown> {
+function flatten(obj: Record<string, unknown>, prefix = ""): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const k of Object.keys(obj)) {
     const key = prefix ? `${prefix}.${k}` : k;

@@ -23,7 +23,6 @@ const POOL_CARD_PATH = join(
 );
 
 const EN_PATH = join(ROOT, "src/i18n/messages/en.json");
-const PT_PATH = join(ROOT, "src/i18n/messages/pt-BR.json");
 
 // ── Load sources ─────────────────────────────────────────────────────────────
 
@@ -37,37 +36,7 @@ const NEW_KEYS = ["accountQuotaTitle", "accountQuotaNone"] as const;
 test("i18n: new keys present in en.json", () => {
   const en = JSON.parse(readFileSync(EN_PATH, "utf8")) as Record<string, Record<string, string>>;
   for (const k of NEW_KEYS) {
-    assert.equal(
-      typeof en["quotaShare"]?.[k],
-      "string",
-      `en.json missing quotaShare.${k}`
-    );
-  }
-});
-
-test("i18n: new keys present in pt-BR.json", () => {
-  const pt = JSON.parse(readFileSync(PT_PATH, "utf8")) as Record<string, Record<string, string>>;
-  for (const k of NEW_KEYS) {
-    assert.equal(
-      typeof pt["quotaShare"]?.[k],
-      "string",
-      `pt-BR.json missing quotaShare.${k}`
-    );
-  }
-});
-
-test("i18n: parity between en and pt-BR for new keys", () => {
-  const en = JSON.parse(readFileSync(EN_PATH, "utf8")) as Record<string, Record<string, string>>;
-  const pt = JSON.parse(readFileSync(PT_PATH, "utf8")) as Record<string, Record<string, string>>;
-  for (const k of NEW_KEYS) {
-    assert.ok(
-      k in (en["quotaShare"] ?? {}),
-      `en.json missing quotaShare.${k}`
-    );
-    assert.ok(
-      k in (pt["quotaShare"] ?? {}),
-      `pt-BR.json missing quotaShare.${k}`
-    );
+    assert.equal(typeof en["quotaShare"]?.[k], "string", `en.json missing quotaShare.${k}`);
   }
 });
 

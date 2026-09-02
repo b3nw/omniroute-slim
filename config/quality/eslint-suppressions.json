@@ -4752,7 +4752,7 @@
   },
   "tests/unit/quota-concept-card-i18n.test.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 2
+      "count": 1
     }
   },
   "tests/unit/quota-email-privacy.test.ts": {

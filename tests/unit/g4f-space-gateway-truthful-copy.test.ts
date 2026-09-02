@@ -35,6 +35,7 @@ const G4F_PROVIDERS = [
 ] as const;
 
 const { APIKEY_PROVIDERS } = await import("../../src/shared/constants/providers/apikey/index.ts");
+const { LOCALES: SHIPPED_LOCALES } = await import("../../src/i18n/config.ts");
 
 test("g4f.space metadata describes conditional access and the remote data boundary", () => {
   for (const id of G4F_PROVIDERS) {
@@ -74,9 +75,10 @@ test("g4f.space metadata describes conditional access and the remote data bounda
 });
 
 test("every shipped locale gives both g4f.space access paths without a fixed quota", () => {
-  assert.ok(
-    localeFiles.length >= 43,
-    `expected the 43 shipped locales, found ${localeFiles.length}`
+  assert.deepEqual(
+    localeFiles.map((f) => f.replace(/\.json$/, "")).sort(),
+    [...SHIPPED_LOCALES].sort(),
+    "the message catalogs on disk must match config/i18n.json"
   );
 
   for (const file of localeFiles) {

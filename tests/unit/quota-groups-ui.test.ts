@@ -30,7 +30,6 @@ const WIZARD_PATH = join(
 );
 
 const EN_PATH = join(ROOT, "src/i18n/messages/en.json");
-const PT_PATH = join(ROOT, "src/i18n/messages/pt-BR.json");
 
 const pageSrc = readFileSync(PAGE_CLIENT_PATH, "utf8");
 const wizardSrc = readFileSync(WIZARD_PATH, "utf8");
@@ -161,17 +160,16 @@ test("PoolWizard: includes groupId in the POST /api/quota/pools body", () => {
   const postIdx = wizardSrc.indexOf('method: "POST"');
   assert.ok(postIdx >= 0, "POST method call must exist in PoolWizard");
   const postSection = wizardSrc.slice(postIdx, postIdx + 400);
-  assert.ok(
-    postSection.includes("groupId"),
-    "groupId must be in the POST body JSON.stringify"
-  );
+  assert.ok(postSection.includes("groupId"), "groupId must be in the POST body JSON.stringify");
 });
 
 // ── PoolWizard: group picker UI in step 1 ────────────────────────────────────
 
 test("PoolWizard: accepts groups prop in PoolWizardProps", () => {
   assert.ok(
-    wizardSrc.includes("groups?:") || wizardSrc.includes("groups ?: ") || wizardSrc.includes("groups?: "),
+    wizardSrc.includes("groups?:") ||
+      wizardSrc.includes("groups ?: ") ||
+      wizardSrc.includes("groups?: "),
     "PoolWizardProps must include optional groups prop"
   );
 });
@@ -250,39 +248,6 @@ const GROUP_KEYS = [
 test("i18n: all group keys present in en.json quotaShare namespace", () => {
   const en = JSON.parse(readFileSync(EN_PATH, "utf8")) as Record<string, Record<string, string>>;
   for (const k of GROUP_KEYS) {
-    assert.equal(
-      typeof en["quotaShare"]?.[k],
-      "string",
-      `en.json missing quotaShare.${k}`
-    );
+    assert.equal(typeof en["quotaShare"]?.[k], "string", `en.json missing quotaShare.${k}`);
   }
-});
-
-test("i18n: all group keys present in pt-BR.json quotaShare namespace", () => {
-  const pt = JSON.parse(readFileSync(PT_PATH, "utf8")) as Record<string, Record<string, string>>;
-  for (const k of GROUP_KEYS) {
-    assert.equal(
-      typeof pt["quotaShare"]?.[k],
-      "string",
-      `pt-BR.json missing quotaShare.${k}`
-    );
-  }
-});
-
-test("i18n: parity — en and pt-BR have exactly the same group keys", () => {
-  const en = JSON.parse(readFileSync(EN_PATH, "utf8")) as Record<string, Record<string, string>>;
-  const pt = JSON.parse(readFileSync(PT_PATH, "utf8")) as Record<string, Record<string, string>>;
-  for (const k of GROUP_KEYS) {
-    assert.ok(k in (en["quotaShare"] ?? {}), `en.json missing quotaShare.${k}`);
-    assert.ok(k in (pt["quotaShare"] ?? {}), `pt-BR.json missing quotaShare.${k}`);
-  }
-});
-
-test("i18n: no group keys are present in en but missing from pt-BR (full parity)", () => {
-  const en = JSON.parse(readFileSync(EN_PATH, "utf8")) as Record<string, Record<string, string>>;
-  const pt = JSON.parse(readFileSync(PT_PATH, "utf8")) as Record<string, Record<string, string>>;
-  const enKeys = new Set(Object.keys(en["quotaShare"] ?? {}));
-  const ptKeys = new Set(Object.keys(pt["quotaShare"] ?? {}));
-  const missingInPt = GROUP_KEYS.filter((k) => enKeys.has(k) && !ptKeys.has(k));
-  assert.deepEqual(missingInPt, [], `pt-BR.json missing quotaShare keys: ${missingInPt.join(", ")}`);
 });

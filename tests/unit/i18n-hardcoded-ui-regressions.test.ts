@@ -40,22 +40,10 @@ const residualKeys = [
   "settings.routingTransformsFootnote",
 ];
 
-test("hardcoded UI residual keys exist in required catalogs", () => {
-  for (const locale of ["en", "fr", "vi", "pt-BR"]) {
-    const messages = readMessages(locale);
-    for (const key of residualKeys) {
-      assert.equal(typeof getMessage(messages, key), "string", `${locale}.${key} must exist`);
-    }
-  }
-});
-
-test("French and Vietnamese residual translations are complete", () => {
-  for (const locale of ["fr", "vi"]) {
-    const messages = readMessages(locale);
-    for (const key of residualKeys) {
-      const value = getMessage(messages, key) as string;
-      assert.ok(!value.startsWith("__MISSING__:"), `${locale}.${key} must be translated`);
-    }
+test("hardcoded UI residual keys exist in the shipped catalog", () => {
+  const messages = readMessages("en");
+  for (const key of residualKeys) {
+    assert.equal(typeof getMessage(messages, key), "string", `en.${key} must exist`);
   }
 });
 

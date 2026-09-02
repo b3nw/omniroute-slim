@@ -89,7 +89,8 @@ test("readProviderTotal reads a real, positive total from the catalog", () => {
 });
 
 test("countLocales reads a real, positive locale count from config/i18n.json", () => {
-  assert.ok(locales() >= 40, "i18n config should define at least 40 locales");
+  // OmniRoute-Slim ships an English-only runtime, so the floor is 1 locale.
+  assert.ok(locales() >= 1, "i18n config should define at least one locale");
 });
 
 // --- live gate smoke -----------------------------------------------------------------
