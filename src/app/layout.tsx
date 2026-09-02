@@ -3,8 +3,6 @@ import "./globals.css";
 import { ThemeProvider } from "@/shared/components/ThemeProvider";
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages, getLocale, getTranslations } from "next-intl/server";
-import { RTL_LOCALES } from "@/i18n/config";
-import { normalizeComplianceEventTypes } from "@/i18n/request";
 import { getSettings } from "@/lib/db/settings";
 import type { Viewport } from "next";
 import { PwaRegister } from "@/shared/components/PwaRegister";
@@ -56,11 +54,14 @@ export async function generateMetadata() {
 export default async function RootLayout({ children }) {
   const locale = await getLocale();
   const t = await getTranslations("sidebar");
-  const messages = normalizeComplianceEventTypes((await getMessages()) as Record<string, unknown>);
-  const isRtl = RTL_LOCALES.includes(locale as (typeof RTL_LOCALES)[number]);
-
+  // Already normalized once at module load in `@/i18n/request` — normalizing
+  // the result again here re-walked and re-spread the whole catalog on every
+  // render for a guaranteed no-op.
+  const messages = await getMessages();
+  // The runtime ships a single LTR locale (`config/i18n.json` has `rtl: []`),
+  // so the RTL_LOCALES lookup could only ever answer "ltr".
   return (
-    <html lang={locale} dir={isRtl ? "rtl" : "ltr"} suppressHydrationWarning>
+    <html lang={locale} dir="ltr" suppressHydrationWarning>
       <head>
         {/* Pre-hydration cleanup: browser extensions (Bitdefender's
             bis_skin_checked, Grammarly's data-gr-ext-installed, LanguageTool's

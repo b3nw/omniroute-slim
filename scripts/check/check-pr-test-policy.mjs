@@ -4,16 +4,14 @@ import path from "node:path";
 
 const SOURCE_ROOTS = ["src/", "open-sse/", "electron/", "bin/"];
 const TEST_PATTERNS = [/^tests\//, /(?:^|\/)__tests__\//, /\.(?:test|spec)\.[cm]?[jt]sx?$/];
-// Test files for specific source types (e.g., Python validation scripts for i18n)
-const TEST_FILE_PATTERNS = {
-  "src/i18n/messages/": [
-    /\/scripts\/validate_translation\.py$/,
-    /\/scripts\/check_translations\.py$/,
-  ],
-};
-// Exclude directories that don't require tests (i18n has Python validation, docs, config)
+// Test files that satisfy the policy for a specific source prefix. The i18n
+// entry is gone: the Python validators it named (validate_translation.py,
+// check_translations.py) were multi-language tooling, deleted with the
+// English-only move.
+const TEST_FILE_PATTERNS = {};
+// Exclude directories that don't require tests (message catalogs, docs, config)
 const EXCLUDED_PATTERNS = [
-  /\/i18n\/messages\//, // i18n files have their own Python test scripts
+  /\/i18n\/messages\//, // data-only message catalogs, gated by scripts/i18n/check-ui-*
   /\.md$/, // Documentation
   /\.yaml$/, // Config files
   /\.yml$/, // Config files

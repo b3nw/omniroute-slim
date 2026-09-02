@@ -3,8 +3,6 @@ import { DocsLayout } from "fumadocs-ui/layouts/docs";
 import { source } from "@/lib/source";
 import type { ReactNode } from "react";
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
-import { Suspense } from "react";
-import LanguageSelector from "@/shared/components/LanguageSelector";
 import { getTranslations } from "next-intl/server";
 
 export async function generateMetadata() {
@@ -25,14 +23,11 @@ export async function generateMetadata() {
 export default async function Layout({ children }: { children: ReactNode }) {
   const t = await getTranslations("docs");
   const docsLayoutOptions: BaseLayoutProps = {
+    // No locale switcher in the docs nav: the runtime ships a single locale, so
+    // the dropdown had exactly one entry to offer.
     nav: {
       title: t("layoutNavTitle"),
       url: "/docs",
-      children: (
-        <Suspense fallback={<div className="w-24 h-8" />}>
-          <LanguageSelector />
-        </Suspense>
-      ),
     },
     links: [
       {

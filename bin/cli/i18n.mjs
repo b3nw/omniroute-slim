@@ -1,36 +1,32 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LOCALES_DIR = join(__dirname, "locales");
-const FALLBACK_LOCALE = "en";
 
-const cache = new Map();
+/**
+ * English-only CLI runtime: `locales/` ships a single catalog (`en.json`), so
+ * every locale request — `OMNIROUTE_LANG`, `LC_ALL`/`LC_MESSAGES`/`LANG`, or an
+ * explicit `setLocale()` — resolves to `en`. The env vars are still read so a
+ * `config lang set` write keeps round-tripping, but there is no catalog to
+ * negotiate and therefore no cross-locale fallback chain left.
+ */
+export const LOCALE = "en";
+
+let catalog = null;
 let activeLocale = null;
-let fallbackCatalog = null;
 
 export function detectLocale() {
-  const raw =
+  // Read the env chain for parity with the historical contract; any value —
+  // including a hostile one — normalizes to the single shipped catalog.
+  void (
     process.env.OMNIROUTE_LANG ||
     process.env.LC_ALL ||
     process.env.LC_MESSAGES ||
-    process.env.LANG ||
-    FALLBACK_LOCALE;
-  return normalize(raw);
-}
-
-function normalize(raw) {
-  const stripped = String(raw).split(".")[0].replaceAll("_", "-");
-  if (!stripped || !/^[a-zA-Z0-9-]+$/.test(stripped)) return FALLBACK_LOCALE;
-  if (hasCatalog(stripped)) return stripped;
-  const base = stripped.split("-")[0];
-  if (hasCatalog(base)) return base;
-  return FALLBACK_LOCALE;
-}
-
-function hasCatalog(locale) {
-  return existsSync(join(LOCALES_DIR, `${locale}.json`));
+    process.env.LANG
+  );
+  return LOCALE;
 }
 
 function flattenToMap(obj, prefix, result) {
@@ -44,33 +40,27 @@ function flattenToMap(obj, prefix, result) {
   }
 }
 
-function loadCatalog(locale) {
-  if (cache.has(locale)) return cache.get(locale);
-  const file = join(LOCALES_DIR, `${locale}.json`);
-  if (!existsSync(file)) {
-    cache.set(locale, null);
-    return null;
-  }
+function loadCatalog() {
+  if (catalog) return catalog;
   try {
-    const parsed = JSON.parse(readFileSync(file, "utf8"));
+    const parsed = JSON.parse(readFileSync(join(LOCALES_DIR, `${LOCALE}.json`), "utf8"));
     const flat = new Map();
     flattenToMap(parsed, "", flat);
-    cache.set(locale, flat);
-    return flat;
+    catalog = flat;
   } catch {
-    cache.set(locale, null);
-    return null;
+    catalog = new Map();
   }
+  return catalog;
 }
 
-export function setLocale(locale) {
-  activeLocale = normalize(locale);
-  loadCatalog(activeLocale);
+export function setLocale(_locale) {
+  activeLocale = LOCALE;
+  loadCatalog();
   return activeLocale;
 }
 
 export function getLocale() {
-  if (!activeLocale) activeLocale = detectLocale();
+  if (!activeLocale) activeLocale = LOCALE;
   return activeLocale;
 }
 
@@ -86,21 +76,12 @@ function interpolate(template, vars) {
 }
 
 export function t(key, vars) {
-  if (!activeLocale) activeLocale = detectLocale();
-  const primary = loadCatalog(activeLocale);
-  const fromPrimary = primary?.get(key);
-  if (fromPrimary !== undefined) return interpolate(fromPrimary, vars);
-
-  if (activeLocale !== FALLBACK_LOCALE) {
-    if (!fallbackCatalog) fallbackCatalog = loadCatalog(FALLBACK_LOCALE);
-    const fromFallback = fallbackCatalog?.get(key);
-    if (fromFallback !== undefined) return interpolate(fromFallback, vars);
-  }
-  return key;
+  if (!activeLocale) activeLocale = LOCALE;
+  const value = loadCatalog().get(key);
+  return value !== undefined ? interpolate(value, vars) : key;
 }
 
 export function resetForTests() {
-  cache.clear();
+  catalog = null;
   activeLocale = null;
-  fallbackCatalog = null;
 }

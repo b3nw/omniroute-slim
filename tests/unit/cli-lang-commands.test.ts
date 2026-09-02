@@ -46,21 +46,13 @@ test("normalize rejeita código com caracteres especiais", async () => {
   resetForTests();
 });
 
-test("normalize aceita código válido com hífen (pt-BR)", async () => {
+test("setLocale resolve um código bem-formado sem catálogo para en", async () => {
+  // English-only runtime: `pt-BR` is a valid BCP-47 tag but ships no catalog,
+  // so it collapses to the single shipped one instead of half-resolving.
   const { resetForTests, setLocale, getLocale } = await import("../../bin/cli/i18n.mjs");
   resetForTests();
-  setLocale("pt-BR");
-  const locale = getLocale();
-  assert.equal(locale, "pt-BR");
-  resetForTests();
-});
-
-test("normalize converte underscore para hífen (pt_BR → pt-BR)", async () => {
-  const { resetForTests, setLocale, getLocale } = await import("../../bin/cli/i18n.mjs");
-  resetForTests();
-  setLocale("pt_BR");
-  const locale = getLocale();
-  assert.equal(locale, "pt-BR");
+  assert.equal(setLocale("pt-BR"), "en");
+  assert.equal(getLocale(), "en");
   resetForTests();
 });
 

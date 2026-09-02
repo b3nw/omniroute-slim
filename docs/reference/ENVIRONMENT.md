@@ -1441,19 +1441,24 @@ value below unset in production deployments.
 | `ELECTRON_SMOKE_COLD_RESTART`          | `0`                              | `scripts/dev/smoke-electron-packaged.mjs` | #7592: relaunch against the same data dir and assert the second launch selects the native SQLite driver.                                                                                                                                   |
 | `CLI_DEVIN_BIN`                        | _(PATH lookup)_                  | `open-sse/executors/devin-cli.ts`         | Override the Devin CLI binary path.                                                                                                                                                                                                        |
 
-### Docs translation pipeline
+### UI key sync translator backend
 
-Used by `scripts/i18n/run-translation.mjs` (the `npm run i18n:run` command).
-All five variables are unset by default — set them in `.env` only on machines
-that should be able to run the docs translator.
+Used by `scripts/i18n/sync-ui-keys.mjs` (the `npm run i18n:sync-ui` command) to
+fill `__MISSING__:` placeholders in a message catalog. All five variables are
+unset by default — set them in `.env` only on a machine that should be able to
+call a translation backend.
 
-| Variable                            | Default   | Source File                        | Description                                                               |
-| ----------------------------------- | --------- | ---------------------------------- | ------------------------------------------------------------------------- |
-| `OMNIROUTE_TRANSLATION_API_URL`     | _(unset)_ | `scripts/i18n/run-translation.mjs` | OpenAI-compatible base URL for the translation backend.                   |
-| `OMNIROUTE_TRANSLATION_API_KEY`     | _(unset)_ | `scripts/i18n/run-translation.mjs` | Bearer token for the translation backend (never logged).                  |
-| `OMNIROUTE_TRANSLATION_MODEL`       | _(unset)_ | `scripts/i18n/run-translation.mjs` | Model id, e.g. `gpt-4o-mini` or `cx/gpt-5.4-mini`.                        |
-| `OMNIROUTE_TRANSLATION_TIMEOUT_MS`  | `60000`   | `scripts/i18n/run-translation.mjs` | Per-request timeout in milliseconds.                                      |
-| `OMNIROUTE_TRANSLATION_CONCURRENCY` | `4`       | `scripts/i18n/run-translation.mjs` | Parallel translation requests when running over multiple files / locales. |
+The docs translation pipeline these used to serve (`run-translation.mjs`, which
+produced the `docs/i18n/<locale>/` tree) is gone: the runtime and the docs are
+English-only.
+
+| Variable                            | Default   | Source File                    | Description                                              |
+| ----------------------------------- | --------- | ------------------------------ | -------------------------------------------------------- |
+| `OMNIROUTE_TRANSLATION_API_URL`     | _(unset)_ | `scripts/i18n/sync-ui-keys.mjs` | OpenAI-compatible base URL for the translation backend.  |
+| `OMNIROUTE_TRANSLATION_API_KEY`     | _(unset)_ | `scripts/i18n/sync-ui-keys.mjs` | Bearer token for the translation backend (never logged). |
+| `OMNIROUTE_TRANSLATION_MODEL`       | _(unset)_ | `scripts/i18n/sync-ui-keys.mjs` | Model id, e.g. `gpt-4o-mini` or `cx/gpt-5.4-mini`.       |
+| `OMNIROUTE_TRANSLATION_TIMEOUT_MS`  | `60000`   | `scripts/i18n/sync-ui-keys.mjs` | Per-request timeout in milliseconds.                     |
+| `OMNIROUTE_TRANSLATION_CONCURRENCY` | `4`       | `scripts/i18n/sync-ui-keys.mjs` | Parallel translation requests.                           |
 
 ---
 

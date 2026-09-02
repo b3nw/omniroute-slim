@@ -108,20 +108,15 @@ test("git() passes a widened maxBuffer (ENOBUFS on `git show origin/main:CHANGEL
   assert.ok(gitFn.includes("maxBuffer"), "git() helper must set maxBuffer above the 1 MiB default");
 });
 
-test("i18n resync also propagates the FINALIZED [prevVersion] section into the mirrors, not just [NEXT]", () => {
+// The CHANGELOG i18n mirrors this used to resync (docs/i18n/<locale>/CHANGELOG.md,
+// 42 of them) are gone with the English-only docs payload, and so is
+// `release:sync-changelog-i18n`. Assert the release script no longer reaches for
+// either — a reintroduced call would silently warn-and-continue, because the old
+// resync block was wrapped in a catch that only logged.
+test("release script no longer resyncs deleted CHANGELOG i18n mirrors", () => {
   const src = readFileSync(SCRIPT_PATH, "utf8");
-  assert.ok(
-    src.includes('"release:sync-changelog-i18n", "--", NEXT, prevVersion'),
-    "syncs the new cycle section"
-  );
-  assert.ok(
-    src.includes("versionAfter(mainChangelog, prevVersion)"),
-    "computes the boundary below the shipped section"
-  );
-  assert.ok(
-    src.includes('"release:sync-changelog-i18n", "--", prevVersion, belowPrev'),
-    "syncs the shipped (finalized) section — without this all 42 mirrors keep it as TBD"
-  );
+  assert.ok(!src.includes("release:sync-changelog-i18n"), "no mirror resync npm call");
+  assert.ok(!src.includes("docs/i18n"), "no docs/i18n path handling");
 });
 
 // WS0.3 (v3.8.49 quality plan): the captain's sync-back push is the one write path

@@ -25,6 +25,18 @@ function createStatementMock() {
 // and every mock assertion counted 0 calls. The shutdown tests now inject the
 // mock through the audit connection cache (globalThis.__omnirouteMcpAuditDb),
 // and the fallback test uses the __setBetterSqliteLoaderForTests seam.
+/**
+ * Explicit generous timeout (vitest default is 5000ms): under contended
+ * CI-runner load, vi.resetModules() + a fresh dynamic import + mocked DB calls
+ * can exceed the default budget though the behavior is correct (issue #6803).
+ *
+ * Lifted out of the `it(...)` argument list: as a comment wedged between the
+ * callback and the timeout literal, Prettier could not format it — it reflowed
+ * the lines into a scrambled order, which is why this file was the one
+ * formatting failure in the tree.
+ */
+const SHUTDOWN_TEST_TIMEOUT_MS = 30_000;
+
 describe("MCP audit shutdown", () => {
   let dataDir: string;
   let dbFile: string;
@@ -44,30 +56,31 @@ describe("MCP audit shutdown", () => {
     vi.restoreAllMocks();
   });
 
-  it("checkpoints and closes the audit database during shutdown", async () => {
-    const mockDb: MockAuditDb = {
-      prepare: vi.fn(() => createStatementMock()),
-      pragma: vi.fn(),
-      close: vi.fn(),
-      open: true,
-    };
+  it(
+    "checkpoints and closes the audit database during shutdown",
+    async () => {
+      const mockDb: MockAuditDb = {
+        prepare: vi.fn(() => createStatementMock()),
+        pragma: vi.fn(),
+        close: vi.fn(),
+        open: true,
+      };
 
-    const audit = await import("../audit.ts");
-    // Inject through the connection cache — the seam the module itself uses.
-    globalThis.__omnirouteMcpAuditDb = mockDb as unknown as typeof globalThis.__omnirouteMcpAuditDb;
+      const audit = await import("../audit.ts");
+      // Inject through the connection cache — the seam the module itself uses.
+      globalThis.__omnirouteMcpAuditDb =
+        mockDb as unknown as typeof globalThis.__omnirouteMcpAuditDb;
 
-    await audit.logToolCall("omniroute_get_health", { ok: true }, { ok: true }, 12, true);
-    expect(mockDb.prepare).toHaveBeenCalledTimes(1);
+      await audit.logToolCall("omniroute_get_health", { ok: true }, { ok: true }, 12, true);
+      expect(mockDb.prepare).toHaveBeenCalledTimes(1);
 
-    expect(audit.closeAuditDb()).toBe(true);
-    expect(mockDb.pragma).toHaveBeenCalledWith("wal_checkpoint(TRUNCATE)");
-    expect(mockDb.close).toHaveBeenCalledTimes(1);
-    expect(audit.closeAuditDb()).toBe(false);
-  }, // Explicit generous timeout (vitest default is 5000ms): under contended
-  // CI-runner load, vi.resetModules() + a fresh dynamic import + mocked DB
-  // calls can exceed the default budget though the behavior is correct
-  // (issue #6803).
-  30000);
+      expect(audit.closeAuditDb()).toBe(true);
+      expect(mockDb.pragma).toHaveBeenCalledWith("wal_checkpoint(TRUNCATE)");
+      expect(mockDb.close).toHaveBeenCalledTimes(1);
+      expect(audit.closeAuditDb()).toBe(false);
+    },
+    SHUTDOWN_TEST_TIMEOUT_MS
+  );
 
   it("still closes the audit database when checkpoint fails", async () => {
     const mockDb: MockAuditDb = {

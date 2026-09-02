@@ -122,15 +122,23 @@ export function normalizeComplianceEventTypes(
 }
 
 /**
+ * The normalized English catalog, built once at module load.
+ *
+ * `enMessages` is a static import — the same frozen object on every request —
+ * so `normalizeComplianceEventTypes` would produce an identical result each
+ * time. It used to run per request, re-walking `compliance.eventTypes` and
+ * allocating a fresh top-level spread of the whole ~800-key catalog for every
+ * page render and every server action. Hoisting it to module scope makes that
+ * a one-time cost.
+ */
+const NORMALIZED_EN_MESSAGES = normalizeComplianceEventTypes(enMessages as Record<string, unknown>);
+
+/**
  * English-only runtime: `config/i18n.json` ships a single locale, so there is
  * no cookie/header negotiation and no cross-locale fallback merge left to do —
  * every request resolves to `en` and serves `./messages/en.json` directly.
  */
-export default getRequestConfig(async () => {
-  const locale = DEFAULT_LOCALE;
-
-  return {
-    locale,
-    messages: normalizeComplianceEventTypes(enMessages as Record<string, unknown>),
-  };
-});
+export default getRequestConfig(async () => ({
+  locale: DEFAULT_LOCALE,
+  messages: NORMALIZED_EN_MESSAGES,
+}));

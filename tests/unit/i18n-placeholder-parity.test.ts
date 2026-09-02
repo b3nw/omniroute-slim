@@ -49,15 +49,24 @@ function flatten(value: Json, prefix = ""): Map<string, string> {
  * because the scan is a plain sweep of the whole string.
  */
 function placeholders(message: string): Set<string> {
-  return new Set(
-    [...message.matchAll(/\{\s*([a-zA-Z0-9_]+)\s*[,}]/g)].map((match) => match[1])
-  );
+  return new Set([...message.matchAll(/\{\s*([a-zA-Z0-9_]+)\s*[,}]/g)].map((match) => match[1]));
 }
 
 const english = flatten(loadLocale("en.json"));
-const locales = readdirSync(messagesDir)
-  .filter((file) => file.endsWith(".json") && file !== "en.json")
+const shipped = readdirSync(messagesDir)
+  .filter((file) => file.endsWith(".json"))
+  .map((file) => file.replace(/\.json$/, ""))
   .sort();
+const locales = shipped.filter((locale) => locale !== "en").map((locale) => `${locale}.json`);
+
+test("the runtime ships exactly one message catalog: en", () => {
+  // Without this, the sweep below is vacuous by construction: `locales` is
+  // empty on an English-only tree, so the drift loop never executes and the
+  // suite would go green even if en.json itself were emptied. Pin the shipped
+  // set explicitly — adding a catalog must be a deliberate, visible change
+  // that re-arms the parity sweep rather than silently widening it.
+  assert.deepEqual(shipped, ["en"]);
+});
 
 test("every locale keeps the placeholders its English source defines", () => {
   const drift: string[] = [];
@@ -82,13 +91,17 @@ test("every locale keeps the placeholders its English source defines", () => {
     }
   }
 
+  assert.ok(english.size > 0, "en.json flattened to zero keys — nothing was compared");
   assert.deepEqual(drift, [], `\n  placeholder drift:\n    ${drift.join("\n    ")}\n`);
 });
 
 test("the checker itself recognises the drift it is meant to catch", () => {
   // Without this the test above could pass by never matching anything.
   assert.deepEqual([...placeholders("of {total} total")], ["total"]);
-  assert.deepEqual([...placeholders("ok (task {taskId}{stateSuffix}).")], ["taskId", "stateSuffix"]);
+  assert.deepEqual(
+    [...placeholders("ok (task {taskId}{stateSuffix}).")],
+    ["taskId", "stateSuffix"]
+  );
   assert.deepEqual([...placeholders("{count, plural, one {# item} other {# items}}")], ["count"]);
   assert.deepEqual([...placeholders("Acertos")], []);
 });

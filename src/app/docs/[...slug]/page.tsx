@@ -1,71 +1,17 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
-import { DEFAULT_LOCALE, LOCALE_COOKIE } from "@/i18n/config";
-import fs from "node:fs";
-import path from "node:path";
-import { resolveSafeI18nSectionDir } from "@/lib/docsI18nPath";
 import { getTranslations } from "next-intl/server";
 
-// ── Locale detection ────────────────────────────────────────────────────────
-
-function getDocsLocale(): string {
-  try {
-    const cookieStore = cookies();
-    return (cookieStore as any).get(LOCALE_COOKIE)?.value || DEFAULT_LOCALE;
-  } catch {
-    return DEFAULT_LOCALE;
-  }
-}
-
-// ── i18n fallback ───────────────────────────────────────────────────────────
-// When locale ≠ "en", try to load the translated .md from
-// `docs/i18n/<locale>/docs/<section>/<FILE>.md` — the exact path layout that
-// `scripts/i18n/run-translation.mjs` produces. Returns rendered HTML or null.
-
-async function tryI18nFallback(slug: string[], locale: string): Promise<string | null> {
-  if (!locale || locale === "en") return null;
-
-  // 🛡️ Path traversal prevention — `locale` is a user-controllable cookie, so
-  // validate segments + confine the resolved dir to docs/i18n before any fs read.
-  // Centralized in resolveSafeI18nSectionDir (pure, unit-tested).
-  const docsRoot = path.resolve(process.cwd(), "docs");
-  const sectionDir = resolveSafeI18nSectionDir(docsRoot, locale, slug);
-  if (!sectionDir) return null;
-
-  if (!fs.existsSync(sectionDir)) return null;
-
-  // Fumadocs lowercases slugs — match case-insensitively against i18n dir
-  const target = slug[slug.length - 1];
-  let files: string[];
-  try {
-    files = fs.readdirSync(sectionDir);
-  } catch {
-    return null;
-  }
-
-  const match = files.find((f) => f.toLowerCase().replace(/\.md$/, "") === target.toLowerCase());
-  if (!match) return null;
-
-  const filePath = path.join(sectionDir, match);
-  const raw = fs.readFileSync(filePath, "utf8");
-
-  // Strip the i18n header (heading + language bar + ---) before rendering.
-  // Translated files have: # Title (Native)\n\n🌐 Languages: ...\n\n---\n\nbody
-  const bodyMatch = raw.match(/^---\s*$/m);
-  const body =
-    bodyMatch && bodyMatch.index != null
-      ? raw.slice(bodyMatch.index + bodyMatch[0].length).trim()
-      : raw;
-
-  // 🛡️ Sentinel: XSS protection via server-side sanitization of rendered markdown
-  const [{ marked }, { sanitizeDocsHtml }] = await Promise.all([
-    import("marked"),
-    import("@/lib/docsSanitizer"),
-  ]);
-  const html = marked.parse(body) as string;
-  return sanitizeDocsHtml(html);
-}
+// English-only docs. There is no locale to resolve here any more and no
+// translated-markdown branch to pick: `config/i18n.json` ships a single locale
+// (`DEFAULT_LOCALE`), the root layout already sets `<html lang>` from it, and
+// the `docs/i18n/<locale>/` tree this route used to fall back into is gone.
+//
+// What used to live here: a `getDocsLocale()` that read `NEXT_LOCALE` through a
+// *synchronous* `cookies()` call. `cookies()` returns a Promise in Next 15, so
+// `.get()` on it never resolved a cookie — the surrounding try/catch swallowed
+// the failure and the function returned `DEFAULT_LOCALE` by accident on every
+// request, while still opting the route into dynamic rendering.
 
 // ── Page component ──────────────────────────────────────────────────────────
 
@@ -79,21 +25,7 @@ export default async function Page(props: { params: Promise<{ slug: string[] }> 
   const page = source.getPage(params.slug);
   if (!page) notFound();
 
-  const locale = getDocsLocale();
-  const i18nHtml = await tryI18nFallback(params.slug, locale);
-
-  if (i18nHtml) {
-    // Render translated markdown (non-English locale with available translation)
-    return (
-      <DocsPage toc={page.data.toc} full={page.data.full}>
-        <DocsBody>
-          <div className="prose-content" dangerouslySetInnerHTML={{ __html: i18nHtml }} />
-        </DocsBody>
-      </DocsPage>
-    );
-  }
-
-  // Default: English MDX rendered natively by Fumadocs
+  // English MDX rendered natively by Fumadocs.
   const MDX = page.data.body;
   return (
     <DocsPage toc={page.data.toc} full={page.data.full}>

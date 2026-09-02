@@ -16,7 +16,7 @@
  *   npm run i18n:sync-ui -- --translate-markers --locale=pt-BR --concurrency=4
  *
  * --translate-markers calls the OmniRoute translation backend (same env vars
- * as `run-translation.mjs`) and replaces every `__MISSING__:<en>` placeholder
+ * for docs) and replaces every `__MISSING__:<en>` placeholder
  * with a translated string. Missing env vars cause the script to fail
  * fast — the markers stay in place for a later run.
  *
@@ -201,7 +201,7 @@ function countPlaceholders(node) {
   return total;
 }
 
-// ----- Translator backend (mirrors run-translation.mjs) --------------------
+// ----- Translator backend (OMNIROUTE_TRANSLATION_* env vars) ----------------
 
 function requireEnv(name) {
   const v = process.env[name];

@@ -22,11 +22,7 @@ bin/cli/
 ├── provider-test.mjs       ← testProviderApiKey()
 ├── settings-store.mjs      ← DB CRUD for key_value settings
 ├── locales/
-│   ├── en.json             ← English strings (source of truth, 43 locales)
-│   ├── pt-BR.json          ← Portuguese (Brazil) — fully translated
-│   └── {locale}.json       ← 42 additional locales (ar, az, de, es, fr, ja, zh-CN, …)
-├── scripts/
-│   └── generate-locales.mjs ← scaffold new locale files from config/i18n.json
+│   └── en.json             ← English strings (the only catalog shipped)
 └── commands/
     ├── setup.mjs
     ├── doctor.mjs
@@ -107,40 +103,34 @@ process.exit(EXIT_CODES.SERVER_OFFLINE);
 
 ## Locale selection
 
-The CLI displays text in the user's language. Detection order:
+The CLI is **English-only**: `bin/cli/locales/` ships a single catalog
+(`en.json`), which `config/i18n.json` also declares as the one supported locale.
 
-1. `--lang <code>` flag on the command line
-2. `OMNIROUTE_LANG` environment variable
-3. System env: `LC_ALL` → `LC_MESSAGES` → `LANG`
-4. Fallback: `en`
-
-**Set permanently:**
-
-```bash
-omniroute config lang set pt-BR       # saves to ~/.omniroute/.env
-omniroute config lang list            # show all 42 available locales
-omniroute config lang get             # show currently active locale
-```
-
-**One-time override:**
+The locale plumbing is still there and still reads, in order, the `--lang` flag,
+`OMNIROUTE_LANG`, then `LC_ALL` → `LC_MESSAGES` → `LANG` — but every value
+resolves to `en`, because there is no other catalog to resolve to. There is no
+cross-locale fallback chain any more; a key missing from `en.json` returns the
+key itself.
 
 ```bash
-omniroute --lang de providers list    # run in German, not persisted
-OMNIROUTE_LANG=ja omniroute status    # same effect via env
+omniroute config lang list            # lists the one supported locale (en)
+omniroute config lang get             # show currently active locale (en)
+omniroute config lang set en          # persists OMNIROUTE_LANG=en to ~/.omniroute/.env
 ```
 
-**Adding a new locale**: add entry to `config/i18n.json`, then run:
+`config lang set` rejects any code absent from `config/i18n.json` (exit 1), so
+`omniroute config lang set de` fails rather than silently serving English.
 
-```bash
-node bin/cli/scripts/generate-locales.mjs
-```
+**Adding a locale** would mean adding an entry to `config/i18n.json` _and_
+hand-writing `bin/cli/locales/<code>.json` _and_ restoring a fallback chain in
+`bin/cli/i18n.mjs` — deliberately not a one-command operation any more.
 
 ## Adding a new command
 
 1. Create `bin/cli/commands/your-command.mjs`
 2. Export `registerYourCommand(program)` following the Commander pattern
 3. Register in `bin/cli/commands/registry.mjs`
-4. Add strings to `locales/en.json` and `locales/pt-BR.json`
+4. Add strings to `locales/en.json`
 5. Write test in `tests/unit/cli-your-command.test.ts`
 
 See `CONVENTIONS.md` for exit codes, flag naming, output format, and destructive-action rules.
