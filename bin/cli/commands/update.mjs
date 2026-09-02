@@ -108,9 +108,13 @@ export async function printPostApplyGuidance(latest, deps = { readPidFile, isPid
     printInfo("  Run `omniroute restart` now to apply this update.");
   } else {
     printInfo(`No running OmniRoute server was detected via the CLI's PID file.`);
-    printInfo(`  Start it with \`omniroute serve\` (or restart your existing process) to run ${latest}.`);
+    printInfo(
+      `  Start it with \`omniroute serve\` (or restart your existing process) to run ${latest}.`
+    );
   }
-  printInfo("`omniroute --version` will keep reporting the old version until the process restarts.");
+  printInfo(
+    "`omniroute --version` will keep reporting the old version until the process restarts."
+  );
 }
 
 export function registerUpdate(program) {

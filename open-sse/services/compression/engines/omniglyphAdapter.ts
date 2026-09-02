@@ -20,10 +20,7 @@
 import type { CompressionEngine, CompressionEngineApplyOptions } from "./types.ts";
 import type { CompressionResult } from "../types.ts";
 import { createCompressionStats } from "../stats.ts";
-import {
-  buildOmniGlyphAccounting,
-  type OmniGlyphAccounting,
-} from "../omniglyphTelemetry.ts";
+import { buildOmniGlyphAccounting, type OmniGlyphAccounting } from "../omniglyphTelemetry.ts";
 import {
   isOmniGlyphSupportedModelForScope,
   mergeCompressionProfileOptions,

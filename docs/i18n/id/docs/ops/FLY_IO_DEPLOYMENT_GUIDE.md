@@ -166,21 +166,21 @@ Jika Anda ingin menginisialisasi kata sandi panel admin secara otomatis, Anda da
 
 Parameter yang disarankan untuk disimpan sebagai Fly Secrets:
 
-| Nama Variabel            | Direkomendasikan | Keterangan                                      |
-| ------------------------ | ---------------- | ----------------------------------------------- |
-| `API_KEY_SECRET`         | Wajib            | Digunakan untuk pembuatan dan validasi API Key  |
-| `JWT_SECRET`             | Wajib            | Digunakan untuk sesi login dan tanda tangan JWT |
-| `STORAGE_ENCRYPTION_KEY` | Sangat Direkomendasikan | Mengenkripsi informasi koneksi sensitif  |
-| `MACHINE_ID_SALT`        | Direkomendasikan | Menghasilkan identifikasi mesin yang stabil     |
-| `INITIAL_PASSWORD`       | Opsional         | Menentukan kata sandi awal panel admin saat deployment pertama |
-| Kredensial OAuth/API     | Sesuai kebutuhan | Konfigurasi autentikasi untuk berbagai platform eksternal |
+| Nama Variabel            | Direkomendasikan        | Keterangan                                                     |
+| ------------------------ | ----------------------- | -------------------------------------------------------------- |
+| `API_KEY_SECRET`         | Wajib                   | Digunakan untuk pembuatan dan validasi API Key                 |
+| `JWT_SECRET`             | Wajib                   | Digunakan untuk sesi login dan tanda tangan JWT                |
+| `STORAGE_ENCRYPTION_KEY` | Sangat Direkomendasikan | Mengenkripsi informasi koneksi sensitif                        |
+| `MACHINE_ID_SALT`        | Direkomendasikan        | Menghasilkan identifikasi mesin yang stabil                    |
+| `INITIAL_PASSWORD`       | Opsional                | Menentukan kata sandi awal panel admin saat deployment pertama |
+| Kredensial OAuth/API     | Sesuai kebutuhan        | Konfigurasi autentikasi untuk berbagai platform eksternal      |
 
 ### 6.2 Nilai yang Direkomendasikan untuk Proyek Saat Ini
 
-| Nama Variabel          | Nilai yang Direkomendasikan    |
-| ---------------------- | ------------------------------ |
-| `DATA_DIR`             | `/data`                        |
-| `NEXT_PUBLIC_BASE_URL` | `https://omniroute.fly.dev`    |
+| Nama Variabel          | Nilai yang Direkomendasikan |
+| ---------------------- | --------------------------- |
+| `DATA_DIR`             | `/data`                     |
+| `NEXT_PUBLIC_BASE_URL` | `https://omniroute.fly.dev` |
 
 Keterangan:
 

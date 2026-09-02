@@ -43,7 +43,12 @@ export function aggregateRecords(
   const errored = records.length - scored.length;
 
   const kinds = Array.from(new Set(scored.map((r) => r.kind)));
-  const perKind = kinds.map((k) => summarizeKind(k, scored.filter((r) => r.kind === k)));
+  const perKind = kinds.map((k) =>
+    summarizeKind(
+      k,
+      scored.filter((r) => r.kind === k)
+    )
+  );
 
   const same = scored.filter((r) => r.fidelity === "same").length;
   return {

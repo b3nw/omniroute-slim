@@ -20,10 +20,7 @@ export function renderGitDiff(text: string, _detection: CommandDetectionResult):
 
   const kept: string[] = [];
   for (const line of text.split("\n")) {
-    if (
-      line.startsWith("diff --git ") ||
-      line.startsWith("@@ ")
-    ) {
+    if (line.startsWith("diff --git ") || line.startsWith("@@ ")) {
       kept.push(line);
     } else if (/^[+-](?![+-])/.test(line)) {
       // change line (+foo or -foo) but NOT +++ or ---

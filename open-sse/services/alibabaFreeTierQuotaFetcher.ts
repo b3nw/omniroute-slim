@@ -52,7 +52,10 @@ export type {
   AlibabaFreeTierQuotaClassification,
   AlibabaFreeTierQuotaSnapshot,
 } from "./alibabaFreeTierQuotaTypes.ts";
-export { getAlibabaFreeTierQuotaLastSyncAt, isAlibabaLiveQuotaSyncAt } from "./alibabaFreeTierQuotaTypes.ts";
+export {
+  getAlibabaFreeTierQuotaLastSyncAt,
+  isAlibabaLiveQuotaSyncAt,
+} from "./alibabaFreeTierQuotaTypes.ts";
 export {
   isAlibabaQuotaValidityExpired,
   parseAlibabaFreeTierQuotaEntries,

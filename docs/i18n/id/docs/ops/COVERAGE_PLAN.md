@@ -10,11 +10,11 @@ Terakhir diperbarui: 2026-03-28
 
 Ada beberapa angka cakupan tergantung pada cara laporan dihitung. Untuk keperluan perencanaan, hanya satu yang berguna.
 
-| Metrik               | Ruang Lingkup                                                        | Pernyataan / Garis | Cabang   | Fungsi    | Catatan                                                                  |
-| -------------------- | -------------------------------------------------------------------- | -----------------: | -------: | --------: | ------------------------------------------------------------------------ |
-| Lama                 | `npm run test:coverage` lama                                         |             79.42% |   75.15% |    67.94% | Diperbesar: menghitung file pengujian dan mengecualikan `open-sse`       |
-| Diagnostik           | Hanya sumber, mengecualikan pengujian dan mengecualikan `open-sse`   |             68.16% |   63.55% |    64.06% | Berguna hanya untuk mengisolasi `src/**`                                 |
-| Baseline yang disarankan | Hanya sumber, mengecualikan pengujian dan menyertakan `open-sse` |             56.95% |   66.05% |    57.80% | Ini adalah baseline seluruh proyek yang perlu ditingkatkan               |
+| Metrik                   | Ruang Lingkup                                                      | Pernyataan / Garis | Cabang | Fungsi | Catatan                                                            |
+| ------------------------ | ------------------------------------------------------------------ | -----------------: | -----: | -----: | ------------------------------------------------------------------ |
+| Lama                     | `npm run test:coverage` lama                                       |             79.42% | 75.15% | 67.94% | Diperbesar: menghitung file pengujian dan mengecualikan `open-sse` |
+| Diagnostik               | Hanya sumber, mengecualikan pengujian dan mengecualikan `open-sse` |             68.16% | 63.55% | 64.06% | Berguna hanya untuk mengisolasi `src/**`                           |
+| Baseline yang disarankan | Hanya sumber, mengecualikan pengujian dan menyertakan `open-sse`   |             56.95% | 66.05% | 57.80% | Ini adalah baseline seluruh proyek yang perlu ditingkatkan         |
 
 Baseline yang disarankan adalah angka yang perlu dioptimalkan.
 
@@ -38,15 +38,15 @@ Baseline yang disarankan adalah angka yang perlu dioptimalkan.
 
 ## Tonggak Pencapaian
 
-| Fase    |                  Target | Fokus                                                              |
-| ------- | ----------------------: | ------------------------------------------------------------------ |
-| Fase 1  | 60% pernyataan / garis  | Kemenangan cepat dan cakupan utilitas berisiko rendah              |
-| Fase 2  | 65% pernyataan / garis  | Fondasi DB dan rute                                                |
-| Fase 3  | 70% pernyataan / garis  | Validasi penyedia dan analitik penggunaan                          |
-| Fase 4  | 75% pernyataan / garis  | Penerjemah dan pembantu `open-sse`                                 |
-| Fase 5  | 80% pernyataan / garis  | Handler dan cabang eksekutor `open-sse`                            |
-| Fase 6  | 85% pernyataan / garis  | Kasus tepi yang lebih sulit, utang cabang, suite regresi           |
-| Fase 7  | 90% pernyataan / garis  | Pemeriksaan akhir, penutupan celah, ratchet ketat                  |
+| Fase   |                 Target | Fokus                                                    |
+| ------ | ---------------------: | -------------------------------------------------------- |
+| Fase 1 | 60% pernyataan / garis | Kemenangan cepat dan cakupan utilitas berisiko rendah    |
+| Fase 2 | 65% pernyataan / garis | Fondasi DB dan rute                                      |
+| Fase 3 | 70% pernyataan / garis | Validasi penyedia dan analitik penggunaan                |
+| Fase 4 | 75% pernyataan / garis | Penerjemah dan pembantu `open-sse`                       |
+| Fase 5 | 80% pernyataan / garis | Handler dan cabang eksekutor `open-sse`                  |
+| Fase 6 | 85% pernyataan / garis | Kasus tepi yang lebih sulit, utang cabang, suite regresi |
+| Fase 7 | 90% pernyataan / garis | Pemeriksaan akhir, penutupan celah, ratchet ketat        |
 
 Cabang dan fungsi harus meningkat secara bertahap di setiap fase, tetapi target keras utama adalah pernyataan / garis.
 

@@ -30,7 +30,11 @@ import {
   addParamToBlocklist,
   isAutoLearnGloballyEnabled,
 } from "@/lib/db/paramFilters";
-import { applyFingerprint, isCliCompatEnabled, stripInternalBodyFields } from "../config/cliFingerprints.ts";
+import {
+  applyFingerprint,
+  isCliCompatEnabled,
+  stripInternalBodyFields,
+} from "../config/cliFingerprints.ts";
 import { supportsClaudeMaxEffort, supportsXHighEffort } from "../config/providerModels.ts";
 import { getThinkingBudgetConfig, ThinkingMode } from "../services/thinkingBudget.ts";
 import {

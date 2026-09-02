@@ -89,9 +89,7 @@ export function parseIsoDateTimeResetMs(
   // No zone in the body → UTC (see doc comment). Normalize \"+0200\" to \"+02:00\":
   // the bare-offset form is not part of the ES Date.parse grammar.
   const rawZone = match[2] ? match[2].toUpperCase() : "Z";
-  const zone = /^[+-]\d{4}$/.test(rawZone)
-    ? `${rawZone.slice(0, 3)}:${rawZone.slice(3)}`
-    : rawZone;
+  const zone = /^[+-]\d{4}$/.test(rawZone) ? `${rawZone.slice(0, 3)}:${rawZone.slice(3)}` : rawZone;
   const resetMs = Date.parse(`${stamp}${zone}`);
   if (!Number.isFinite(resetMs)) return null;
   const waitMs = resetMs - nowMs;
@@ -112,24 +110,14 @@ export function parseMonthDayResetMs(
   nowMs: number = Date.now()
 ): number | null {
   const match =
-    /reset(?:s)?\s+at\s+(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?\s*(?:UTC|Z)?/i.exec(
-      msg
-    );
+    /reset(?:s)?\s+at\s+(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?\s*(?:UTC|Z)?/i.exec(msg);
   if (!match) return null;
   const month = Number.parseInt(match[1], 10);
   const day = Number.parseInt(match[2], 10);
   const hour = Number.parseInt(match[3], 10);
   const minute = Number.parseInt(match[4], 10);
   const second = match[5] ? Number.parseInt(match[5], 10) : 0;
-  if (
-    month < 1 ||
-    month > 12 ||
-    day < 1 ||
-    day > 31 ||
-    hour > 23 ||
-    minute > 59 ||
-    second > 59
-  ) {
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 59) {
     return null;
   }
   const now = new Date(nowMs);

@@ -639,8 +639,7 @@ export class DefaultExecutor extends BaseExecutor {
 
     const record = body as Record<string, unknown>;
     const rf = record.response_format as
-      | { type?: string; json_schema?: { schema?: unknown } }
-      | undefined;
+      { type?: string; json_schema?: { schema?: unknown } } | undefined;
     if (!rf) return body;
 
     // openai-compatible-* providers accept json_object natively — only the

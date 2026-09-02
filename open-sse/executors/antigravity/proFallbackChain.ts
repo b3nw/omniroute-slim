@@ -17,8 +17,8 @@ export type AntigravityExecuteResult = {
 export function isAntigravityAbortError(input: ExecuteInput, error: unknown): boolean {
   return Boolean(
     input.signal?.aborted ||
-      (error instanceof DOMException && error.name === "AbortError") ||
-      (error instanceof Error && error.name === "AbortError")
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && error.name === "AbortError")
   );
 }
 
@@ -69,8 +69,7 @@ export function handleAntigravityFallbackChainError(
 }
 
 export type AntigravityFallback400Outcome =
-  | { action: "return"; result: AntigravityExecuteResult }
-  | { action: "continue" };
+  { action: "return"; result: AntigravityExecuteResult } | { action: "continue" };
 
 /**
  * Decide what execute()'s Pro-fallback loop does after one candidate returns a 400:

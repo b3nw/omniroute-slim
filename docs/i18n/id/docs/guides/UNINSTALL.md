@@ -124,14 +124,14 @@ OmniRoute menyimpan data di lokasi-lokasi berikut secara default:
 
 ### Berkas di dalam direktori data
 
-| Berkas/Direktori     | Deskripsi                                                    |
-| -------------------- | ------------------------------------------------------------ |
-| `storage.sqlite`     | Basis data utama (penyedia, combo, pengaturan, kunci)        |
-| `storage.sqlite-wal` | Write-ahead log SQLite (sementara)                           |
-| `storage.sqlite-shm` | Shared memory SQLite (sementara)                             |
-| `call_logs/`         | Arsip payload permintaan                                     |
-| `backups/`           | Cadangan basis data otomatis                                 |
-| `log.txt`            | Log permintaan lama (opsional)                               |
+| Berkas/Direktori     | Deskripsi                                             |
+| -------------------- | ----------------------------------------------------- |
+| `storage.sqlite`     | Basis data utama (penyedia, combo, pengaturan, kunci) |
+| `storage.sqlite-wal` | Write-ahead log SQLite (sementara)                    |
+| `storage.sqlite-shm` | Shared memory SQLite (sementara)                      |
+| `call_logs/`         | Arsip payload permintaan                              |
+| `backups/`           | Cadangan basis data otomatis                          |
+| `log.txt`            | Log permintaan lama (opsional)                        |
 
 ---
 

@@ -67,8 +67,7 @@ export function parseAliasOverridesInput(input: unknown): Record<string, string>
 export function getEnvProviderAliasOverrides(): Record<string, string> {
   if (typeof process === "undefined" || !process.env) return {};
   const envRaw =
-    process.env.OMNIROUTE_PROVIDER_ALIAS_OVERRIDES ||
-    process.env.OMNIROUTE_PROVIDER_ALIASES;
+    process.env.OMNIROUTE_PROVIDER_ALIAS_OVERRIDES || process.env.OMNIROUTE_PROVIDER_ALIASES;
   return parseAliasOverridesInput(envRaw);
 }
 

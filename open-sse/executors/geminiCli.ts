@@ -568,8 +568,14 @@ export class GeminiCliExecutor extends BaseExecutor {
             `HTTP ${response.status} from ${url}: ${sanitizeErrorMessage(errText)}`
           );
 
-          if ((response.status >= 500 || response.status === 408 || response.status === 400) && urlIndex + 1 < fallbackCount) {
-            log?.debug?.("RETRY", `HTTP ${response.status} on ${url}, failing over to fallback endpoint`);
+          if (
+            (response.status >= 500 || response.status === 408 || response.status === 400) &&
+            urlIndex + 1 < fallbackCount
+          ) {
+            log?.debug?.(
+              "RETRY",
+              `HTTP ${response.status} on ${url}, failing over to fallback endpoint`
+            );
             continue;
           }
 

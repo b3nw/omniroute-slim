@@ -134,7 +134,9 @@ export const UPSCALE_PROVIDERS: Record<string, UpscaleProviderConfig> = {
   },
 };
 
-export function getUpscaleProvider(providerId: string | null | undefined): UpscaleProviderConfig | null {
+export function getUpscaleProvider(
+  providerId: string | null | undefined
+): UpscaleProviderConfig | null {
   if (!providerId) return null;
   return UPSCALE_PROVIDERS[providerId] || null;
 }

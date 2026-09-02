@@ -197,7 +197,7 @@ describe("TierResolver", () => {
         { provider: "openai", model: "gpt-4o" },
         { provider: "openai", model: "gpt-4o" },
       ]);
-// Observable effect of the cache: the duplicate resolves to the same tier and only
+      // Observable effect of the cache: the duplicate resolves to the same tier and only
       // ONE entry is memoized (getTierStats counts cache entries, not classify calls).
       expect(results).toHaveLength(2);
       expect(results[0].tier).toBe(results[1].tier);

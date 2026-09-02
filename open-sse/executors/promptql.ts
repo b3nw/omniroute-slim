@@ -95,8 +95,7 @@ export {
 const PLAYGROUND_GQL =
   process.env.PROMPTQL_GRAPHQL_ENDPOINT ||
   "https://data.prompt.ql.app/promptql/playground-v2-hge/v1/graphql";
-const CREDITS_GQL =
-  process.env.PROMPTQL_CREDITS_ENDPOINT || "https://data.pro.ql.app/v1/graphql";
+const CREDITS_GQL = process.env.PROMPTQL_CREDITS_ENDPOINT || "https://data.pro.ql.app/v1/graphql";
 const TOKEN_REFRESH_URL =
   process.env.PROMPTQL_TOKEN_REFRESH_URL || "https://auth.pro.ql.app/ddn/project/token";
 const USER_AGENT =
@@ -292,10 +291,7 @@ export async function tryRefreshPromptQlToken(opts: {
     try {
       const j = JSON.parse(trimmed) as Record<string, unknown>;
       const t =
-        readStr(j.token) ||
-        readStr(j.accessToken) ||
-        readStr(j.access_token) ||
-        readStr(j.jwt);
+        readStr(j.token) || readStr(j.accessToken) || readStr(j.access_token) || readStr(j.jwt);
       return t ? normalizePromptQlToken(t) : null;
     } catch {
       return null;
@@ -308,9 +304,7 @@ export async function tryRefreshPromptQlToken(opts: {
 // ─── OpenAI response helpers ────────────────────────────────────────────────
 
 function estimateUsage(messages: ChatMessage[] | undefined, content: string) {
-  const prompt = (messages || [])
-    .map((m) => extractMessageText(m.content))
-    .join("\n");
+  const prompt = (messages || []).map((m) => extractMessageText(m.content)).join("\n");
   const prompt_tokens = Math.max(1, Math.ceil(prompt.length / 4));
   const completion_tokens = Math.max(1, Math.ceil(content.length / 4));
   return {
@@ -514,8 +508,7 @@ export class PromptQlExecutor extends BaseExecutor {
     const inboundHeaders =
       (input.clientHeaders as Record<string, string> | null | undefined) ??
       ((input as { headers?: Record<string, string> }).headers as
-        | Record<string, string>
-        | undefined);
+        Record<string, string> | undefined);
     const clientThreadId = readClientThreadId(requestBody, inboundHeaders ?? undefined);
     const binding = resolvePromptQlThreadBinding(projectId, messages, clientThreadId);
 
@@ -645,9 +638,7 @@ export class PromptQlExecutor extends BaseExecutor {
           );
           threadId = data.start_thread.thread_id;
           const seed = data.start_thread.thread_events || [];
-          afterEventId = seed.length
-            ? String(seed[seed.length - 1]!.thread_event_id)
-            : "0";
+          afterEventId = seed.length ? String(seed[seed.length - 1]!.thread_event_id) : "0";
         }
       }
 
@@ -659,12 +650,7 @@ export class PromptQlExecutor extends BaseExecutor {
       });
 
       if (!text) {
-        return makeErrorResult(
-          502,
-          "PromptQL returned empty content",
-          body,
-          PLAYGROUND_GQL
-        );
+        return makeErrorResult(502, "PromptQL returned empty content", body, PLAYGROUND_GQL);
       }
 
       // Sticky for next OpenAI multi-turn request (prefix = this full history)
@@ -687,8 +673,11 @@ export class PromptQlExecutor extends BaseExecutor {
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const status =
-        /JWT|expired|unauthorized|401/i.test(msg) ? 401 : /timeout/i.test(msg) ? 504 : 502;
+      const status = /JWT|expired|unauthorized|401/i.test(msg)
+        ? 401
+        : /timeout/i.test(msg)
+          ? 504
+          : 502;
       return makeErrorResult(status, `PromptQL: ${msg}`, body, PLAYGROUND_GQL);
     }
   }

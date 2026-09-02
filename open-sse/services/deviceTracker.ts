@@ -124,7 +124,9 @@ function findOldestDevice(
   apiKeyId: string | null
 ): { apiKeyId: string; fingerprint: string; lastSeen: number } | null {
   let oldest: { apiKeyId: string; fingerprint: string; lastSeen: number } | null = null;
-  const entries = apiKeyId ? [[apiKeyId, devicesByApiKey.get(apiKeyId)] as const] : devicesByApiKey.entries();
+  const entries = apiKeyId
+    ? [[apiKeyId, devicesByApiKey.get(apiKeyId)] as const]
+    : devicesByApiKey.entries();
 
   for (const [entryApiKeyId, devices] of entries) {
     if (!devices) continue;

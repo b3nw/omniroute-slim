@@ -91,12 +91,15 @@ export function onError(ctx, error) {
   const duration = Date.now() - startTime;
 
   if (shouldLog(level, "error")) {
-    console.error("[request-logger] ERROR:", JSON.stringify({
-      timestamp: new Date().toISOString(),
-      requestId: ctx.requestId,
-      model: ctx.model,
-      durationMs: duration,
-      error: error?.message || String(error),
-    }));
+    console.error(
+      "[request-logger] ERROR:",
+      JSON.stringify({
+        timestamp: new Date().toISOString(),
+        requestId: ctx.requestId,
+        model: ctx.model,
+        durationMs: duration,
+        error: error?.message || String(error),
+      })
+    );
   }
 }

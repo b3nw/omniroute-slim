@@ -117,4 +117,3 @@ export async function handleHaiperImageGeneration({
     };
   }
 }
-

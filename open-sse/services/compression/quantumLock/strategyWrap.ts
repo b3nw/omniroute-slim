@@ -4,7 +4,9 @@ import { applyQuantumLock } from "./quantumLockStep.ts";
 import type { QuantumLockConfig, QuantumLockStats } from "./quantumPatterns.ts";
 
 /** The QuantumLock config to apply, or undefined when absent/disabled. */
-export function resolveQuantumLock(options?: { config?: CompressionConfig }): QuantumLockConfig | undefined {
+export function resolveQuantumLock(options?: {
+  config?: CompressionConfig;
+}): QuantumLockConfig | undefined {
   const ql = options?.config?.quantumLock;
   return ql?.enabled ? ql : undefined;
 }

@@ -73,7 +73,11 @@ export interface FrameProbeResult {
 
 type ProtoField =
   | { wireType: typeof WIRE_TYPE_VARINT; value: number }
-  | { wireType: typeof WIRE_TYPE_FIXED64 | typeof WIRE_TYPE_FIXED32 | typeof WIRE_TYPE_LENGTH_DELIMITED; bytes: Buffer };
+  | {
+      wireType:
+        typeof WIRE_TYPE_FIXED64 | typeof WIRE_TYPE_FIXED32 | typeof WIRE_TYPE_LENGTH_DELIMITED;
+      bytes: Buffer;
+    };
 
 /**
  * Validate a gRPC-web frame header at `offset` in `buffer`. Returns the
@@ -119,7 +123,10 @@ function readLengthDelimitedField(
   const { value: length, next: bodyStart } = lengthResult;
   if (length < 0 || bodyStart + length > buffer.length) return null;
   return {
-    field: { wireType: WIRE_TYPE_LENGTH_DELIMITED, bytes: buffer.subarray(bodyStart, bodyStart + length) },
+    field: {
+      wireType: WIRE_TYPE_LENGTH_DELIMITED,
+      bytes: buffer.subarray(bodyStart, bodyStart + length),
+    },
     next: bodyStart + length,
   };
 }
@@ -131,7 +138,10 @@ function readFixedWidthField(
   wireType: typeof WIRE_TYPE_FIXED32 | typeof WIRE_TYPE_FIXED64
 ): { field: ProtoField; next: number } | null {
   if (offset + width > buffer.length) return null;
-  return { field: { wireType, bytes: buffer.subarray(offset, offset + width) }, next: offset + width };
+  return {
+    field: { wireType, bytes: buffer.subarray(offset, offset + width) },
+    next: offset + width,
+  };
 }
 
 /** Read a single tagged field at `offset`. Returns null on any malformed/unsupported wire data. */

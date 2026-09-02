@@ -99,7 +99,7 @@ function renderTable(rows, schema, opts = {}) {
     const headerLen = c.header.length;
     const maxData = rows.reduce(
       (m, row) => Math.max(m, stripAnsi(formatCell(row[c.key], c)).length),
-      0,
+      0
     );
     const natural = Math.max(headerLen, maxData);
     return c.width ? Math.max(c.width, 1) : natural;
@@ -120,12 +120,22 @@ function renderTable(rows, schema, opts = {}) {
 
   if (!quiet) {
     lines.push(separator);
-    lines.push(renderRow(cols.map((c) => c.header), true));
+    lines.push(
+      renderRow(
+        cols.map((c) => c.header),
+        true
+      )
+    );
   }
   lines.push(separator);
 
   for (const row of rows) {
-    lines.push(renderRow(cols.map((c) => formatCell(row[c.key], c)), false));
+    lines.push(
+      renderRow(
+        cols.map((c) => formatCell(row[c.key], c)),
+        false
+      )
+    );
   }
   lines.push(separator);
 

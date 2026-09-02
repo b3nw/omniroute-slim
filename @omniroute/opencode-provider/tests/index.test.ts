@@ -445,7 +445,10 @@ test("createOmniRouteProvider reads contextLength from a live model entry for id
     models: [{ id: "completely-unknown-model", contextLength: 262_144 }],
   });
   const entry = provider.models["completely-unknown-model"];
-  assert.ok(entry.limit, "a live contextLength should produce a limit field even for ids absent from the static map");
+  assert.ok(
+    entry.limit,
+    "a live contextLength should produce a limit field even for ids absent from the static map"
+  );
   assert.equal(entry.limit!.context, 262_144);
 });
 

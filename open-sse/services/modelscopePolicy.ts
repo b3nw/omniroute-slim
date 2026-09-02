@@ -55,12 +55,8 @@ export function parseModelScopeRateLimitHeaders(
     modelRemaining: parseHeaderInteger(
       headers["modelscope-ratelimit-model-requests-remaining"] ?? null
     ),
-    modelLimit: parseHeaderInteger(
-      headers["modelscope-ratelimit-model-requests-limit"] ?? null
-    ),
-    totalRemaining: parseHeaderInteger(
-      headers["modelscope-ratelimit-requests-remaining"] ?? null
-    ),
+    modelLimit: parseHeaderInteger(headers["modelscope-ratelimit-model-requests-limit"] ?? null),
+    totalRemaining: parseHeaderInteger(headers["modelscope-ratelimit-requests-remaining"] ?? null),
     totalLimit: parseHeaderInteger(headers["modelscope-ratelimit-requests-limit"] ?? null),
   };
 }
@@ -87,7 +83,10 @@ export function classifyModelScope429(
   return { kind: "rate_limited", retryable: true, snapshot };
 }
 
-export function getModelScopeRetryDelayMs(headers: Record<string, string>, attempt: number): number {
+export function getModelScopeRetryDelayMs(
+  headers: Record<string, string>,
+  attempt: number
+): number {
   const retryAfter = headers["retry-after"] ?? null;
   if (retryAfter) {
     const parsed = Number.parseFloat(retryAfter);

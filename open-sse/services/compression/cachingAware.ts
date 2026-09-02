@@ -98,7 +98,11 @@ export function detectCachingContext(
     hasCacheControl: hasCacheControl(body),
     provider,
     targetFormat,
-    isCachingProvider: providerSupportsCaching(provider, targetFormat, context.connectionCacheOverride),
+    isCachingProvider: providerSupportsCaching(
+      provider,
+      targetFormat,
+      context.connectionCacheOverride
+    ),
   };
 }
 

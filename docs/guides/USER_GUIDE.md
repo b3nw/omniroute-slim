@@ -35,27 +35,27 @@ Complete guide for configuring providers, creating combos, integrating CLI tools
 
 ## 💰 Pricing at a Glance
 
-| Tier                | Provider          | Cost        | Quota Reset    | Best For             |
-| ------------------- | ----------------- | ----------- | -------------- | -------------------- |
-| **💳 SUBSCRIPTION** | Claude Code (Pro) | $20/mo      | 5h + weekly    | Already subscribed   |
-|                     | Codex (Plus/Pro)  | $20-200/mo  | 5h + weekly    | OpenAI users         |
-|                     | GitHub Copilot    | $10-19/mo   | Monthly        | GitHub users         |
-| **🔑 API KEY**      | DeepSeek          | Pay per use | None           | Cheap reasoning      |
-|                     | Groq              | Pay per use | None           | Ultra-fast inference |
-|                     | xAI (Grok)        | Pay per use | None           | Grok 4 reasoning     |
-|                     | Mistral           | Pay per use | None           | EU-hosted models     |
-|                     | Perplexity        | Pay per use | None           | Search-augmented     |
-|                     | Together AI       | Pay per use | None           | Open-source models   |
-|                     | Fireworks AI      | Pay per use | None           | Fast FLUX images     |
-|                     | Cerebras          | Pay per use | None           | Wafer-scale speed    |
-|                     | Cohere            | Pay per use | None           | Command R+ RAG       |
-|                     | NVIDIA NIM        | Pay per use | None           | Enterprise models    |
-|                     | Baidu Qianfan     | Pay per use | None           | ERNIE models         |
-| **💰 CHEAP**        | GLM-4.7           | $0.6/1M     | Daily 10AM     | Budget backup        |
-|                     | MiniMax M2.1      | $0.2/1M     | 5-hour rolling | Cheapest option      |
-|                     | Kimi K2           | $9/mo flat  | 10M tokens/mo  | Predictable cost     |
+| Tier                | Provider          | Cost        | Quota Reset           | Best For               |
+| ------------------- | ----------------- | ----------- | --------------------- | ---------------------- |
+| **💳 SUBSCRIPTION** | Claude Code (Pro) | $20/mo      | 5h + weekly           | Already subscribed     |
+|                     | Codex (Plus/Pro)  | $20-200/mo  | 5h + weekly           | OpenAI users           |
+|                     | GitHub Copilot    | $10-19/mo   | Monthly               | GitHub users           |
+| **🔑 API KEY**      | DeepSeek          | Pay per use | None                  | Cheap reasoning        |
+|                     | Groq              | Pay per use | None                  | Ultra-fast inference   |
+|                     | xAI (Grok)        | Pay per use | None                  | Grok 4 reasoning       |
+|                     | Mistral           | Pay per use | None                  | EU-hosted models       |
+|                     | Perplexity        | Pay per use | None                  | Search-augmented       |
+|                     | Together AI       | Pay per use | None                  | Open-source models     |
+|                     | Fireworks AI      | Pay per use | None                  | Fast FLUX images       |
+|                     | Cerebras          | Pay per use | None                  | Wafer-scale speed      |
+|                     | Cohere            | Pay per use | None                  | Command R+ RAG         |
+|                     | NVIDIA NIM        | Pay per use | None                  | Enterprise models      |
+|                     | Baidu Qianfan     | Pay per use | None                  | ERNIE models           |
+| **💰 CHEAP**        | GLM-4.7           | $0.6/1M     | Daily 10AM            | Budget backup          |
+|                     | MiniMax M2.1      | $0.2/1M     | 5-hour rolling        | Cheapest option        |
+|                     | Kimi K2           | $9/mo flat  | 10M tokens/mo         | Predictable cost       |
 | **🆓 FREE**         | Qoder             | $0          | Provider limits apply | Verify current catalog |
-|                     | Kiro              | $0          | ~50 credits/mo | Claude free          |
+|                     | Kiro              | $0          | ~50 credits/mo        | Claude free            |
 
 ---
 

@@ -117,8 +117,7 @@ export function normalizeClaudeUpstreamMessages(
         block.type === "document"
       ) {
         const fileData = (block.file_url ?? block.file ?? block.document) as
-          | Record<string, unknown>
-          | undefined;
+          Record<string, unknown> | undefined;
         if (
           (block.type === "file" || block.type === "document") &&
           !fileData?.url &&
@@ -132,7 +131,9 @@ export function normalizeClaudeUpstreamMessages(
           const fileName =
             (block.file as Record<string, unknown>)?.name ?? block.name ?? "attachment";
           if (typeof fileContent === "string" && fileContent.length > 0) {
-            return [withCacheControl({ type: "text", text: `[${fileName}]\n${fileContent}` }, block)];
+            return [
+              withCacheControl({ type: "text", text: `[${fileName}]\n${fileContent}` }, block),
+            ];
           }
         }
         return [block];
@@ -155,7 +156,10 @@ export function normalizeClaudeUpstreamMessages(
               : JSON.stringify(resultContent);
         if (resultText.length > 0) {
           return [
-            withCacheControl({ type: "text", text: `[Tool Result: ${toolId}]\n${resultText}` }, block),
+            withCacheControl(
+              { type: "text", text: `[Tool Result: ${toolId}]\n${resultText}` },
+              block
+            ),
           ];
         }
         return [];

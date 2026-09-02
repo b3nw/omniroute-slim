@@ -46,20 +46,14 @@ test("formatFreeBudget: discontinued has no token/credit args", () => {
 });
 
 test("formatFreeBudget: missing token/credit counts default to 0", () => {
-  assert.equal(
-    formatFreeBudget({ freeType: "recurring-daily" }),
-    "0 tokens/day"
-  );
+  assert.equal(formatFreeBudget({ freeType: "recurring-daily" }), "0 tokens/day");
 });
 
 test("formatFreeBudget: unrecognised freeType falls through to the default branch", () => {
   // `freeType` is populated from catalog data at runtime, so a value the
   // build doesn't know about is reachable even though TypeScript treats the
   // `default:` arm as dead code for a well-typed caller.
-  assert.equal(
-    formatFreeBudget({ freeType: "some-future-type" as FreeModelFreeType }),
-    ""
-  );
+  assert.equal(formatFreeBudget({ freeType: "some-future-type" as FreeModelFreeType }), "");
 });
 
 test("formatFreeBudget: sub-1K token count is not abbreviated", () => {

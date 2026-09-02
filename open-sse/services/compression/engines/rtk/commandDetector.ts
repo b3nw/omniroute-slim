@@ -5,15 +5,7 @@ export interface CommandDetectionResult {
   command: string | null;
   confidence: number;
   category:
-    | "git"
-    | "test"
-    | "build"
-    | "shell"
-    | "docker"
-    | "package"
-    | "infra"
-    | "cloud"
-    | "generic";
+    "git" | "test" | "build" | "shell" | "docker" | "package" | "infra" | "cloud" | "generic";
   matchedPatterns: string[];
 }
 

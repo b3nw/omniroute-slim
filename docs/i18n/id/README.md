@@ -1204,7 +1204,6 @@ Cerebras (cerebras/)   → Llama/Qwen world-fastest — 1M tok/day
 > Metode koneksi yang disarankan: **Token Akses Pribadi + `qodercli`**. Peramban OAuth adalah
 > eksperimental dan dinonaktifkan secara default kecuali variabel lingkungan `QODER_OAUTH_*` dikonfigurasi.
 
-
 ### ⚫ NVIDIA NIM (Kunci API Gratis — build.nvidia.com)
 
 | Tier       | Daily Limit  | Rate Limit  | Notes                                                                |
@@ -1771,7 +1770,6 @@ Models:
   if/minimax-m2
   if/deepseek-r1
 ```
-
 
 ### Kiro (Claude GRATIS)
 

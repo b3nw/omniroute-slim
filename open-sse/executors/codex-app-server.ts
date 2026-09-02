@@ -1,17 +1,15 @@
-import {
-  bridgeToResponsesSSE,
-  buildResponseJSON,
-} from "../vendor/codex-chatgpt-web/bridge.ts";
+import { bridgeToResponsesSSE, buildResponseJSON } from "../vendor/codex-chatgpt-web/bridge.ts";
 import { AsyncEventQueue } from "../vendor/codex-chatgpt-web/event-queue.ts";
 import type { AdapterEvent } from "../vendor/codex-chatgpt-web/types.ts";
 import { sanitizeErrorMessage } from "../utils/error.ts";
 import { PROVIDERS } from "../config/constants.ts";
 import { BaseExecutor, type ExecuteInput, type ExecutorExecuteResult } from "./base.ts";
+import { CodexAppServerClient, type CodexAppServerClientOptions } from "./codex/appServerClient.ts";
 import {
-  CodexAppServerClient,
-  type CodexAppServerClientOptions,
-} from "./codex/appServerClient.ts";
-import { resolveAppServerConfig, resolveThreadStartPolicy, type CodexAppServerConfig } from "./codex/appServerConfig.ts";
+  resolveAppServerConfig,
+  resolveThreadStartPolicy,
+  type CodexAppServerConfig,
+} from "./codex/appServerConfig.ts";
 import {
   translateNotification,
   translateToolCall,
@@ -283,9 +281,7 @@ export class CodexAppServerExecutor extends BaseExecutor {
           // Harness function tools are advertised via thread/start's `dynamicTools`,
           // which is an EXPERIMENTAL app-server field: opt into experimental API so
           // codex accepts it (and can emit the item/tool/call ServerRequest).
-          capabilities: hasTools
-            ? { experimentalApi: true, requestAttestation: false }
-            : null,
+          capabilities: hasTools ? { experimentalApi: true, requestAttestation: false } : null,
         });
         const threadResult = (await client.request("thread/start", {
           cwd: config.cwd,
@@ -339,7 +335,9 @@ export class CodexAppServerExecutor extends BaseExecutor {
         // request (the stateless-full-history contract every OmniRoute provider uses).
         client.onToolCall((_id, params, api) => {
           if (terminated) return;
-          const toolParams = (params && typeof params === "object" ? params : {}) as DynamicToolCallLike;
+          const toolParams = (
+            params && typeof params === "object" ? params : {}
+          ) as DynamicToolCallLike;
           translateToolCall(toolParams, (event) => events.push(event));
           // Settle the app-server request so the socket does not stall. The router
           // does not have the tool output (the harness will produce it next turn),

@@ -6,8 +6,8 @@ const KINDS: ContentKind[] = ["tool-output-json", "logs", "code", "prose", "mult
 /** Best-effort PII markers; captured cases must be anonymized BEFORE ingestion. */
 const PII_PATTERNS: RegExp[] = [
   /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/, // email
-  /\b\d{3}-\d{2}-\d{4}\b/,                          // US SSN shape
-  /\b(?:\d[ -]*?){13,16}\b/,                        // card-number shape
+  /\b\d{3}-\d{2}-\d{4}\b/, // US SSN shape
+  /\b(?:\d[ -]*?){13,16}\b/, // card-number shape
 ];
 
 function looksLikePII(text: string): boolean {
@@ -29,7 +29,9 @@ export function loadCorpus(rawCases: EvalCase[]): EvalCase[] {
       throw new Error(`eval corpus: case "${c.id}" has unknown kind "${c.kind}"`);
     }
     if (c.captured === true && looksLikePII(c.context)) {
-      throw new Error(`eval corpus: captured case "${c.id}" contains an obvious PII marker — anonymize before ingestion`);
+      throw new Error(
+        `eval corpus: captured case "${c.id}" contains an obvious PII marker — anonymize before ingestion`
+      );
     }
     return c;
   });

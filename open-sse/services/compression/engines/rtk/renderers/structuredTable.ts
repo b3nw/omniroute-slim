@@ -20,7 +20,7 @@ const PRIORITY_KEYS = ["name", "id", "status", "type", "kind"];
  */
 export function renderStructuredTable(
   text: string,
-  _detection: CommandDetectionResult,
+  _detection: CommandDetectionResult
 ): RenderResult {
   const parsed = tryParse(text.trim());
   if (!parsed) return NO_RENDER(text);
@@ -67,9 +67,7 @@ export function renderStructuredTable(
   const extra = objects.length > MAX_TABLE_ROWS ? objects.length - MAX_TABLE_ROWS : 0;
 
   const header = columns.join("\t");
-  const body = rows
-    .map((obj) => columns.map((k) => String(obj[k] ?? "")).join("\t"))
-    .join("\n");
+  const body = rows.map((obj) => columns.map((k) => String(obj[k] ?? "")).join("\t")).join("\n");
 
   const out = extra > 0 ? `${header}\n${body}\n… (+${extra} more)` : `${header}\n${body}`;
 

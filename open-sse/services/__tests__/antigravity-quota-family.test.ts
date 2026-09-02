@@ -83,13 +83,7 @@ describe("Antigravity account quota-family cooldown", () => {
   });
 
   it("can isolate a confirmed Antigravity quota exhaustion to one exact model", () => {
-    lockExactModel(
-      provider,
-      "account-a",
-      "claude-opus-4-6-thinking",
-      "quota_exhausted",
-      60_000
-    );
+    lockExactModel(provider, "account-a", "claude-opus-4-6-thinking", "quota_exhausted", 60_000);
 
     expect(isModelLocked(provider, "account-a", "claude-opus-4-6-thinking")).toBe(true);
     expect(isModelLocked(provider, "account-a", "claude-sonnet-4-6-thinking")).toBe(false);

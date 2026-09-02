@@ -10,23 +10,23 @@
 
 Auto-Combo Engine secara dinamis memilih penyedia/model terbaik untuk setiap permintaan menggunakan **fungsi penilaian 6 faktor**:
 
-| Faktor     | Bobot | Deskripsi                                              |
-| :--------- | :---- | :----------------------------------------------------- |
-| Quota      | 0.20  | Kapasitas tersisa [0..1]                               |
-| Health     | 0.25  | Circuit breaker: CLOSED=1.0, HALF=0.5, OPEN=0.0        |
-| CostInv    | 0.20  | Biaya invers (lebih murah = skor lebih tinggi)         |
-| LatencyInv | 0.15  | Latensi p95 invers (lebih cepat = lebih tinggi)        |
-| TaskFit    | 0.10  | Skor kesesuaian model × tipe tugas                     |
-| Stability  | 0.10  | Variansi rendah dalam latensi/kesalahan                |
+| Faktor     | Bobot | Deskripsi                                       |
+| :--------- | :---- | :---------------------------------------------- |
+| Quota      | 0.20  | Kapasitas tersisa [0..1]                        |
+| Health     | 0.25  | Circuit breaker: CLOSED=1.0, HALF=0.5, OPEN=0.0 |
+| CostInv    | 0.20  | Biaya invers (lebih murah = skor lebih tinggi)  |
+| LatencyInv | 0.15  | Latensi p95 invers (lebih cepat = lebih tinggi) |
+| TaskFit    | 0.10  | Skor kesesuaian model × tipe tugas              |
+| Stability  | 0.10  | Variansi rendah dalam latensi/kesalahan         |
 
 ## Paket Mode
 
-| Paket                   | Fokus        | Bobot Utama      |
-| :---------------------- | :----------- | :--------------- |
-| 🚀 **Ship Fast**        | Kecepatan    | latencyInv: 0.35 |
-| 💰 **Cost Saver**       | Ekonomi      | costInv: 0.40    |
-| 🎯 **Quality First**    | Model terbaik | taskFit: 0.40   |
-| 📡 **Offline Friendly** | Ketersediaan | quota: 0.40      |
+| Paket                   | Fokus         | Bobot Utama      |
+| :---------------------- | :------------ | :--------------- |
+| 🚀 **Ship Fast**        | Kecepatan     | latencyInv: 0.35 |
+| 💰 **Cost Saver**       | Ekonomi       | costInv: 0.40    |
+| 🎯 **Quality First**    | Model terbaik | taskFit: 0.40    |
+| 📡 **Offline Friendly** | Ketersediaan  | quota: 0.40      |
 
 ## Pemulihan Mandiri
 
@@ -57,11 +57,11 @@ curl http://localhost:20128/api/combos/auto
 
 ## Berkas
 
-| Berkas                                       | Tujuan                                        |
-| :------------------------------------------- | :-------------------------------------------- |
-| `open-sse/services/autoCombo/scoring.ts`     | Fungsi penilaian & normalisasi pool           |
-| `open-sse/services/autoCombo/taskFitness.ts` | Pencarian kesesuaian model × tugas            |
-| `open-sse/services/autoCombo/engine.ts`      | Logika pemilihan, bandit, batas anggaran      |
-| `open-sse/services/autoCombo/selfHealing.ts` | Pengecualian, probe, mode insiden             |
-| `open-sse/services/autoCombo/modePacks.ts`   | 4 profil bobot                                |
-| `src/app/api/combos/auto/route.ts`           | REST API                                      |
+| Berkas                                       | Tujuan                                   |
+| :------------------------------------------- | :--------------------------------------- |
+| `open-sse/services/autoCombo/scoring.ts`     | Fungsi penilaian & normalisasi pool      |
+| `open-sse/services/autoCombo/taskFitness.ts` | Pencarian kesesuaian model × tugas       |
+| `open-sse/services/autoCombo/engine.ts`      | Logika pemilihan, bandit, batas anggaran |
+| `open-sse/services/autoCombo/selfHealing.ts` | Pengecualian, probe, mode insiden        |
+| `open-sse/services/autoCombo/modePacks.ts`   | 4 profil bobot                           |
+| `src/app/api/combos/auto/route.ts`           | REST API                                 |

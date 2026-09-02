@@ -62,7 +62,10 @@ export async function applyPollinationsAnonymousFallback(
 }
 
 /** Report the outcome of an anonymous Pollinations image request back to the pool. */
-export function reportPollinationsAnonOutcome(session: Session | null, status: number | undefined): void {
+export function reportPollinationsAnonOutcome(
+  session: Session | null,
+  status: number | undefined
+): void {
   if (!session || !pollinationsImagePool) return;
   if (status === 429) {
     pollinationsImagePool.reportCooldown(session);

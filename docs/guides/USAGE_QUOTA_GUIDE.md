@@ -204,14 +204,14 @@ Request ──▶ quotaCheck()
 
 `quotaSnapshots` table stores **historical quota state** for trend analysis:
 
-| Field       | Description                      |
+| Field | Description |
 | ----------- | -------------------------------- | ------ | ------- |
-| `apiKeyId`  | The key being tracked            |
-| `window`    | "day"                            | "week" | "month" |
-| `used`      | Cost used in this window (cents) |
-| `limit`     | The limit (cents)                |
-| `resetAt`   | When the window resets           |
-| `createdAt` | When the snapshot was taken      |
+| `apiKeyId` | The key being tracked |
+| `window` | "day" | "week" | "month" |
+| `used` | Cost used in this window (cents) |
+| `limit` | The limit (cents) |
+| `resetAt` | When the window resets |
+| `createdAt` | When the snapshot was taken |
 
 Snapshots are taken **on every request** that uses > 0 cost, and used to:
 

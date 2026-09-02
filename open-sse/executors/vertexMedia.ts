@@ -162,11 +162,9 @@ export function parsePcmSampleRate(mimeType: string | undefined): number {
   return match ? parseInt(match[1], 10) : 24000;
 }
 
-export function extractInlineAudio(
-  data: unknown
-): { base64: string; mimeType: string } | null {
-  const parts = (data as { candidates?: Array<{ content?: { parts?: unknown[] } }> })?.candidates?.[0]
-    ?.content?.parts;
+export function extractInlineAudio(data: unknown): { base64: string; mimeType: string } | null {
+  const parts = (data as { candidates?: Array<{ content?: { parts?: unknown[] } }> })
+    ?.candidates?.[0]?.content?.parts;
   if (!Array.isArray(parts)) return null;
   for (const part of parts) {
     const inline = (part as { inlineData?: { data?: unknown; mimeType?: unknown } })?.inlineData;
@@ -181,8 +179,8 @@ export function extractInlineAudio(
 }
 
 function extractText(data: unknown): string {
-  const parts = (data as { candidates?: Array<{ content?: { parts?: unknown[] } }> })?.candidates?.[0]
-    ?.content?.parts;
+  const parts = (data as { candidates?: Array<{ content?: { parts?: unknown[] } }> })
+    ?.candidates?.[0]?.content?.parts;
   if (!Array.isArray(parts)) return "";
   return parts
     .map((part) => (part as { text?: unknown })?.text)
@@ -204,7 +202,9 @@ export async function vertexGenerateSpeech(
       responseModalities: ["AUDIO"],
       speechConfig: {
         voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: options.voice && options.voice.trim() ? options.voice.trim() : "Kore" },
+          prebuiltVoiceConfig: {
+            voiceName: options.voice && options.voice.trim() ? options.voice.trim() : "Kore",
+          },
         },
       },
     },
@@ -221,7 +221,13 @@ export async function vertexGenerateSpeech(
 /** Gemini transcription (audio → text). `audioBase64` is the raw file bytes, base64-encoded. */
 export async function vertexTranscribe(
   credentials: VertexMediaCredentials,
-  options: { model: string; audioBase64: string; mimeType?: string; prompt?: string; language?: string }
+  options: {
+    model: string;
+    audioBase64: string;
+    mimeType?: string;
+    prompt?: string;
+    language?: string;
+  }
 ): Promise<string> {
   const auth = await resolveVertexAuth(credentials);
   const { url, headers } = buildModelRequest(auth, options.model, "generateContent");
@@ -250,7 +256,13 @@ export async function vertexTranscribe(
 /** Lyria music generation → { base64 WAV, format }. */
 export async function vertexGenerateMusic(
   credentials: VertexMediaCredentials,
-  options: { model?: string; prompt: string; negativePrompt?: string; sampleCount?: number; seed?: number }
+  options: {
+    model?: string;
+    prompt: string;
+    negativePrompt?: string;
+    sampleCount?: number;
+    seed?: number;
+  }
 ): Promise<{ base64: string; format: string }> {
   const auth = await resolveVertexAuth(credentials);
   const model = options.model && options.model.trim() ? options.model.trim() : "lyria-002";
@@ -267,8 +279,8 @@ export async function vertexGenerateMusic(
   });
   if (!res.ok) throw await vertexError(res);
   const data = await res.json();
-  const base64 = (data as { predictions?: Array<{ bytesBase64Encoded?: unknown }> })?.predictions?.[0]
-    ?.bytesBase64Encoded;
+  const base64 = (data as { predictions?: Array<{ bytesBase64Encoded?: unknown }> })
+    ?.predictions?.[0]?.bytesBase64Encoded;
   if (typeof base64 !== "string" || base64.length === 0) {
     throw new Error("Vertex Lyria returned no audio");
   }
@@ -299,7 +311,8 @@ export async function vertexGenerateVideo(
     sampleCount: typeof options.sampleCount === "number" ? options.sampleCount : 1,
   };
   if (options.aspectRatio) parameters.aspectRatio = options.aspectRatio;
-  if (typeof options.durationSeconds === "number") parameters.durationSeconds = options.durationSeconds;
+  if (typeof options.durationSeconds === "number")
+    parameters.durationSeconds = options.durationSeconds;
   if (options.negativePrompt) parameters.negativePrompt = options.negativePrompt;
 
   const submitRes = await fetch(submit.url, {
@@ -315,7 +328,8 @@ export async function vertexGenerateVideo(
   }
 
   const poll = buildModelRequest(auth, options.model, "fetchPredictOperation");
-  const intervalMs = options.pollIntervalMs && options.pollIntervalMs > 0 ? options.pollIntervalMs : 10000;
+  const intervalMs =
+    options.pollIntervalMs && options.pollIntervalMs > 0 ? options.pollIntervalMs : 10000;
   const maxWaitMs = options.maxWaitMs && options.maxWaitMs > 0 ? options.maxWaitMs : 5 * 60 * 1000;
   const deadline = Date.now() + maxWaitMs;
 

@@ -10,7 +10,6 @@ Panduan visual untuk setiap bagian dashboard OmniRoute.
 
 ## 🔌 Penyedia
 
-
 ![Providers Dashboard](screenshots/01-providers.png)
 
 ---
@@ -83,13 +82,11 @@ Panel pengaturan komprehensif dengan tab:
 
 ## 🔧 Alat CLI
 
-
 ![CLI Tools Dashboard](screenshots/07-cli-tools.png)
 
 ---
 
 ## 🤖 Agen CLI _(v2.0.11+)_
-
 
 - **Status instalasi** — Terpasang / Tidak Ditemukan dengan deteksi versi
 - **Lencana protokol** — stdio, HTTP, dll.
@@ -153,10 +150,10 @@ Tindakan "Repair env" satu klik untuk penyedia OAuth yang memulihkan variabel li
 
 Skrip penghapusan bersih untuk semua metode instalasi:
 
-| Perintah                 | Tindakan                                                                                      |
-| ------------------------ | --------------------------------------------------------------------------------------------- |
+| Perintah                 | Tindakan                                                                                       |
+| ------------------------ | ---------------------------------------------------------------------------------------------- |
 | `npm run uninstall`      | Menghapus aplikasi sistem tetapi **mempertahankan DB dan konfigurasi Anda** di `~/.omniroute`. |
-| `npm run uninstall:full` | Menghapus aplikasi DAN secara permanen **menghapus semua konfigurasi, kunci, dan database**.  |
+| `npm run uninstall:full` | Menghapus aplikasi DAN secara permanen **menghapus semua konfigurasi, kunci, dan database**.   |
 
 ---
 

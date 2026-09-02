@@ -1,5 +1,9 @@
 import { retrieveMemories } from "@/lib/memory/retrieval";
-import { getMemorySettings, DEFAULT_MEMORY_SETTINGS, toMemoryRetrievalConfig } from "@/lib/memory/settings";
+import {
+  getMemorySettings,
+  DEFAULT_MEMORY_SETTINGS,
+  toMemoryRetrievalConfig,
+} from "@/lib/memory/settings";
 import { injectMemory, shouldInjectMemory } from "@/lib/memory/injection";
 import { injectSkills } from "@/lib/skills/injection";
 import { buildMemoryToolsForProvider } from "@/lib/skills/memoryBuiltins";
@@ -9,7 +13,9 @@ import { detectCachingContext } from "../../services/compression/cachingAware.ts
 
 type MemorySkillsLogger = { debug?: (...args: unknown[]) => void } | null | undefined;
 
-export function getSkillsProviderForFormat(format: string): "openai" | "anthropic" | "google" | "other" {
+export function getSkillsProviderForFormat(
+  format: string
+): "openai" | "anthropic" | "google" | "other" {
   switch (format) {
     case FORMATS.CLAUDE:
       return "anthropic";
@@ -101,7 +107,7 @@ export async function injectMemoryAndSkills({
           }
           return "";
         }
-        
+
         if (Array.isArray(body.messages)) {
           const r = pickFrom(body.messages);
           if (r) return r;
@@ -160,8 +166,7 @@ export async function injectMemoryAndSkills({
       getSkillsProviderForFormat(sourceFormat)
     ).filter((tool) => {
       const record = tool as Record<string, unknown>;
-      const name =
-        (record.function as Record<string, unknown> | undefined)?.name ?? record.name;
+      const name = (record.function as Record<string, unknown> | undefined)?.name ?? record.name;
       return typeof name === "string" && !existingToolNames.has(name);
     });
     if (memoryTools.length > 0) {

@@ -254,7 +254,13 @@ const FAKE_RAW_MODELS: OmniRouteRawModelEntry[] = [
 
 test("buildStaticProviderEntry: no allowlist → all models emitted", () => {
   const opts = resolveOmniRoutePluginOptions({ features: {} });
-  const entry = buildStaticProviderEntry(FAKE_RAW_MODELS, [], opts, "http://localhost:20128/v1", "sk-test");
+  const entry = buildStaticProviderEntry(
+    FAKE_RAW_MODELS,
+    [],
+    opts,
+    "http://localhost:20128/v1",
+    "sk-test"
+  );
   const ids = Object.keys(entry.models);
   assert.ok(ids.includes("cc/claude-opus-4-7"), "cc/claude-opus-4-7 should be present");
   assert.ok(ids.includes("glm/gpt-5"), "glm/gpt-5 should be present");
@@ -265,18 +271,34 @@ test("buildStaticProviderEntry: visibleModels filters to only listed IDs", () =>
   const opts = resolveOmniRoutePluginOptions({
     features: { visibleModels: ["cc/claude-opus-4-7"] },
   });
-  const entry = buildStaticProviderEntry(FAKE_RAW_MODELS, [], opts, "http://localhost:20128/v1", "sk-test");
+  const entry = buildStaticProviderEntry(
+    FAKE_RAW_MODELS,
+    [],
+    opts,
+    "http://localhost:20128/v1",
+    "sk-test"
+  );
   const ids = Object.keys(entry.models);
   assert.ok(ids.includes("cc/claude-opus-4-7"), "cc/claude-opus-4-7 should be present");
   assert.equal(ids.includes("glm/gpt-5"), false, "glm/gpt-5 should be filtered out");
-  assert.equal(ids.includes("kr/claude-opus-4-7"), false, "kr/claude-opus-4-7 should be filtered out");
+  assert.equal(
+    ids.includes("kr/claude-opus-4-7"),
+    false,
+    "kr/claude-opus-4-7 should be filtered out"
+  );
 });
 
 test("buildStaticProviderEntry: hiddenModels drops listed IDs", () => {
   const opts = resolveOmniRoutePluginOptions({
     features: { hiddenModels: ["glm/gpt-5"] },
   });
-  const entry = buildStaticProviderEntry(FAKE_RAW_MODELS, [], opts, "http://localhost:20128/v1", "sk-test");
+  const entry = buildStaticProviderEntry(
+    FAKE_RAW_MODELS,
+    [],
+    opts,
+    "http://localhost:20128/v1",
+    "sk-test"
+  );
   const ids = Object.keys(entry.models);
   assert.ok(ids.includes("cc/claude-opus-4-7"), "cc/claude-opus-4-7 should be present");
   assert.equal(ids.includes("glm/gpt-5"), false, "glm/gpt-5 should be hidden");
@@ -287,7 +309,13 @@ test("buildStaticProviderEntry: bare-suffix visibleModels matches any prefix", (
   const opts = resolveOmniRoutePluginOptions({
     features: { visibleModels: ["claude-opus-4-7"] },
   });
-  const entry = buildStaticProviderEntry(FAKE_RAW_MODELS, [], opts, "http://localhost:20128/v1", "sk-test");
+  const entry = buildStaticProviderEntry(
+    FAKE_RAW_MODELS,
+    [],
+    opts,
+    "http://localhost:20128/v1",
+    "sk-test"
+  );
   const ids = Object.keys(entry.models);
   assert.ok(ids.includes("cc/claude-opus-4-7"), "cc/claude-opus-4-7 should match via suffix");
   assert.ok(ids.includes("kr/claude-opus-4-7"), "kr/claude-opus-4-7 should match via suffix");
@@ -301,7 +329,13 @@ test("buildStaticProviderEntry: id in both visible and hidden → hidden wins", 
       hiddenModels: ["cc/claude-opus-4-7"],
     },
   });
-  const entry = buildStaticProviderEntry(FAKE_RAW_MODELS, [], opts, "http://localhost:20128/v1", "sk-test");
+  const entry = buildStaticProviderEntry(
+    FAKE_RAW_MODELS,
+    [],
+    opts,
+    "http://localhost:20128/v1",
+    "sk-test"
+  );
   const ids = Object.keys(entry.models);
   assert.equal(ids.includes("cc/claude-opus-4-7"), false, "deny takes precedence");
 });
@@ -310,7 +344,13 @@ test("buildStaticProviderEntry: empty visibleModels → no filter (passthrough)"
   const opts = resolveOmniRoutePluginOptions({
     features: { visibleModels: [] },
   });
-  const entry = buildStaticProviderEntry(FAKE_RAW_MODELS, [], opts, "http://localhost:20128/v1", "sk-test");
+  const entry = buildStaticProviderEntry(
+    FAKE_RAW_MODELS,
+    [],
+    opts,
+    "http://localhost:20128/v1",
+    "sk-test"
+  );
   const ids = Object.keys(entry.models);
   assert.ok(ids.includes("cc/claude-opus-4-7"), "empty visibleModels should not filter");
   assert.ok(ids.includes("glm/gpt-5"), "empty visibleModels should not filter");

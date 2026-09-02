@@ -19,20 +19,21 @@
 
 ## Architecture at a Glance
 
-| Layer | Location | Purpose |
-|---|---|---|
-| **API Endpoints** | `src/app/api/` | Next.js App Router endpoints for `/v1/chat/completions`, `/v1/models`, `/v1/messages`, auth & settings |
-| **Streaming & Proxy Core** | `src/sse/` & `open-sse/` | High-throughput streaming transforms, format translation, and connection pipelines |
-| **Egress & TLS Emulation** | `src/lib/proxyEgress.ts` & `open-sse/utils/proxyFetch.ts` | Upstream forward proxy dispatcher, proxy pools, and JA3/JA4 fingerprinting |
-| **Catalog & Model Sync** | `src/lib/catalog/` & `src/lib/modelsDevSync.ts` | Dynamic metadata and pricing discovery from upstream APIs and `models.dev` |
-| **Persistence & Quota** | `src/lib/db/` & `src/lib/quota/` | Cleaned SQLite schema for accounts, combos, keys, rate limits, and token usage |
-| **WebUI Dashboard** | `src/app/(dashboard)/` | Focused Next.js dashboard for operational management |
+| Layer                      | Location                                                  | Purpose                                                                                                |
+| -------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| **API Endpoints**          | `src/app/api/`                                            | Next.js App Router endpoints for `/v1/chat/completions`, `/v1/models`, `/v1/messages`, auth & settings |
+| **Streaming & Proxy Core** | `src/sse/` & `open-sse/`                                  | High-throughput streaming transforms, format translation, and connection pipelines                     |
+| **Egress & TLS Emulation** | `src/lib/proxyEgress.ts` & `open-sse/utils/proxyFetch.ts` | Upstream forward proxy dispatcher, proxy pools, and JA3/JA4 fingerprinting                             |
+| **Catalog & Model Sync**   | `src/lib/catalog/` & `src/lib/modelsDevSync.ts`           | Dynamic metadata and pricing discovery from upstream APIs and `models.dev`                             |
+| **Persistence & Quota**    | `src/lib/db/` & `src/lib/quota/`                          | Cleaned SQLite schema for accounts, combos, keys, rate limits, and token usage                         |
+| **WebUI Dashboard**        | `src/app/(dashboard)/`                                    | Focused Next.js dashboard for operational management                                                   |
 
 ---
 
 ## What Was Excluded in Slim
 
 To maintain a lean and robust core, the following peripheral subsystems from upstream OmniRoute are omitted:
+
 1. **45 Non-English Locales** (English-only runtime saves 586k lines of JSON).
 2. **MITM Transparent Proxy & Tunnels** (Local root CA generator and DNS hijacker removed; upstream egress proxying is 100% preserved).
 3. **Autonomous Agent Systems** (A2A, Conductor, CloudAgent, IssueAgent, ACP, agent skills).

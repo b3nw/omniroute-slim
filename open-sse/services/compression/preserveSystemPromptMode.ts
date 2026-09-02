@@ -26,8 +26,7 @@ export const PRESERVE_SYSTEM_PROMPT_MODES: readonly PreserveSystemPromptMode[] =
 
 export function isPreserveSystemPromptMode(value: unknown): value is PreserveSystemPromptMode {
   return (
-    typeof value === "string" &&
-    (PRESERVE_SYSTEM_PROMPT_MODES as readonly string[]).includes(value)
+    typeof value === "string" && (PRESERVE_SYSTEM_PROMPT_MODES as readonly string[]).includes(value)
   );
 }
 

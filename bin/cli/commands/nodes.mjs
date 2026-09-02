@@ -158,7 +158,9 @@ export function registerNodes(program) {
     .action(async (opts, cmd) => {
       const { endpoint, apiFetchOpts } = resolveNodeEndpoint(opts, cmd);
       if (!endpoint) {
-        process.stderr.write(`error: required option '--endpoint <url>' or '--base-url <url>' not specified\n`);
+        process.stderr.write(
+          `error: required option '--endpoint <url>' or '--base-url <url>' not specified\n`
+        );
         process.exit(1);
       }
       const body = {
@@ -233,7 +235,9 @@ export function registerNodes(program) {
     .action(async (opts, cmd) => {
       const { endpoint, apiFetchOpts } = resolveNodeEndpoint(opts, cmd);
       if (!endpoint) {
-        process.stderr.write(`error: required option '--endpoint <url>' or '--base-url <url>' not specified\n`);
+        process.stderr.write(
+          `error: required option '--endpoint <url>' or '--base-url <url>' not specified\n`
+        );
         process.exit(1);
       }
       const res = await apiFetch("/api/provider-nodes/validate", {

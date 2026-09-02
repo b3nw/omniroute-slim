@@ -68,8 +68,8 @@ export function onResponse(ctx, response) {
 
   const isHtml =
     response?.headers?.["content-type"]?.includes("text/html") ||
-    typeof response?.body === "string" &&
-      (response.body.includes("<!DOCTYPE html>") || response.body.includes("<html"));
+    (typeof response?.body === "string" &&
+      (response.body.includes("<!DOCTYPE html>") || response.body.includes("<html")));
 
   if (!isHtml || typeof response?.body !== "string") return response;
 

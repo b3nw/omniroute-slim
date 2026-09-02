@@ -13,9 +13,15 @@ export interface EvalCase {
   captured?: boolean;
 }
 
-export interface ChatTurn { role: "system" | "user" | "assistant"; content: string; }
+export interface ChatTurn {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
 
-export interface ModelCallResult { text: string; usdCost?: number; }
+export interface ModelCallResult {
+  text: string;
+  usdCost?: number;
+}
 
 /** Narrow seam the runner depends on; production adapter wraps the executor, tests use a stub. */
 export interface ModelClient {
@@ -24,9 +30,17 @@ export interface ModelClient {
 }
 
 export type JudgeVerdict = "same" | "materially-differs" | "unparseable";
-export interface GradeVerdict { correct: boolean; raw: string; }
+export interface GradeVerdict {
+  correct: boolean;
+  raw: string;
+}
 
-export interface RunStamps { answerModel: string; judgeModel: string; corpusHash: string; sampleSize: number | "all"; }
+export interface RunStamps {
+  answerModel: string;
+  judgeModel: string;
+  corpusHash: string;
+  sampleSize: number | "all";
+}
 
 import type { SavingsResult } from "./savings.ts";
 

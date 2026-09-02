@@ -170,7 +170,9 @@ export function resolveRotationConfig(overrides?: Record<string, unknown> | null
     enabled: enableKey in overrides ? coerceBool(overrides[enableKey], src.enabled) : src.enabled,
     threshold: thrKey in overrides ? coerceInt(overrides[thrKey], src.threshold, 1) : src.threshold,
     windowMs:
-      winKey in overrides ? coerceInt(overrides[winKey], src.windowMs / 1000, 1) * 1000 : src.windowMs,
+      winKey in overrides
+        ? coerceInt(overrides[winKey], src.windowMs / 1000, 1) * 1000
+        : src.windowMs,
   });
 
   return {
@@ -180,15 +182,38 @@ export function resolveRotationConfig(overrides?: Record<string, unknown> | null
         ? coerceInt(overrides.rateLimitResetSeconds, base.rateLimitResetMs / 1000, 0) * 1000
         : base.rateLimitResetMs,
     disableTagWithoutReset: base.disableTagWithoutReset,
-    rateLimit429: cls(base.rateLimit429, "rotateOn429", "error429Threshold", "error429WindowSeconds"),
-    serverError500: cls(base.serverError500, "rotateOn500", "error500Threshold", "error500WindowSeconds"),
-    badGateway502: cls(base.badGateway502, "rotateOn502", "error502Threshold", "error502WindowSeconds"),
-    badRequest400: cls(base.badRequest400, "rotateOn400", "error400Threshold", "error400WindowSeconds"),
+    rateLimit429: cls(
+      base.rateLimit429,
+      "rotateOn429",
+      "error429Threshold",
+      "error429WindowSeconds"
+    ),
+    serverError500: cls(
+      base.serverError500,
+      "rotateOn500",
+      "error500Threshold",
+      "error500WindowSeconds"
+    ),
+    badGateway502: cls(
+      base.badGateway502,
+      "rotateOn502",
+      "error502Threshold",
+      "error502WindowSeconds"
+    ),
+    badRequest400: cls(
+      base.badRequest400,
+      "rotateOn400",
+      "error400Threshold",
+      "error400WindowSeconds"
+    ),
   };
 }
 
 /** Maps an HTTP status to its configured error class (or null for statuses this config doesn't gate). */
-export function classForStatus(status: number, cfg: RotationConfig): RotationErrorClassConfig | null {
+export function classForStatus(
+  status: number,
+  cfg: RotationConfig
+): RotationErrorClassConfig | null {
   if (status === 429) return cfg.rateLimit429;
   if (status === 502) return cfg.badGateway502;
   if (status >= 500 && status < 600) return cfg.serverError500;

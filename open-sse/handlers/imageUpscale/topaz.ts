@@ -184,7 +184,10 @@ export async function handleTopazImageUpscale({
       });
     }
 
-    const declared = (response.headers.get("content-type") || "").split(";")[0]!.trim().toLowerCase();
+    const declared = (response.headers.get("content-type") || "")
+      .split(";")[0]!
+      .trim()
+      .toLowerCase();
     const contentType = declared.startsWith("image/") ? declared : sniffImageMime(buffer);
 
     return saveUpscaleSuccessResult({
@@ -195,7 +198,12 @@ export async function handleTopazImageUpscale({
       images: [
         buildUpscaleImageEntry({ buffer, contentType, responseFormat: body.response_format }),
       ],
-      meta: { provider, model, factor, ...(target ? { width: target.width, height: target.height } : {}) },
+      meta: {
+        provider,
+        model,
+        factor,
+        ...(target ? { width: target.width, height: target.height } : {}),
+      },
     });
   } catch (err) {
     const errorText = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
@@ -225,7 +233,9 @@ function normalizeFactor(body: Record<string, unknown>): number {
 }
 
 function normalizeOutputFormat(value: unknown): string {
-  const raw = String(value ?? "").trim().toLowerCase();
+  const raw = String(value ?? "")
+    .trim()
+    .toLowerCase();
   if (raw === "jpg") return "jpeg";
   return ALLOWED_OUTPUT_FORMATS.includes(raw) ? raw : "png";
 }
@@ -266,6 +276,8 @@ function appendUnitFloat(
 
 function toBoolean(value: unknown): boolean {
   if (typeof value === "boolean") return value;
-  const raw = String(value ?? "").trim().toLowerCase();
+  const raw = String(value ?? "")
+    .trim()
+    .toLowerCase();
   return raw === "true" || raw === "1" || raw === "yes" || raw === "on";
 }

@@ -11,7 +11,10 @@
 
 import { getModelUpstreamExtraHeaders } from "@/lib/db/models";
 import { resolveModelAlias } from "../../services/modelDeprecation.ts";
-import { CPA_FORCE_FAST_MODE_HEADER, shouldRequestClaudeFastMode } from "@/lib/providers/claudeFastMode";
+import {
+  CPA_FORCE_FAST_MODE_HEADER,
+  shouldRequestClaudeFastMode,
+} from "@/lib/providers/claudeFastMode";
 import { isForbiddenCustomHeaderName } from "@/shared/constants/upstreamHeaders";
 
 export function buildUpstreamHeadersForExecute(opts: {
@@ -66,9 +69,7 @@ export function buildUpstreamHeadersForExecute(opts: {
       const keyLower = key.trim().toLowerCase();
       if (!keyLower) continue;
       if (isForbiddenCustomHeaderName(key)) continue;
-      const existingKey = Object.keys(upstreamHeaders).find(
-        (k) => k.toLowerCase() === keyLower
-      );
+      const existingKey = Object.keys(upstreamHeaders).find((k) => k.toLowerCase() === keyLower);
       if (!existingKey) {
         upstreamHeaders[key] = value;
       }

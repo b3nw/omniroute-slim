@@ -24,7 +24,9 @@ interface ExposureFilterCandidate {
   model: string;
 }
 
-function hasAnyExposureListEntries(settings: ModelExposureListSettings | null | undefined): boolean {
+function hasAnyExposureListEntries(
+  settings: ModelExposureListSettings | null | undefined
+): boolean {
   return (
     (Array.isArray(settings?.modelVisibilityDenylist) &&
       settings.modelVisibilityDenylist.length > 0) ||

@@ -128,10 +128,7 @@ export async function prepareJinaMixedEmbeddingInput(
       continue;
     }
     if (isCanonicalEmbeddingItem(item)) {
-      const [translated] = await prepareJinaInput(
-        [item as EmbeddingMultimodalItem],
-        fetchMedia
-      );
+      const [translated] = await prepareJinaInput([item as EmbeddingMultimodalItem], fetchMedia);
       out.push(translated);
       continue;
     }
@@ -163,7 +160,9 @@ function embeddingValues(entry: unknown): unknown[] {
   return Array.isArray(values) ? values : [];
 }
 
-function normalizeGeminiEmbedContentResponse(data: Record<string, unknown>): Record<string, unknown> {
+function normalizeGeminiEmbedContentResponse(
+  data: Record<string, unknown>
+): Record<string, unknown> {
   return {
     object: "list",
     data: [{ object: "embedding", embedding: embeddingValues(data.embedding), index: 0 }],
@@ -263,10 +262,7 @@ async function itemToGeminiContent(
     return { parts: [await jinaDocToGeminiPart(item, fetchMedia)] };
   }
   if (isCanonicalEmbeddingItem(item)) {
-    const [part] = await prepareGeminiParts(
-      [item as EmbeddingMultimodalItem],
-      fetchMedia
-    );
+    const [part] = await prepareGeminiParts([item as EmbeddingMultimodalItem], fetchMedia);
     return { parts: [part] };
   }
   throw new Error("Unsupported Gemini embedding input item");

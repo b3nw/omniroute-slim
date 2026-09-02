@@ -184,7 +184,6 @@ Dashboard → Connect Qoder → OAuth login → Access is subject to current pro
 Models: if/kimi-k2-thinking, if/qwen3-coder-plus, if/glm-4.7, if/minimax-m2, if/deepseek-r1
 ```
 
-
 #### Kiro (Claude GRATIS)
 
 ```bash
@@ -538,7 +537,6 @@ Untuk referensi variabel lingkungan lengkap, lihat [README](../README.md).
 **MiniMax (`minimax/`)** — $0.2/1M: `minimax/MiniMax-M2.1`
 
 **Qoder (`if/`)** — GRATIS: `if/kimi-k2-thinking`, `if/qwen3-coder-plus`, `if/deepseek-r1`
-
 
 **Kiro (`kr/`)** — GRATIS: `kr/claude-sonnet-4.5`, `kr/claude-haiku-4.5`
 

@@ -219,12 +219,15 @@ export async function handleAiHordeImageGeneration({
           throw Object.assign(new Error("Horde image generation timed out"), { status: 504 });
         }
         await sleep(POLL_INTERVAL_MS);
-        const checkRes = await safeOutboundFetch(`${AI_HORDE_API_BASE}/v2/generate/check/${jobId}`, {
-          headers: hordeHeaders(apiKey),
-          signal: signal ?? undefined,
-          guard: "none",
-          timeoutMs: boundedTimeoutMs(deadline, HORDE_API_CALL_TIMEOUT_MS),
-        });
+        const checkRes = await safeOutboundFetch(
+          `${AI_HORDE_API_BASE}/v2/generate/check/${jobId}`,
+          {
+            headers: hordeHeaders(apiKey),
+            signal: signal ?? undefined,
+            guard: "none",
+            timeoutMs: boundedTimeoutMs(deadline, HORDE_API_CALL_TIMEOUT_MS),
+          }
+        );
         const check = await safeJson(checkRes);
         if (!checkRes.ok || !check || typeof check !== "object") {
           throw Object.assign(
@@ -241,12 +244,15 @@ export async function handleAiHordeImageGeneration({
         }
         if (!checkObj.done) continue;
 
-        const statusRes = await safeOutboundFetch(`${AI_HORDE_API_BASE}/v2/generate/status/${jobId}`, {
-          headers: hordeHeaders(apiKey),
-          signal: signal ?? undefined,
-          guard: "none",
-          timeoutMs: boundedTimeoutMs(deadline, HORDE_API_CALL_TIMEOUT_MS),
-        });
+        const statusRes = await safeOutboundFetch(
+          `${AI_HORDE_API_BASE}/v2/generate/status/${jobId}`,
+          {
+            headers: hordeHeaders(apiKey),
+            signal: signal ?? undefined,
+            guard: "none",
+            timeoutMs: boundedTimeoutMs(deadline, HORDE_API_CALL_TIMEOUT_MS),
+          }
+        );
         const status = await safeJson(statusRes);
         if (!statusRes.ok || !status || typeof status !== "object") {
           throw Object.assign(

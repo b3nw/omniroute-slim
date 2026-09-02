@@ -4,14 +4,18 @@ import { getNotionToken } from "../../../src/lib/db/notion.ts";
 
 function requireToken(): string {
   const token = getNotionToken();
-  if (!token) throw new Error("Notion integration token not configured. Set it in Settings > Context Sources.");
+  if (!token)
+    throw new Error(
+      "Notion integration token not configured. Set it in Settings > Context Sources."
+    );
   return token;
 }
 
 export const notionTools = [
   {
     name: "notion_search",
-    description: "Search pages and databases in Notion by text query. Returns matching page titles, IDs, and URL.",
+    description:
+      "Search pages and databases in Notion by text query. Returns matching page titles, IDs, and URL.",
     scopes: ["read:notion"],
     inputSchema: z.object({
       query: z.string().min(1).max(500).describe("Search query text"),
@@ -37,7 +41,8 @@ export const notionTools = [
   },
   {
     name: "notion_list_block_children",
-    description: "List all block children of a Notion block or page. Returns the block tree structure.",
+    description:
+      "List all block children of a Notion block or page. Returns the block tree structure.",
     scopes: ["read:notion"],
     inputSchema: z.object({
       blockId: z.string().min(1).describe("Block ID to fetch children from"),
@@ -51,12 +56,16 @@ export const notionTools = [
   },
   {
     name: "notion_query_database",
-    description: "Query a Notion database with optional filters and sorts. Returns matching entries.",
+    description:
+      "Query a Notion database with optional filters and sorts. Returns matching entries.",
     scopes: ["read:notion"],
     inputSchema: z.object({
       databaseId: z.string().min(1).describe("Notion database ID (32-char hex or UUID)"),
       filter: z.unknown().optional().describe("Optional filter object (Notion API filter format)"),
-      sorts: z.array(z.unknown()).optional().describe("Optional sort array (Notion API sort format)"),
+      sorts: z
+        .array(z.unknown())
+        .optional()
+        .describe("Optional sort array (Notion API sort format)"),
       pageSize: z.number().min(1).max(100).default(50).describe("Results per page (max 100)"),
       startCursor: z.string().optional().describe("Pagination cursor"),
     }),
@@ -91,7 +100,8 @@ export const notionTools = [
   },
   {
     name: "notion_append_blocks",
-    description: "Append block children to an existing Notion block or page. Maximum 100 blocks per request.",
+    description:
+      "Append block children to an existing Notion block or page. Maximum 100 blocks per request.",
     scopes: ["write:notion"],
     inputSchema: z.object({
       blockId: z.string().min(1).describe("Target block or page ID to append to"),

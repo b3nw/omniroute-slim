@@ -53,8 +53,7 @@ const APPROVAL_REQUEST_METHODS = new Set<string>([
 ]);
 
 const ROUTER_APPROVAL_NOTE = "router: harness-controlled execution";
-const ROUTER_DENIAL_NOTE =
-  "router: denied by default (set codexAppServerAutoApprove to opt in)";
+const ROUTER_DENIAL_NOTE = "router: denied by default (set codexAppServerAutoApprove to opt in)";
 
 export interface CodexAppServerClientOptions {
   /** Transport factory. Defaults to the shared wreq-js websocket() when omitted. */
@@ -137,7 +136,11 @@ export class CodexAppServerClient {
   }
 
   /** Send a ClientRequest and resolve when its id-matched response arrives. */
-  request<T = unknown>(method: string, params: unknown, timeoutMs = this.defaultTimeoutMs): Promise<T> {
+  request<T = unknown>(
+    method: string,
+    params: unknown,
+    timeoutMs = this.defaultTimeoutMs
+  ): Promise<T> {
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
       if (!this.ws || this.closed) {
@@ -216,7 +219,9 @@ export class CodexAppServerClient {
       this.pending.delete(id);
       if (msg.error) {
         const err = msg.error as { code?: unknown; message?: unknown };
-        pending.reject(new Error(`${String(err.code ?? "error")}: ${String(err.message ?? "unknown")}`));
+        pending.reject(
+          new Error(`${String(err.code ?? "error")}: ${String(err.message ?? "unknown")}`)
+        );
       } else {
         pending.resolve(msg.result);
       }

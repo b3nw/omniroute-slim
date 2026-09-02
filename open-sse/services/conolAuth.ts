@@ -27,7 +27,9 @@ function readStoredValue(value: unknown): string {
 }
 
 export function normalizeConolCookie(rawValue: string): string {
-  const raw = readStoredValue(rawValue).replace(/^Cookie:\s*/i, "").trim();
+  const raw = readStoredValue(rawValue)
+    .replace(/^Cookie:\s*/i, "")
+    .trim();
   if (!raw) return "";
   if (raw.includes("=")) return raw;
   return `${CONOL_SESSION_COOKIE_NAME}=${raw}`;

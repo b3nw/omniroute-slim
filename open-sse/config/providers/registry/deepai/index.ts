@@ -8,7 +8,5 @@ export const deepaiProvider: RegistryEntry = {
   baseUrl: "https://api.deepai.org",
   authType: "apikey",
   authHeader: "api-key",
-  models: [
-    { id: "text2img", name: "Text to Image" },
-  ],
+  models: [{ id: "text2img", name: "Text to Image" }],
 };

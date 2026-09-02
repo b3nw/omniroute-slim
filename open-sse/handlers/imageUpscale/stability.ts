@@ -293,7 +293,9 @@ async function pollStabilityResult(opts: {
 }
 
 function normalizeOutputFormat(value: unknown): string {
-  const raw = String(value ?? "").trim().toLowerCase();
+  const raw = String(value ?? "")
+    .trim()
+    .toLowerCase();
   if (raw === "jpg") return "jpeg";
   return ALLOWED_OUTPUT_FORMATS.includes(raw) ? raw : "png";
 }

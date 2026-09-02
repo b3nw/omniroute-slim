@@ -4,11 +4,7 @@
  * Routes chat requests through Tencent AI Studio web session via cookie authentication.
  */
 
-import {
-  BaseExecutor,
-  mergeAbortSignals,
-  type ExecuteInput,
-} from "./base.ts";
+import { BaseExecutor, mergeAbortSignals, type ExecuteInput } from "./base.ts";
 import { mergeUpstreamExtraHeaders } from "./base/headers.ts";
 import { FETCH_TIMEOUT_MS } from "../config/constants.ts";
 import { buildErrorBody } from "../utils/error.ts";

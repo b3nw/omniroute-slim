@@ -375,11 +375,10 @@ export function sanitizeReasoningEffortForProvider(
     ? modelStr.slice(provider.length + 1)
     : modelStr;
   const declaredEfforts = getProviderModels(provider).find(
-    (entry) => entry.id === providerModelIdForClamp || entry.aliases?.includes(providerModelIdForClamp)
+    (entry) =>
+      entry.id === providerModelIdForClamp || entry.aliases?.includes(providerModelIdForClamp)
   )?.supportedThinkingEfforts;
-  const declaredRanked = (
-    Array.isArray(declaredEfforts) ? declaredEfforts : []
-  )
+  const declaredRanked = (Array.isArray(declaredEfforts) ? declaredEfforts : [])
     .map((tier) => ({ tier, rank: REASONING_EFFORT_ORDER.indexOf(tier) }))
     .filter((x) => x.rank >= 0)
     .sort((a, b) => a.rank - b.rank);

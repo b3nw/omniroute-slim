@@ -161,7 +161,10 @@ export const pluginTools = [
           const validation = validatePluginConfig(merged, rawSchema);
           if (!validation.valid) {
             // Return a generic message — do NOT leak raw field-level detail externally
-            return { success: false, error: "Config validation failed: one or more values are invalid" };
+            return {
+              success: false,
+              error: "Config validation failed: one or more values are invalid",
+            };
           }
         }
 
@@ -185,9 +188,8 @@ export const pluginTools = [
       limit: z.number().min(1).max(100).default(20).describe("Max results to return"),
     }),
     handler: async (args: { name?: string; limit?: number }) => {
-      const { getPluginAnalytics, getPluginAnalyticsSummary } = await import(
-        "../../../src/lib/db/plugins"
-      );
+      const { getPluginAnalytics, getPluginAnalyticsSummary } =
+        await import("../../../src/lib/db/plugins");
       const limit = args.limit || 20;
       if (args.name) {
         const rows = getPluginAnalytics(args.name).slice(0, limit);

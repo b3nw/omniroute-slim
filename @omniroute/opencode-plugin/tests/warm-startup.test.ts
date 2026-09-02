@@ -236,16 +236,11 @@ test("warm-startup: snapshot data used when snapshot is present", async () => {
   // background. On the next hook invocation, the cache will have the fresh data.
   const hasGemini = entry.models["opencode-omniroute/gemini-3-flash"] !== undefined;
   const hasClaude = entry.models["opencode-omniroute/claude-sonnet-4-6"] !== undefined;
-  assert.ok(
-    hasGemini || hasClaude,
-    "provider block has at least one model"
-  );
+  assert.ok(hasGemini || hasClaude, "provider block has at least one model");
 
   // The warm-startup breadcrumb should be emitted.
   assert.ok(
-    logger.entries.some((e) =>
-      String(e[0]).includes("warm startup from disk snapshot")
-    ),
+    logger.entries.some((e) => String(e[0]).includes("warm startup from disk snapshot")),
     "warm-startup breadcrumb emitted"
   );
 });
@@ -284,16 +279,11 @@ test("warm-startup: fingerprint mismatch → no warm publish, awaited fetch", as
   ];
   assert.ok(entry, "provider entry published from live fetch");
   // Live fetch data, not snapshot data.
-  assert.ok(
-    entry.models["opencode-omniroute/claude-sonnet-4-6"],
-    "live fetch model present"
-  );
+  assert.ok(entry.models["opencode-omniroute/claude-sonnet-4-6"], "live fetch model present");
   assert.equal(fetcher.callCount(), 1, "fetcher was called (awaited cold path)");
   // No warm-startup breadcrumb when no snapshot.
   assert.ok(
-    !logger.entries.some((e) =>
-      String(e[0]).includes("warm startup from disk snapshot")
-    ),
+    !logger.entries.some((e) => String(e[0]).includes("warm startup from disk snapshot")),
     "no warm-startup breadcrumb when no snapshot"
   );
 });
@@ -473,7 +463,10 @@ test("warm-startup: all fetchers start concurrently (parallel fan-out)", async (
   const diskSnapshotWriter: OmniRouteDiskSnapshotWriter = async () => {};
 
   const hook = createOmniRouteConfigHook(
-    { providerId: "omniroute", features: { enrichment: true, compressionMetadata: true, usableOnly: true } },
+    {
+      providerId: "omniroute",
+      features: { enrichment: true, compressionMetadata: true, usableOnly: true },
+    },
     {
       readAuthJson: authStub(),
       fetcher,
@@ -773,9 +766,7 @@ test("warm-startup: snapshot age is logged when warm-starting from disk", async 
 
   // The log should mention "warm startup from disk snapshot".
   assert.ok(
-    logger.entries.some((e) =>
-      String(e[0]).includes("warm startup from disk snapshot")
-    ),
+    logger.entries.some((e) => String(e[0]).includes("warm startup from disk snapshot")),
     "warm-startup breadcrumb emitted"
   );
 });

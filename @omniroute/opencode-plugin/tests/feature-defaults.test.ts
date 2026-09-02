@@ -17,10 +17,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import {
-  OMNIROUTE_FEATURE_DEFAULTS,
-  resolveEffectiveFeatureFlags,
-} from "../src/index.js";
+import { OMNIROUTE_FEATURE_DEFAULTS, resolveEffectiveFeatureFlags } from "../src/index.js";
 
 const DEFAULT_ON = [
   "combos",
@@ -60,10 +57,7 @@ test("resolveEffectiveFeatureFlags: undefined features → full declared default
 });
 
 test("resolveEffectiveFeatureFlags: empty features object → same as omitted", () => {
-  assert.deepEqual(
-    resolveEffectiveFeatureFlags({}),
-    resolveEffectiveFeatureFlags(undefined)
-  );
+  assert.deepEqual(resolveEffectiveFeatureFlags({}), resolveEffectiveFeatureFlags(undefined));
 });
 
 test("resolveEffectiveFeatureFlags: explicit false disables a default-ON flag", () => {

@@ -91,22 +91,10 @@ export function normalizeForFingerprint(text: string): string {
   t = t.replace(/^[\s\S]*?\bCurrent request:\s*/i, "");
   t = t.replace(/^[\s\S]*?\bMy current task:\s*/i, "");
   // Tool-result follow-up wrappers (WinUI soft PromptQL / generic agentic)
-  t = t.replace(
-    /^Here is data returned by my desktop application[\s\S]*?(?:\n\n|$)/i,
-    ""
-  );
-  t = t.replace(
-    /^Here is the output from my local tool[\s\S]*?(?:\n\n|$)/i,
-    ""
-  );
-  t = t.replace(
-    /\n\nBased on this result[\s\S]*$/i,
-    ""
-  );
-  t = t.replace(
-    /\n\n(?:Please |If a structured)[\s\S]*$/i,
-    ""
-  );
+  t = t.replace(/^Here is data returned by my desktop application[\s\S]*?(?:\n\n|$)/i, "");
+  t = t.replace(/^Here is the output from my local tool[\s\S]*?(?:\n\n|$)/i, "");
+  t = t.replace(/\n\nBased on this result[\s\S]*$/i, "");
+  t = t.replace(/\n\n(?:Please |If a structured)[\s\S]*$/i, "");
   // Soft PromptQL first-turn preamble (strip when whole message is pin+request)
   if (/interoperability layer between PromptQL/i.test(t)) {
     const m = t.match(/\bCurrent request:\s*([\s\S]+)$/i);
@@ -126,7 +114,8 @@ export function extractToolNameSignature(text: string): string {
   const names = new Set<string>();
   for (const m of text.matchAll(/"tool"\s*:\s*"([^"]+)"/g)) names.add(m[1]!.toLowerCase());
   for (const m of text.matchAll(/tool_call:([A-Za-z0-9_.-]+):/g)) names.add(m[1]!.toLowerCase());
-  for (const m of text.matchAll(/function_call:([A-Za-z0-9_.-]+):/g)) names.add(m[1]!.toLowerCase());
+  for (const m of text.matchAll(/function_call:([A-Za-z0-9_.-]+):/g))
+    names.add(m[1]!.toLowerCase());
   for (const m of text.matchAll(/\[tool result for\s+([^\]]+)\]/gi)) {
     names.add(m[1]!.trim().toLowerCase());
   }
@@ -182,7 +171,10 @@ export function lastAssistantStickyKeys(projectId: string, messages: ChatMessage
 }
 
 /** Rolling sticky key: last assistant reply alone (survives last-user rewrites). */
-export function lastAssistantFingerprint(projectId: string, messages: ChatMessage[]): string | null {
+export function lastAssistantFingerprint(
+  projectId: string,
+  messages: ChatMessage[]
+): string | null {
   return lastAssistantStickyKeys(projectId, messages)[0] ?? null;
 }
 
@@ -346,15 +338,9 @@ export function storePromptQlThreadAfterTurn(
   threadId: string
 ): string | null {
   if (!projectId || !threadId) return null;
-  const full: ChatMessage[] = [
-    ...messages,
-    { role: "assistant", content: assistantText || "" },
-  ];
+  const full: ChatMessage[] = [...messages, { role: "assistant", content: assistantText || "" }];
   // Only store if there is at least one user-like + assistant pair.
-  if (
-    !hasAssistantMessage(full) ||
-    !messages.some((m) => isUserLikeRole(m.role || ""))
-  ) {
+  if (!hasAssistantMessage(full) || !messages.some((m) => isUserLikeRole(m.role || ""))) {
     return null;
   }
   const key = conversationFingerprint(projectId, full);

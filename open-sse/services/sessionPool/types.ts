@@ -49,11 +49,11 @@ export interface SessionResult {
 export interface PoolConfig {
   minSessions: number;
   maxSessions: number;
-  cooldownBase: number;    // ms, default 1000
-  cooldownMax: number;     // ms, default 30000
-  cooldownJitter: number;  // ms, default 5000
-  requestTimeout: number;  // ms, default 30000
-  requestJitter: number;   // ms, default 50
+  cooldownBase: number; // ms, default 1000
+  cooldownMax: number; // ms, default 30000
+  cooldownJitter: number; // ms, default 5000
+  requestTimeout: number; // ms, default 30000
+  requestJitter: number; // ms, default 50
 }
 
 export interface PoolStats {
@@ -70,8 +70,8 @@ export interface PoolStats {
     rate429: number;
     otherErrors: number;
   };
-  throughput: string;    // req/s
-  successRate: string;   // percentage
+  throughput: string; // req/s
+  successRate: string; // percentage
   elapsed: string;
 }
 

@@ -1,4 +1,9 @@
-import type { ComboLogger, HandleSingleModel, IsModelAvailable, ResolvedComboTarget } from "./types";
+import type {
+  ComboLogger,
+  HandleSingleModel,
+  IsModelAvailable,
+  ResolvedComboTarget,
+} from "./types";
 
 /**
  * Last-resort fallback tier for combo routing (#6238).

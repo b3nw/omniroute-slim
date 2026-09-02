@@ -216,11 +216,7 @@ export function relocateDirectiveOnlyMessages(payload: Record<string, unknown>):
   let insertAfter = -1;
   for (let i = runEnd; i < messages.length; i++) {
     const candidate = messages[i];
-    if (
-      candidate != null &&
-      typeof candidate === "object" &&
-      !isSystemRole(candidate.role)
-    ) {
+    if (candidate != null && typeof candidate === "object" && !isSystemRole(candidate.role)) {
       insertAfter = i;
       break;
     }
