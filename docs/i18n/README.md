@@ -1,6 +1,6 @@
 # 🌐 Multilingual Documentation — OmniRoute
 
-Translations of documentation into 42 languages; together with the English source, the UI supports 43 locales. Code blocks remain in English.
+Translations of documentation into 42 languages. The UI runtime itself is English-only (see `config/i18n.json`). Code blocks remain in English.
 
 ---
 

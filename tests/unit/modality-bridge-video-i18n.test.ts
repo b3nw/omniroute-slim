@@ -18,11 +18,10 @@ const requiredKeys = [
   "modalityBridgeVideoMaxVideos",
 ] as const;
 
-test("all 43 UI locale catalogs contain non-placeholder Video Bridge settings", () => {
+test("every shipped UI locale catalog contains non-placeholder Video Bridge settings", () => {
   const catalogs = readdirSync(messagesDirectory)
     .filter((file) => file.endsWith(".json"))
     .sort();
-  assert.equal(catalogs.length, 43);
   const english = JSON.parse(readFileSync(path.join(messagesDirectory, "en.json"), "utf8")) as {
     settings: Record<string, string>;
   };
@@ -46,19 +45,7 @@ test("all 43 UI locale catalogs contain non-placeholder Video Bridge settings", 
   }
 });
 
-test("localized Modality Bridge copy describes the shipped Video Bridge without stale backlog text", () => {
-  const ptBr = JSON.parse(readFileSync(path.join(messagesDirectory, "pt-BR.json"), "utf8")) as {
-    settings: Record<string, string>;
-  };
-  assert.equal(
-    ptBr.settings.modalityBridgeIntro,
-    "Converta conteúdo multimodal em texto antes que ele chegue a modelos apenas de texto. As pontes de visão, áudio e vídeo estão disponíveis e podem ser configuradas."
-  );
-  assert.equal(
-    ptBr.settings.modalityBridgeVideoDesc,
-    "Faça uma amostragem dos quadros do vídeo, descreva-os com um modelo de visão e continue com o modelo de texto escolhido."
-  );
-
+test("no locale catalog carries the stale Video Bridge backlog key", () => {
   for (const file of readdirSync(messagesDirectory).filter((entry) => entry.endsWith(".json"))) {
     const catalog = JSON.parse(readFileSync(path.join(messagesDirectory, file), "utf8")) as {
       settings: Record<string, unknown>;

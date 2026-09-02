@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import en from "../../src/i18n/messages/en.json" with { type: "json" };
-import vi from "../../src/i18n/messages/vi.json" with { type: "json" };
 import { BUILTIN_BADGES } from "../../src/lib/gamification/badges";
 
 const profileSource = readFileSync("src/app/(dashboard)/dashboard/profile/page.tsx", "utf8");
@@ -13,15 +12,12 @@ const topListSource = readFileSync(
   "utf8"
 );
 const englishBadges = en.gamification.badges as Record<string, Record<string, string>>;
-const vietnameseBadges = vi.gamification.badges as Record<string, Record<string, string>>;
 
-test("every built-in badge has complete English and Vietnamese display copy", () => {
+test("every built-in badge has complete English display copy", () => {
   for (const badge of BUILTIN_BADGES) {
     for (const field of ["name", "description", "criteria"] as const) {
       const englishValue = englishBadges[badge.id]?.[field];
-      const vietnameseValue = vietnameseBadges[badge.id]?.[field];
       assert.ok(englishValue?.trim(), `en missing gamification.badges.${badge.id}.${field}`);
-      assert.ok(vietnameseValue?.trim(), `vi missing gamification.badges.${badge.id}.${field}`);
     }
   }
 });

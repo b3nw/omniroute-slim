@@ -69,8 +69,8 @@ test("index handleToggleActive PUTs isActive, updates state and notifies", () =>
   assert.match(index, /togglingActiveId=\{togglingActiveId\}/);
 });
 
-test("toggle i18n keys exist in en and pt-BR", () => {
-  for (const locale of ["en", "pt-BR"]) {
+test("toggle i18n keys exist in en", () => {
+  for (const locale of ["en"]) {
     const msgs = JSON.parse(
       fs.readFileSync(path.join(repoRoot, `src/i18n/messages/${locale}.json`), "utf8")
     );

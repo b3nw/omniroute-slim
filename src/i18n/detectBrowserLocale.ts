@@ -4,10 +4,13 @@
  *
  * Matching order:
  *  1. Exact match against `navigator.languages` entries (case-insensitive).
- *  2. `zh-HK` / `zh-MO` are treated as `zh-TW` (Traditional Chinese) since
- *     OmniRoute does not ship a dedicated Hong-Kong/Macau locale.
- *  3. Language-prefix match — e.g. `en-US` matches a supported `en` locale.
- *  4. No match → `null` (caller should keep the existing default).
+ *  2. Language-prefix match — e.g. `en-US` matches a supported `en` locale.
+ *  3. No match → `null` (caller should keep the existing default).
+ *
+ * OmniRoute-Slim ships an English-only runtime, so in production `locales` is
+ * always `["en"]` and this collapses to "does the browser ask for some flavour
+ * of English?". The function stays generic over `locales` (rather than
+ * hard-coding `en`) so it remains a pure, directly testable helper.
  *
  * Kept dependency-free (no DOM/`navigator` access) so it is trivially unit
  * testable and reusable from both client components and future server code.
@@ -32,15 +35,7 @@ export function detectBrowserLocale(
       return locales[exactIndex];
     }
 
-    // 2. zh-HK / zh-MO fold to zh-TW when zh-TW is supported.
-    if (language === "zh-hk" || language === "zh-mo") {
-      const zhTwIndex = normalizedLocales.indexOf("zh-tw");
-      if (zhTwIndex !== -1) {
-        return locales[zhTwIndex];
-      }
-    }
-
-    // 3. Language-prefix match (e.g. "en-US" -> "en").
+    // 2. Language-prefix match (e.g. "en-US" -> "en").
     const prefix = language.split("-")[0];
     const prefixIndex = normalizedLocales.indexOf(prefix);
     if (prefixIndex !== -1) {

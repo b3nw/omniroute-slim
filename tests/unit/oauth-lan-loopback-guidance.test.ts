@@ -141,14 +141,14 @@ test("the panel is i18n-driven — no hardcoded English prose in the component",
   assert.match(panel, /copy\(/, "the tunnel command needs a copy-to-clipboard affordance");
 });
 
-test("en + pt-BR catalogs define every loopbackMismatch key the panel reads", () => {
+test("the en catalog defines every loopbackMismatch key the panel reads", () => {
   const panels = readSrc("shared/components/OAuthModalPanels.tsx");
   const used = new Set(
     [...panels.matchAll(/t(?:\.rich)?\("(loopbackMismatch[A-Za-z0-9]*)"/g)].map((m) => m[1])
   );
   assert.ok(used.size >= 6, `expected the panel to use several keys, saw ${used.size}`);
 
-  for (const locale of ["en", "pt-BR"]) {
+  for (const locale of ["en"]) {
     const cat = JSON.parse(
       readFileSync(resolve(here, `../../src/i18n/messages/${locale}.json`), "utf8")
     );

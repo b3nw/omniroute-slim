@@ -1,9 +1,6 @@
 import { getRequestConfig } from "next-intl/server";
-import { cookies, headers } from "next/headers";
-import { LOCALES, DEFAULT_LOCALE, LOCALE_COOKIE } from "./config";
-import type { Locale } from "./config";
-
-const FALLBACK_LOCALE = "en";
+import { DEFAULT_LOCALE } from "./config";
+import enMessages from "./messages/en.json" with { type: "json" };
 
 /**
  * Sentinel prefix written by `scripts/i18n/sync-ui-keys.mjs` when backfilling a
@@ -24,6 +21,10 @@ function isUntranslatedPlaceholder(value: unknown): boolean {
  * unless the target value is an untranslated `__MISSING__:` sentinel written
  * by the i18n sync script, in which case it is treated as absent so the
  * clean English fallback value wins instead (#7258).
+ *
+ * The runtime is English-only, so nothing merges against EN at request time
+ * any more; this stays exported as the shared merge contract for the
+ * `scripts/i18n/*` tooling and its regression tests.
  */
 export function deepMergeFallback(
   target: Record<string, unknown>,
@@ -41,7 +42,10 @@ export function deepMergeFallback(
       typeof targetValue === "object" &&
       !Array.isArray(targetValue)
     ) {
-      deepMergeFallback(targetValue as Record<string, unknown>, sourceValue as Record<string, unknown>);
+      deepMergeFallback(
+        targetValue as Record<string, unknown>,
+        sourceValue as Record<string, unknown>
+      );
     } else if (targetValue === undefined || isUntranslatedPlaceholder(targetValue)) {
       target[key] = sourceValue;
     }
@@ -55,7 +59,12 @@ function setNestedValue(target: Record<string, unknown>, dottedKey: string, valu
 
   for (let index = 0; index < segments.length; index += 1) {
     const segment = segments[index];
-    if (!segment || segment === "__proto__" || segment === "constructor" || segment === "prototype") {
+    if (
+      !segment ||
+      segment === "__proto__" ||
+      segment === "constructor" ||
+      segment === "prototype"
+    ) {
       return;
     }
 
@@ -80,7 +89,9 @@ export function normalizeComplianceEventTypes(
   messages: Record<string, unknown>
 ): Record<string, unknown> {
   const compliance =
-    messages.compliance && typeof messages.compliance === "object" && !Array.isArray(messages.compliance)
+    messages.compliance &&
+    typeof messages.compliance === "object" &&
+    !Array.isArray(messages.compliance)
       ? (messages.compliance as Record<string, unknown>)
       : null;
   const eventTypes =
@@ -110,50 +121,16 @@ export function normalizeComplianceEventTypes(
   };
 }
 
+/**
+ * English-only runtime: `config/i18n.json` ships a single locale, so there is
+ * no cookie/header negotiation and no cross-locale fallback merge left to do —
+ * every request resolves to `en` and serves `./messages/en.json` directly.
+ */
 export default getRequestConfig(async () => {
-  const cookieStore = await cookies();
-  let locale: string = cookieStore.get(LOCALE_COOKIE)?.value || "";
-
-  if (!locale) {
-    const headerStore = await headers();
-    locale = headerStore.get("x-locale") || "";
-  }
-
-  if (!LOCALES.includes(locale as Locale)) {
-    locale = DEFAULT_LOCALE;
-  }
-
-  const localeMessages = normalizeComplianceEventTypes(
-    (await import(`./messages/${locale}.json`)).default as Record<string, unknown>
-  );
-
-  // G1: fall back to EN for any missing key. EN is loaded only once per request
-  // and only when the active locale is not EN itself (no-op).
-  let messages = localeMessages as Record<string, unknown>;
-  if (locale !== FALLBACK_LOCALE) {
-    const fallbackMessages = normalizeComplianceEventTypes(
-      (await import(`./messages/${FALLBACK_LOCALE}.json`)).default as Record<string, unknown>
-    );
-    messages = deepMergeFallback({ ...localeMessages }, fallbackMessages);
-  }
-
-  // 4. Merge EN as namespace-level fallback for locales that are missing new namespaces.
-  //    Only applied when the active locale is not EN (avoids a redundant import).
-  //    Merging is shallow at the top-level namespace key — if a namespace is already
-  //    present in the locale file it is kept as-is; missing namespaces fall back to EN.
-  //    This ensures new namespaces (e.g. cliCode, cliAgents, acpAgents, cliCommon added
-  //    in plan 14 F9) are displayed in English for the 39 non-EN/non-pt-BR locales until
-  //    translations are shipped.
-  let mergedMessages: Record<string, unknown> = messages as Record<string, unknown>;
-  if (locale !== DEFAULT_LOCALE) {
-    const enMessages = normalizeComplianceEventTypes(
-      (await import(`./messages/${DEFAULT_LOCALE}.json`)).default as Record<string, unknown>
-    );
-    mergedMessages = { ...enMessages, ...mergedMessages };
-  }
+  const locale = DEFAULT_LOCALE;
 
   return {
     locale,
-    messages: mergedMessages,
+    messages: normalizeComplianceEventTypes(enMessages as Record<string, unknown>),
   };
 });

@@ -19,9 +19,6 @@ const src = readFileSync(PAGE, "utf8");
 const en = JSON.parse(readFileSync(join(ROOT, "src/i18n/messages/en.json"), "utf8")) as {
   apiManager: Record<string, string>;
 };
-const pt = JSON.parse(readFileSync(join(ROOT, "src/i18n/messages/pt-BR.json"), "utf8")) as {
-  apiManager: Record<string, string>;
-};
 
 test("api-manager splits keys into normal + quota sections", () => {
   assert.ok(src.includes("const isQuotaKey"), "must classify quota keys by allowedQuotas");
@@ -50,9 +47,8 @@ test("api-manager differentiates quota keys (pill + groups + mode)", () => {
   );
 });
 
-test("api-manager: new i18n keys exist in both en and pt-BR", () => {
+test("api-manager: new i18n keys exist in en", () => {
   for (const k of ["normalKeysSection", "quotaKeysSection", "quotaPill", "quotaModeOnly"]) {
     assert.ok(en.apiManager[k], `en apiManager.${k}`);
-    assert.ok(pt.apiManager[k], `pt-BR apiManager.${k}`);
   }
 });

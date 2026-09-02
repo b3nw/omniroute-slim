@@ -56,11 +56,8 @@ test("playground build: wizard with 3 modes reusing editors; BuildTab keeps hand
   );
 });
 
-test("playground build i18n: playground.build keys present with en/pt parity", () => {
+test("playground build i18n: playground.build keys present", () => {
   const en = JSON.parse(read("src/i18n/messages/en.json"));
-  const pt = JSON.parse(read("src/i18n/messages/pt-BR.json"));
   const ek = Object.keys(en.playground?.build ?? {});
-  const pk = Object.keys(pt.playground?.build ?? {});
   assert.ok(ek.length >= 10, `expected >=10 build keys, got ${ek.length}`);
-  assert.deepEqual(ek.sort(), pk.sort(), "en/pt-BR playground.build keys must match");
 });
