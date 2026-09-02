@@ -14,8 +14,9 @@
  *   - `sync-ui-keys.mjs` only backfills keys that are ABSENT, never ones that are STALE;
  *   - `check-ui-keys-coverage.mjs` counts key presence, so a stale translation scores as
  *     fully covered;
- *   - `check-translation-drift.mjs` tracks the `docs/i18n/<locale>/**.md` documentation
- *     mirrors — it never looks at `src/i18n/messages/*.json` at all.
+ *   - the third gate of the era, `check-translation-drift.mjs`, tracked the
+ *     `docs/i18n/<locale>/**.md` documentation mirrors and never looked at
+ *     `src/i18n/messages/*.json` at all (both are gone with the English-only move).
  *
  * How this gate works: it is DIFF-AWARE, not baseline-backed. It compares the English
  * catalog at the merge base against the working tree; for every key whose English value

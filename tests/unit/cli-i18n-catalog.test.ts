@@ -9,9 +9,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..", "..");
 const require = createRequire(import.meta.url);
 const en = require("../../bin/cli/locales/en.json");
-const ptBR = require("../../bin/cli/locales/pt-BR.json");
-const zhCN = require("../../bin/cli/locales/zh-CN.json");
-const zhTW = require("../../bin/cli/locales/zh-TW.json");
 
 function flattenKeys(obj: Record<string, unknown>, prefix = ""): Set<string> {
   const keys = new Set<string>();
@@ -67,28 +64,23 @@ test("en.json contém todas as chaves usadas via t() nos comandos", () => {
   assert.deepEqual(missing, [], `Chaves faltando em en.json: ${missing.join(", ")}`);
 });
 
-test("pt-BR.json tem todas as seções top-level de en.json", () => {
-  const enTop = Object.keys(en as object);
-  const ptTop = new Set(Object.keys(ptBR as object));
-  const missing = enTop.filter((k) => !ptTop.has(k));
-  assert.deepEqual(missing, [], `Seções top-level faltando em pt-BR.json: ${missing.join(", ")}`);
+test("bin/cli/locales ships exactly one catalog: en.json", () => {
+  // The English-only invariant, asserted on the shipped file list rather than
+  // on a parity comparison: an extra catalog would resurrect the cross-locale
+  // fallback chain that `bin/cli/i18n.mjs` no longer implements.
+  const shipped = readdirSync(join(ROOT, "bin", "cli", "locales"))
+    .filter((f) => f.endsWith(".json"))
+    .sort();
+  assert.deepEqual(shipped, ["en.json"]);
 });
 
-for (const [name, cat] of [["zh-CN", zhCN], ["zh-TW", zhTW]] as const) {
-  test(name + ".json tem paridade total de chaves com en.json", () => {
-    const catKeys = flattenKeys(cat as Record<string, unknown>);
-    const missing = [...enKeys].filter((k) => !catKeys.has(k));
-    assert.deepEqual(missing, [], name + ".json chaves faltando: " + missing.join(", "));
-  });
-}
-
-test("i18n.mjs detecta locale por OMNIROUTE_LANG", async () => {
+test("i18n.mjs resolves OMNIROUTE_LANG to en (only catalog shipped)", async () => {
   const { resetForTests, detectLocale } = await import("../../bin/cli/i18n.mjs");
   const orig = process.env.OMNIROUTE_LANG;
   process.env.OMNIROUTE_LANG = "pt-BR";
   resetForTests();
   const locale = detectLocale();
-  assert.equal(locale, "pt-BR");
+  assert.equal(locale, "en");
   if (orig === undefined) delete process.env.OMNIROUTE_LANG;
   else process.env.OMNIROUTE_LANG = orig;
   resetForTests();
@@ -124,11 +116,12 @@ test("t() retorna a chave quando não existe no catálogo", async () => {
   resetForTests();
 });
 
-test("t() usa pt-BR quando disponível", async () => {
-  const { resetForTests, t, setLocale } = await import("../../bin/cli/i18n.mjs");
+test("t() serves the English catalog even when a non-en locale is requested", async () => {
+  const { resetForTests, t, setLocale, getLocale } = await import("../../bin/cli/i18n.mjs");
   resetForTests();
   setLocale("pt-BR");
+  assert.equal(getLocale(), "en");
   const result = t("health.noServer");
-  assert.ok(result.includes("omniroute serve"), `Esperava mensagem pt-BR, obteve: ${result}`);
+  assert.equal(result, en.health.noServer);
   resetForTests();
 });

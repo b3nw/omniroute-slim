@@ -79,19 +79,17 @@ test("radar sync posts only to the local aggregate route and prints per-feed res
   }
 });
 
-test("CLI registry exposes nested radar status and sync commands with EN/PT strings", async () => {
+test("CLI registry exposes nested radar status and sync commands with EN strings", async () => {
   const { createProgram } = await import("../../bin/cli/program.mjs");
   const program = createProgram();
   const radar = program.commands.find((command) => command.name() === "radar");
   assert.ok(radar);
   assert.deepEqual(radar.commands.map((command) => command.name()).sort(), ["status", "sync"]);
 
-  for (const locale of ["en", "pt-BR"]) {
-    const messages = JSON.parse(
-      fs.readFileSync(path.resolve(process.cwd(), `bin/cli/locales/${locale}.json`), "utf8")
-    ) as { radar?: Record<string, unknown> };
-    assert.equal(typeof messages.radar?.description, "string");
-    assert.equal(typeof messages.radar?.status, "string");
-    assert.equal(typeof messages.radar?.sync, "string");
-  }
+  const messages = JSON.parse(
+    fs.readFileSync(path.resolve(process.cwd(), "bin/cli/locales/en.json"), "utf8")
+  ) as { radar?: Record<string, unknown> };
+  assert.equal(typeof messages.radar?.description, "string");
+  assert.equal(typeof messages.radar?.status, "string");
+  assert.equal(typeof messages.radar?.sync, "string");
 });

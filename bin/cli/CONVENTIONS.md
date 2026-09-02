@@ -135,25 +135,27 @@ export const RETRY_DEFAULTS = {
 ## 6. Internationalization
 
 - Every user-facing string goes through `t("module.key", vars)`.
-- Catalogs live in `bin/cli/locales/{locale}.json` (nested objects).
-  43 files ship out-of-the-box: `en`, `pt-BR`, and 41 additional locales.
-  11 locales are scaffold-only (empty `{}`); all keys fall back to `en` automatically.
-- Detection order: `--lang` flag → `OMNIROUTE_LANG` env → `LC_ALL` → `LC_MESSAGES` → `LANG` → `en`.
-- Locale persisted via `config lang set <code>` — saves `OMNIROUTE_LANG` to `~/.omniroute/.env`.
+- The CLI is English-only: `bin/cli/locales/en.json` is the single shipped
+  catalog (nested objects), matching the one locale in `config/i18n.json`.
+- Detection order (`--lang` flag → `OMNIROUTE_LANG` → `LC_ALL` → `LC_MESSAGES` →
+  `LANG`) is still read, but every value resolves to `en` — there is no second
+  catalog and therefore no cross-locale fallback chain.
+- Locale persisted via `config lang set <code>` — saves `OMNIROUTE_LANG` to
+  `~/.omniroute/.env`. Codes absent from `config/i18n.json` are rejected (exit 1).
 - Missing keys return the key itself (no crash).
-- PRs that add new strings **must** update `en.json` and `pt-BR.json`.
-  Other locale files are best-effort; missing keys silently fall back to `en`.
-- `normalize()` in `i18n.mjs` validates locale codes via `/^[a-zA-Z0-9-]+$/` to
-  prevent path traversal — never pass raw filesystem paths.
-- Canonical locale list: `config/i18n.json` — source of truth used by both CLI and
-  dashboard i18n pipelines.
+- PRs that add new strings **must** update `en.json`.
+- `i18n.mjs` never interpolates a caller-supplied locale into a filesystem path:
+  the catalog path is the fixed `locales/en.json`, so a hostile `--lang` value
+  cannot traverse.
+- Canonical locale list: `config/i18n.json` — source of truth for both the CLI and
+  the dashboard.
 
-### Adding a new locale file
+### Adding a locale
 
-1. Add entry to `config/i18n.json` with `code`, `english`, `native`, `flag`.
-2. Run `node bin/cli/scripts/generate-locales.mjs` — creates `bin/cli/locales/{code}.json`.
-3. Fill in translations (or leave as `{}` for en-fallback scaffold).
-4. The pre-commit hook `check-cli-i18n` will verify all `t()` keys exist in `en.json`.
+Deliberately not a one-command operation any more: it needs an entry in
+`config/i18n.json`, a hand-written `bin/cli/locales/<code>.json`, and a fallback
+chain restored in `bin/cli/i18n.mjs`. The `check-cli-i18n` gate asserts the
+English-only invariant, so it will fail until that work is done on purpose.
 
 ## 7. Logs / output channels
 

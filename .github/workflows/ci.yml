@@ -446,8 +446,6 @@ jobs:
       # One FS inventory of src/app/api for both anti-hallucination directions.
       - name: API docs refs (openapi + prose → routes)
         run: npm run check:api-docs-refs
-      - name: i18n translation drift (warn)
-        run: node scripts/i18n/check-translation-drift.mjs --warn
 
   docs-lint:
     name: Docs Lint (prose — advisory)
@@ -509,75 +507,6 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref && format('origin/{0}', github.base_ref) || '' }}
         run: node scripts/i18n/check-ui-value-drift.mjs
-
-  # #8038: cheap glossary/protected-terms consistency gate —
-  # complements i18n-ui-coverage (key parity) and the ICU `i18n` job below
-  # without needing app-boot/Playwright infra. Same gating as i18n-ui-coverage.
-  # ko added after the #8224 ko.json mistranslation cleanup so the fixed
-  # terminology cannot silently regress on the next machine-translation run.
-  i18n-glossary-zhcn:
-    name: i18n Glossary (zh-CN, ko)
-    runs-on: ubuntu-latest
-    needs: changes
-    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false && (needs.changes.outputs.i18n == 'true' || needs.changes.outputs.code == 'true')) }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.CI_NODE_VERSION }}
-          cache: npm
-      - uses: ./.github/actions/npm-ci-retry
-      - run: node scripts/i18n/check-glossary-consistency.mjs --locale=zh-CN
-      - run: node scripts/i18n/check-glossary-consistency.mjs --locale=zh-TW
-
-  # D4 (plano mestre testes+CI): a matrix de ~40 jobs de <1min por idioma saturava sozinha
-  # a concorrência de jobs da conta (Free = 20 slots, compartilhados entre TODOS os repos)
-  # e pagava spin-up + arredondamento de billing por idioma. Um único job itera os idiomas
-  # (mesmo script), com grupo de log por idioma e artifact único de resultados nomeados por
-  # idioma (a matrix antiga subia 40 artifacts cujo result.txt colidia no merge-multiple).
-  i18n:
-    name: i18n Validation (all languages)
-    runs-on: ubuntu-latest
-    needs: changes
-    # P3 (plano mestre): a release-PR viva fica DRAFT o ciclo inteiro — jobs pesados pulam
-    # drafts (ciclo v3.8.44: 123 runs pesados re-disparados por merges na release, 88 cancelados).
-    # Message-catalog / i18n-tooling only — pure code without i18n surface skips this lane.
-    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false && needs.changes.outputs.i18n == 'true') }}
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - name: Validate all languages
-        run: |
-          set -uo pipefail
-          mkdir -p i18n-results
-          FAIL=0
-          for f in src/i18n/messages/*.json; do
-            lang=$(basename "$f" .json)
-            [ "$lang" = "en" ] && continue
-            echo "::group::i18n $lang"
-            if python3 scripts/i18n/validate_translation.py quick -l "$lang" > "i18n-results/$lang.txt" 2>&1; then
-              echo "OK $lang"
-            else
-              FAIL=1
-              echo "FAIL $lang"
-              cat "i18n-results/$lang.txt"
-            fi
-            echo "::endgroup::"
-          done
-          exit "$FAIL"
-      - name: Upload results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: i18n-results
-          path: i18n-results/
 
   pr-test-policy:
     name: PR Test Policy
@@ -1423,8 +1352,6 @@ jobs:
       - lint
       - docs-sync-strict
       - i18n-ui-coverage
-      - i18n-glossary-zhcn
-      - i18n
       - pr-test-policy
       - build
       - package-artifact
@@ -1439,14 +1366,6 @@ jobs:
       - test-ecosystem
       - test-protocols-e2e
     steps:
-      - name: Download i18n results
-        continue-on-error: true
-        uses: actions/download-artifact@v8
-        with:
-          pattern: i18n-*
-          path: results
-          merge-multiple: true
-
       - name: Generate dashboard
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -1496,7 +1415,6 @@ jobs:
           echo "| Lint | $(status '${{ needs.lint.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Docs Sync (Strict) | $(status '${{ needs.docs-sync-strict.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| i18n UI Coverage | $(status '${{ needs.i18n-ui-coverage.result }}') |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| i18n Glossary (zh-CN, ko) | $(status '${{ needs.i18n-glossary-zhcn.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| PR Test Policy | $(status '${{ needs.pr-test-policy.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| SonarQube (opt-in; disabled without SONARQUBE_ENABLED=true) | $(status '${{ needs.sonarqube.result }}') |" >> "$GITHUB_STEP_SUMMARY"
 
@@ -1522,31 +1440,7 @@ jobs:
           echo "| Protocol Clients E2E (advisory, #10049) | $(status '${{ needs.test-protocols-e2e.result }}') |" >> "$GITHUB_STEP_SUMMARY"
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "## 🌍 Translations" >> "$GITHUB_STEP_SUMMARY"
-
-          total=0
-          langs=0
-
-          if [ -d results ]; then
-            for file in results/*.txt; do
-              [ -f "$file" ] || continue
-              val=$(sed -r 's/\x1B\[[0-9;]*[mK]//g' "$file" | grep "Untranslated:" | awk '{print $2}')
-              val=${val:-0}
-              total=$((total + val))
-              langs=$((langs + 1))
-            done
-          fi
-
+          echo "## 🌍 Localization" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|--------|------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Languages checked | $langs |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Total untranslated | $total |" >> "$GITHUB_STEP_SUMMARY"
-
-          if [ "$total" -gt 0 ]; then
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "⚠️ **Translations need attention**" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "✅ **All translations complete**" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          echo "English-only runtime — \`config/i18n.json\` ships a single locale, so there is no" >> "$GITHUB_STEP_SUMMARY"
+          echo "per-language validation matrix to report. Key hygiene is covered by **i18n UI Coverage**." >> "$GITHUB_STEP_SUMMARY"

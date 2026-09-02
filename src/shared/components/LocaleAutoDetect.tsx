@@ -12,10 +12,10 @@ function hasLocaleCookie(): boolean {
 }
 
 /**
- * Auto-detects the browser language on first visit (no locale cookie set
- * yet) and persists it via the same writer `LanguageSelector` uses for a
- * manual selection, then refreshes the router so the server re-renders with
- * the detected locale. Mounted once in the root layout; renders nothing.
+ * Auto-detects the browser language on first visit (no locale cookie set yet),
+ * persists it via `persistLocale`, then refreshes the router so the server
+ * re-renders with the detected locale. Mounted once in the root layout;
+ * renders nothing.
  */
 export function LocaleAutoDetect() {
   const router = useRouter();

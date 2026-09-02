@@ -103,7 +103,11 @@ export function extractSection(changelog, version) {
 function git(args, opts = {}) {
   // maxBuffer: the default 1 MiB overflows on `git show origin/main:CHANGELOG.md`
   // (the CHANGELOG alone is >1 MiB) — ENOBUFS found live in the v3.8.45 run (2026-07-06).
-  return execFileSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...opts }).trim();
+  return execFileSync("git", args, {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+    ...opts,
+  }).trim();
 }
 
 // The sync-back is the ONE write path to the release branch with no CI gate — a red
@@ -162,7 +166,9 @@ function main() {
   const merged = insertNextSection(mainChangelog + "\n", nextSection, NEXT);
   // Assertions: main's latest section intact + next section present.
   if (!merged.includes(`## [${prevVersion}]`)) {
-    console.error(`[sync-next-cycle] ABORT: main's ## [${prevVersion}] section missing after re-insertion`);
+    console.error(
+      `[sync-next-cycle] ABORT: main's ## [${prevVersion}] section missing after re-insertion`
+    );
     process.exit(1);
   }
   if (!merged.includes(`## [${NEXT}]`)) {
@@ -171,37 +177,6 @@ function main() {
   }
   fs.writeFileSync(path.join(WT, "CHANGELOG.md"), merged);
   git(["add", "CHANGELOG.md"], { cwd: WT });
-
-  // i18n mirrors: regenerate instead of merging them one by one.
-  const mirrors = git(["diff", "--name-only", "--diff-filter=U"], { cwd: WT })
-    .split("\n")
-    .filter((f) => f.startsWith("docs/i18n/") && f.endsWith("CHANGELOG.md"));
-  for (const m of mirrors) {
-    execFileSync("git", ["checkout", "origin/main", "--", m], { cwd: WT });
-    execFileSync("git", ["add", m], { cwd: WT });
-  }
-  try {
-    execFileSync("npm", ["run", "release:sync-changelog-i18n", "--", NEXT, prevVersion], {
-      cwd: WT,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    // Also propagate the just-FINALIZED [prevVersion] section (dated bullets +
-    // Contributors) into the mirrors — syncing only [NEXT] leaves the shipped
-    // section as "— TBD" in all 42 mirrors (found live in the v3.8.45 run).
-    // Boundary = the version heading right below it in main's CHANGELOG.
-    const belowPrev = versionAfter(mainChangelog, prevVersion);
-    if (belowPrev) {
-      execFileSync("npm", ["run", "release:sync-changelog-i18n", "--", prevVersion, belowPrev], {
-        cwd: WT,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-    }
-    execFileSync("git", ["add", "-A", "docs/i18n"], { cwd: WT });
-  } catch (e) {
-    console.warn("[sync-next-cycle] i18n mirror resync failed (resolve manually):", e.message);
-  }
 
   // Anything still conflicted is for the human (migrations, lockfile, code).
   const unresolved = git(["diff", "--name-only", "--diff-filter=U"], { cwd: WT })
@@ -217,7 +192,14 @@ function main() {
     process.exit(1);
   }
 
-  git(["commit", "-m", `chore(release): sync main (v${prevVersion} close) into ${BRANCH} — parallel-cycle sync-back`], { cwd: WT });
+  git(
+    [
+      "commit",
+      "-m",
+      `chore(release): sync main (v${prevVersion} close) into ${BRANCH} — parallel-cycle sync-back`,
+    ],
+    { cwd: WT }
+  );
 
   // WS0.3 green gate: validate the MERGED tree before it reaches origin. The commit
   // stays local on failure so the captain can inspect/fix in the sync worktree.
@@ -238,13 +220,17 @@ function main() {
     }
     fs.rmSync(nm, { force: true });
   } else {
-    console.warn("[sync-next-cycle] ⚠ --skip-green-gate: pushing WITHOUT release-green validation.");
+    console.warn(
+      "[sync-next-cycle] ⚠ --skip-green-gate: pushing WITHOUT release-green validation."
+    );
   }
 
   git(["push", "origin", BRANCH], { cwd: WT });
 
   const left = git(["rev-list", "--count", `${BRANCH}..origin/main`], { cwd: WT });
-  console.log(`[sync-next-cycle] pushed. origin/main commits not in ${BRANCH}: ${left} (expected 0)`);
+  console.log(
+    `[sync-next-cycle] pushed. origin/main commits not in ${BRANCH}: ${left} (expected 0)`
+  );
 
   git(["worktree", "remove", "--force", WT], { cwd: ROOT });
   console.log("[sync-next-cycle] done — worktree removed.");
