@@ -56,7 +56,13 @@ function handlesFromDomainFilter(domainFilter?: string[]): string[] | undefined 
   if (!domainFilter?.length) return undefined;
   const handles = domainFilter
     .filter((d) => !d.startsWith("-"))
-    .map((d) => d.replace(/^@/, "").replace(/^(?:www\.)?(?:x|twitter)\.com\//i, "").split("/")[0])
+    .map(
+      (d) =>
+        d
+          .replace(/^@/, "")
+          .replace(/^(?:www\.)?(?:x|twitter)\.com\//i, "")
+          .split("/")[0]
+    )
     .filter((h) => /^[A-Za-z0-9_]{1,15}$/.test(h))
     .slice(0, 20);
   return handles.length ? handles : undefined;
@@ -101,11 +107,7 @@ function walkForUrls(value: unknown, urls: string[], seen: Set<string>, depth = 
   for (const nested of Object.values(rec)) walkForUrls(nested, urls, seen, depth + 1);
 }
 
-export function extractXSearchHits(
-  data: unknown,
-  query: string,
-  maxResults: number
-): XSearchHit[] {
+export function extractXSearchHits(data: unknown, query: string, maxResults: number): XSearchHit[] {
   const rec = asRecord(data) ?? {};
   const urls: string[] = [];
   const seen = new Set<string>();

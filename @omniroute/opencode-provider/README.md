@@ -12,7 +12,7 @@
 > // opencode.json
 > {
 >   "$schema": "https://opencode.ai/config.json",
->   "plugin": ["@omniroute/opencode-plugin"]
+>   "plugin": ["@omniroute/opencode-plugin"],
 > }
 > ```
 >

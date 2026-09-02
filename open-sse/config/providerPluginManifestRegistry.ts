@@ -14,7 +14,7 @@ export function getProviderPluginManifestEntry(provider: string) {
 }
 
 export function getProviderPluginManifestEntryForModel(
-  model: string | undefined,
+  model: string | undefined
 ): ProviderPluginManifestEntry | null {
   if (!model) return null;
 
@@ -25,7 +25,9 @@ export function getProviderPluginManifestEntryForModel(
   }
 
   const manifest = generateProviderPluginManifest();
-  return manifest.providers.find((provider) =>
-    provider.models.some((candidate) => candidate.id === model),
-  ) ?? null;
+  return (
+    manifest.providers.find((provider) =>
+      provider.models.some((candidate) => candidate.id === model)
+    ) ?? null
+  );
 }

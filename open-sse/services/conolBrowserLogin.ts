@@ -32,7 +32,9 @@ export function extractConolBrowserCredentials(
   const session = cookies.find(
     (candidate) =>
       candidate.name === CONOL_SESSION_COOKIE_NAME &&
-      (!candidate.domain || candidate.domain === "conol.ai" || candidate.domain.endsWith(".conol.ai"))
+      (!candidate.domain ||
+        candidate.domain === "conol.ai" ||
+        candidate.domain.endsWith(".conol.ai"))
   );
   const value = session?.value?.trim() || "";
   if (!value || /[\r\n;]/.test(value)) return null;

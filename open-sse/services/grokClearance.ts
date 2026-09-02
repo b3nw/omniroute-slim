@@ -74,7 +74,9 @@ async function acquireViaPool(): Promise<string | null> {
  * Never throws — resolves to `null` on any failure so callers can fall
  * through to the Cloudflare-challenge error rather than crash the request.
  */
-export async function acquireFreshGrokClearance(signal?: AbortSignal | null): Promise<string | null> {
+export async function acquireFreshGrokClearance(
+  signal?: AbortSignal | null
+): Promise<string | null> {
   if (acquireOverride) return acquireOverride(signal);
   try {
     return await acquireViaPool();

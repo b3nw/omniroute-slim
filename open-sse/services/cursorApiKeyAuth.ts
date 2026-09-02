@@ -53,7 +53,8 @@ export function isCursorApiKey(value: unknown): value is string {
 // Session-cache key fingerprint, not a password/credential hash — keyed with a fixed context
 // label so it reads as a domain-separated digest rather than a bare password hash.
 function cacheKeyFor(apiKey: string): string {
-  return crypto.createHmac("sha256", "omniroute-cursor-session-cache-fingerprint-v1")
+  return crypto
+    .createHmac("sha256", "omniroute-cursor-session-cache-fingerprint-v1")
     .update(apiKey)
     .digest("hex");
 }

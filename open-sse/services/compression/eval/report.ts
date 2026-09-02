@@ -18,7 +18,9 @@ export function formatReport(report: EvalReport): string {
   lines.push("# Compression evaluation report (D1)");
   lines.push("");
   if (report.partial) {
-    lines.push("> ⚠️ **PARTIAL RUN** — the per-run cost cap was reached; results below cover only the cases scored before the stop.");
+    lines.push(
+      "> ⚠️ **PARTIAL RUN** — the per-run cost cap was reached; results below cover only the cases scored before the stop."
+    );
     lines.push("");
   }
   lines.push(`- answer model: \`${stamps.answerModel}\``);
@@ -31,7 +33,9 @@ export function formatReport(report: EvalReport): string {
   lines.push("");
   lines.push(`- cases scored: ${overall.casesScored} (errored, excluded: ${overall.casesErrored})`);
   lines.push(`- fidelity preserved: ${overall.fidelityPreservedPct}%`);
-  lines.push(`- gold-accuracy delta (compressed − full): ${fmtDelta(overall.goldAccuracyDeltaPct)}`);
+  lines.push(
+    `- gold-accuracy delta (compressed − full): ${fmtDelta(overall.goldAccuracyDeltaPct)}`
+  );
   lines.push(`- mean compression ratio: ${overall.meanRatio}`);
   lines.push("");
   lines.push("## Per content-kind");

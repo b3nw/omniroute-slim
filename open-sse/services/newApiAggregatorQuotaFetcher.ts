@@ -217,9 +217,7 @@ export function invalidateNewApiAggregatorQuotaCache(connectionId: string): void
  * Check whether a connection has opted in to New-API aggregator balance
  * detection. Used by the dynamic dispatch in quotaPreflight / quotaMonitor.
  */
-export function isNewApiAggregatorBalanceConnection(
-  connection?: Record<string, unknown>
-): boolean {
+export function isNewApiAggregatorBalanceConnection(connection?: Record<string, unknown>): boolean {
   const providerSpecificData = toRecord(connection?.providerSpecificData);
   return providerSpecificData.newApiAggregatorBalance === true;
 }

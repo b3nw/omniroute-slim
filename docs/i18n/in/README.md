@@ -738,7 +738,7 @@ Outcome: deep fallback depth for deadline-critical workloads
 | ---- | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | 1    | Connect **Kiro** (AWS Builder ID OAuth)            | Claude Sonnet 4.5, Haiku 4.5 — provider/account limits apply                       |
 | 2    | Connect **Qoder** (Google OAuth)                   | kimi-k2-thinking, qwen3-coder-plus, deepseek-r1... — provider/account limits apply |
-| 3    | `/dashboard/combos` → **Free Stack ($0)** template | Round-robin all free providers automatically                       |
+| 3    | `/dashboard/combos` → **Free Stack ($0)** template | Round-robin all free providers automatically                                       |
 
 **Point any IDE/CLI to:** `http://localhost:20128/v1` · API Key: `any-string` · Done.
 
@@ -1196,7 +1196,6 @@ Cerebras (cerebras/)   → Llama/Qwen world-fastest — 1M tok/day
 
 > Recommended connection method: **Personal Access Token + `qodercli`**. Browser OAuth is
 > experimental and disabled by default unless `QODER_OAUTH_*` environment variables are configured.
-
 
 ### ⚫ NVIDIA NIM (Free API Key — build.nvidia.com)
 
@@ -1763,7 +1762,6 @@ Models:
   if/minimax-m2
   if/deepseek-r1
 ```
-
 
 ### Kiro (Claude FREE)
 

@@ -122,10 +122,10 @@ curl -X POST http://localhost:20128/a2a \
 
 ## Keterampilan yang Tersedia
 
-| Keterampilan       | Deskripsi                                                                                                                                               |
-| :----------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `smart-routing`    | Merutekan prompt melalui pipeline cerdas OmniRoute. Mengembalikan respons beserta penjelasan routing, biaya, dan jejak ketahanan.                        |
-| `quota-management` | Menjawab kueri bahasa alami tentang kuota penyedia, menyarankan combo gratis, dan memberikan peringkat kuota.                                           |
+| Keterampilan       | Deskripsi                                                                                                                         |
+| :----------------- | :-------------------------------------------------------------------------------------------------------------------------------- |
+| `smart-routing`    | Merutekan prompt melalui pipeline cerdas OmniRoute. Mengembalikan respons beserta penjelasan routing, biaya, dan jejak ketahanan. |
+| `quota-management` | Menjawab kueri bahasa alami tentang kuota penyedia, menyarankan combo gratis, dan memberikan peringkat kuota.                     |
 
 ---
 
@@ -145,13 +145,13 @@ submitted → working → completed
 
 ## Kode Kesalahan
 
-| Kode   | Arti                                    |
-| :----- | :-------------------------------------- |
-| -32700 | Kesalahan parse (JSON tidak valid)      |
+| Kode   | Arti                                       |
+| :----- | :----------------------------------------- |
+| -32700 | Kesalahan parse (JSON tidak valid)         |
 | -32600 | Permintaan tidak valid / Tidak diotorisasi |
-| -32601 | Metode atau keterampilan tidak ditemukan |
-| -32602 | Parameter tidak valid                   |
-| -32603 | Kesalahan internal                      |
+| -32601 | Metode atau keterampilan tidak ditemukan   |
+| -32602 | Parameter tidak valid                      |
+| -32603 | Kesalahan internal                         |
 
 ---
 

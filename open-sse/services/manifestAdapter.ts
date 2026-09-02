@@ -11,12 +11,7 @@ import type { RuleInput } from "./specificityTypes";
 import type { ResolvedComboTarget } from "./combo";
 
 export type StrategyModifier =
-  | "default"
-  | "prefer-free"
-  | "prefer-cheap"
-  | "require-premium"
-  | "cost-save"
-  | "quality-first";
+  "default" | "prefer-free" | "prefer-cheap" | "require-premium" | "cost-save" | "quality-first";
 
 export interface RoutingHint {
   tierAssignments: Map<string, TierAssignment>;

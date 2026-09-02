@@ -57,9 +57,7 @@ export function preferAntigravityConnectionsWithStoredProject<T extends Record<s
   // healthier sibling exists. When every row is confirmed missing, keep the
   // pool so the typed 422 (not an empty-selection 404) explains what to fix.
   const hasHealthySibling = (connection: T): boolean =>
-    connections.some(
-      (other) => other !== connection && other.errorCode !== "missing_project_id"
-    );
+    connections.some((other) => other !== connection && other.errorCode !== "missing_project_id");
   const candidates = connections.filter(
     (connection) =>
       connection.errorCode !== "missing_project_id" ||

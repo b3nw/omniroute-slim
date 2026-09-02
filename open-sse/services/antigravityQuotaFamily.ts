@@ -16,7 +16,9 @@ function normalizeModelId(model: string | null | undefined): string {
 export function getAntigravityQuotaFamily(
   model: string | null | undefined
 ): AntigravityQuotaFamily {
-  const bare = normalizeModelId(model).replace(/^(?:antigravity|agy)\//, "").replace(/^.*\//, "");
+  const bare = normalizeModelId(model)
+    .replace(/^(?:antigravity|agy)\//, "")
+    .replace(/^.*\//, "");
 
   if (
     bare.startsWith("gemini-") ||

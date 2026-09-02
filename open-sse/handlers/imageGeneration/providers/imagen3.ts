@@ -133,4 +133,3 @@ export async function handleImagen3ImageGeneration({
     return { success: false, status: 502, error: `Image provider error: ${errMsg}` };
   }
 }
-

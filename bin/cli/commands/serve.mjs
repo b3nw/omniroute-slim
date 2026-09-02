@@ -423,7 +423,9 @@ async function runWithSupervisor(
       if (detectMitmCrash(crashLog)) {
         try {
           const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-          const { updateSettings } = await import(pathToFileURL(join(PROJECT_ROOT, "src/lib/db/settings.ts")).href);
+          const { updateSettings } = await import(
+            pathToFileURL(join(PROJECT_ROOT, "src/lib/db/settings.ts")).href
+          );
           updateSettings({ mitmEnabled: false });
         } catch {}
         return "disable-mitm-and-retry";

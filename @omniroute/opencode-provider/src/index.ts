@@ -595,14 +595,7 @@ export async function fetchLiveModels(
  * An empty string clears any existing override (inherits global setting).
  */
 export type OmniRouteCompressionOverride =
-  | ""
-  | "off"
-  | "lite"
-  | "standard"
-  | "aggressive"
-  | "ultra"
-  | "rtk"
-  | "stacked";
+  "" | "off" | "lite" | "standard" | "aggressive" | "ultra" | "rtk" | "stacked";
 
 const VALID_COMPRESSION_OVERRIDES = new Set<string>([
   "",

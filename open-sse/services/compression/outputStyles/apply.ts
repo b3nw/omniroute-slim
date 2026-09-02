@@ -54,10 +54,7 @@ function resolveStyles(
 }
 
 /** Build the combined instruction body (no marker, no trailing boundary). Pure / deterministic. */
-function buildStyleInstructions(
-  resolved: OutputStyleSelectionEntry[],
-  language: string
-): string {
+function buildStyleInstructions(resolved: OutputStyleSelectionEntry[], language: string): string {
   const parts: string[] = [];
   for (const { id, level } of resolved) {
     const meta = outputStyleMeta(id);
@@ -104,7 +101,11 @@ export function applyOutputStyles(
       };
     }
     if (typeof body.input === "string" || Array.isArray(body.input)) {
-      return { body: { ...body, instructions: instruction }, applied: true, appliedStyles: resolved };
+      return {
+        body: { ...body, instructions: instruction },
+        applied: true,
+        appliedStyles: resolved,
+      };
     }
     return { body, applied: false, skippedReason: "no_messages" };
   }

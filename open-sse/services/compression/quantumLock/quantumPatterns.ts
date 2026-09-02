@@ -5,12 +5,7 @@
  */
 
 export type QuantumCategory =
-  | "uuid"
-  | "unix_ts"
-  | "long_hex"
-  | "jwt"
-  | "api_key_shape"
-  | "request_id";
+  "uuid" | "unix_ts" | "long_hex" | "jwt" | "api_key_shape" | "request_id";
 
 export interface VolatileSpan {
   start: number; // inclusive char offset into the system text
@@ -50,7 +45,8 @@ export const QUANTUM_PATTERNS: QuantumPattern[] = [
   // where \b would misfire (it needs a following word char) and let the token escape detection.
   {
     category: "jwt",
-    pattern: /\beyJ[A-Za-z0-9_-]{8,512}\.[A-Za-z0-9_-]{8,512}\.[A-Za-z0-9_-]{8,512}(?![A-Za-z0-9_-])/g,
+    pattern:
+      /\beyJ[A-Za-z0-9_-]{8,512}\.[A-Za-z0-9_-]{8,512}\.[A-Za-z0-9_-]{8,512}(?![A-Za-z0-9_-])/g,
   },
   // Prefixed API keys (stripe/github/slack shapes).
   {

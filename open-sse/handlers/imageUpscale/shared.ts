@@ -71,7 +71,9 @@ export function extractUpscaleSourceImage(body: unknown): string | null {
   if (!body || typeof body !== "object") return null;
   const b = body as Record<string, unknown>;
   const providerOptions =
-    b.provider_options && typeof b.provider_options === "object" && !Array.isArray(b.provider_options)
+    b.provider_options &&
+    typeof b.provider_options === "object" &&
+    !Array.isArray(b.provider_options)
       ? (b.provider_options as Record<string, unknown>)
       : {};
 
@@ -214,11 +216,7 @@ export function sniffImageMime(buffer: Buffer): string {
  */
 export function readImageDimensions(buffer: Buffer): { width: number; height: number } | null {
   try {
-    if (
-      buffer.length >= 24 &&
-      buffer[0] === 0x89 &&
-      buffer.toString("ascii", 1, 4) === "PNG"
-    ) {
+    if (buffer.length >= 24 && buffer[0] === 0x89 && buffer.toString("ascii", 1, 4) === "PNG") {
       // IHDR is always the first chunk: 8-byte signature + 4 length + 4 "IHDR".
       return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
     }
@@ -308,10 +306,7 @@ export function scaleDimensions(
   const source = readImageDimensions(buffer);
   if (!source || source.width <= 0 || source.height <= 0) return null;
   const safeFactor = Number.isFinite(factor) && factor > 0 ? factor : 2;
-  const scale = Math.min(
-    safeFactor,
-    maxEdge / Math.max(source.width, source.height)
-  );
+  const scale = Math.min(safeFactor, maxEdge / Math.max(source.width, source.height));
   return {
     width: Math.max(1, Math.round(source.width * Math.max(1, scale))),
     height: Math.max(1, Math.round(source.height * Math.max(1, scale))),
@@ -365,9 +360,7 @@ export function saveUpscaleErrorResult(opts: {
     provider: opts.provider,
     duration: Date.now() - opts.startTime,
     error:
-      typeof opts.error === "string"
-        ? opts.error.slice(0, 500)
-        : String(opts.error).slice(0, 500),
+      typeof opts.error === "string" ? opts.error.slice(0, 500) : String(opts.error).slice(0, 500),
     requestBody: opts.requestBody ?? null,
   }).catch(() => {});
 

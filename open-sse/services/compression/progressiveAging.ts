@@ -120,7 +120,9 @@ export function applyAging(
         result.push(msg);
       }
     } else if (distanceFromEnd <= t.moderate) {
-      const compressed = cavemanCompress({ messages: [msg] as unknown as Parameters<typeof cavemanCompress>[0]["messages"] }) as CompressedResult;
+      const compressed = cavemanCompress({
+        messages: [msg] as unknown as Parameters<typeof cavemanCompress>[0]["messages"],
+      }) as CompressedResult;
       if (compressed?.body?.messages?.[0]?.content) {
         const newContent =
           typeof compressed.body.messages[0].content === "string"

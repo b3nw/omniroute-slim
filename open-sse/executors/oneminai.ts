@@ -69,7 +69,12 @@ function buildSseChunk(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`;
 }
 
-function buildOpenAiJsonCompletion(content: string, model: string, id: string, created: number): Response {
+function buildOpenAiJsonCompletion(
+  content: string,
+  model: string,
+  id: string,
+  created: number
+): Response {
   return new Response(
     JSON.stringify({
       id,
@@ -84,7 +89,11 @@ function buildOpenAiJsonCompletion(content: string, model: string, id: string, c
   );
 }
 
-function toOpenAiErrorResponse(status: number, message: string, upstreamDetails?: unknown): Response {
+function toOpenAiErrorResponse(
+  status: number,
+  message: string,
+  upstreamDetails?: unknown
+): Response {
   return new Response(JSON.stringify(buildErrorBody(status, message, upstreamDetails)), {
     status,
     headers: { "Content-Type": "application/json" },
@@ -96,7 +105,12 @@ function toOpenAiErrorResponse(status: number, message: string, upstreamDetails?
  * data: {...}) from the upstream Response body and re-emit them as standard
  * OpenAI chat.completion.chunk SSE.
  */
-function translateSseStream(upstreamBody: ReadableStream<Uint8Array>, model: string, id: string, created: number): ReadableStream<Uint8Array> {
+function translateSseStream(
+  upstreamBody: ReadableStream<Uint8Array>,
+  model: string,
+  id: string,
+  created: number
+): ReadableStream<Uint8Array> {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
 
@@ -290,7 +304,9 @@ export class OneMinAiExecutor extends BaseExecutor {
       const aiRecord = asRecord(json.aiRecord);
       const detail = asRecord(aiRecord.aiRecordDetail);
       const resultObject = Array.isArray(detail.resultObject) ? detail.resultObject : [];
-      const content = resultObject.filter((part): part is string => typeof part === "string").join("");
+      const content = resultObject
+        .filter((part): part is string => typeof part === "string")
+        .join("");
 
       return {
         response: buildOpenAiJsonCompletion(content, model, id, created),

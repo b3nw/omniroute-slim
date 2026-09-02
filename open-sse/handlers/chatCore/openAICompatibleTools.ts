@@ -15,17 +15,11 @@ export function normalizeOpenAICompatibleTools(
 
   const before = tools.length;
   const normalized = tools
-    .filter((tool) =>
-      !tool.type || tool.type === "function" || !!tool.function || !!tool.name
-    )
+    .filter((tool) => !tool.type || tool.type === "function" || !!tool.function || !!tool.name)
     .map((tool) => {
       // Responses custom tools carry free-form input. Preserve their native shape so
       // the Responses translator can produce the required { input: string } schema.
-      if (
-        !tool.type ||
-        tool.type === "function" ||
-        tool.function
-      ) {
+      if (!tool.type || tool.type === "function" || tool.function) {
         return tool;
       }
 

@@ -97,7 +97,14 @@ export function detectRiskSpans(text: string, cfg: RiskGateConfig): RiskSpan[] {
     const enabled = new Set<RiskCategory>(
       cfg.categories?.length
         ? cfg.categories
-        : (["stack_trace", "private_key", "secret_assignment", "k8s_secret", "db_migration", "legal"] as RiskCategory[])
+        : ([
+            "stack_trace",
+            "private_key",
+            "secret_assignment",
+            "k8s_secret",
+            "db_migration",
+            "legal",
+          ] as RiskCategory[])
     );
     const vcs = isLikelyVcsContext(text);
 
@@ -105,20 +112,26 @@ export function detectRiskSpans(text: string, cfg: RiskGateConfig): RiskSpan[] {
     const k8sHits = enabled.has("k8s_secret") ? detectK8sSecret(text) : [];
 
     // db_migration: require >=MIN_DDL hits; drop those inside a diff hunk.
-    const ddl = regexHits.filter((h) => h.category === "db_migration" && !(vcs && inDiffHunk(text, h.start)));
+    const ddl = regexHits.filter(
+      (h) => h.category === "db_migration" && !(vcs && inDiffHunk(text, h.start))
+    );
     const ddlPromoted: RiskSpan[] =
-      ddl.length >= MIN_DDL ? [{ start: ddl[0].start, end: ddl[ddl.length - 1].end, category: "db_migration" }] : [];
+      ddl.length >= MIN_DDL
+        ? [{ start: ddl[0].start, end: ddl[ddl.length - 1].end, category: "db_migration" }]
+        : [];
 
     // Guarded categories: secret_assignment, stack_trace, legal.
     const guarded = regexHits.filter(
-      (h) => h.category === "secret_assignment" || h.category === "stack_trace" || h.category === "legal"
+      (h) =>
+        h.category === "secret_assignment" || h.category === "stack_trace" || h.category === "legal"
     );
     // private_key is the only regex-hit self-evident category; k8s_secret and
     // db_migration self-promote via their own structural paths below.
     const selfEvident = regexHits.filter((h) => h.category === "private_key");
 
     // Count corroborating signals (self-evident + promoted-ddl + k8s + guarded).
-    const signalCount = selfEvident.length + (ddlPromoted.length ? 1 : 0) + k8sHits.length + guarded.length;
+    const signalCount =
+      selfEvident.length + (ddlPromoted.length ? 1 : 0) + k8sHits.length + guarded.length;
     const shortSection = !vcs && text.length < SHORT_SECTION;
     const guardedPromoted = signalCount >= 2 || shortSection ? guarded : [];
 

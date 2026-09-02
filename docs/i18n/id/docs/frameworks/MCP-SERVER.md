@@ -29,16 +29,16 @@ Lihat [Konfigurasi IDE](integrations/ide-configs.md) untuk pengaturan Antigravit
 
 ## Alat Esensial (8)
 
-| Alat                            | Deskripsi                                                         |
-| :------------------------------ | :---------------------------------------------------------------- |
-| `omniroute_get_health`          | Kesehatan gateway, pemutus sirkuit, uptime                        |
-| `omniroute_list_combos`         | Semua combo yang dikonfigurasi beserta modelnya                   |
-| `omniroute_get_combo_metrics`   | Metrik performa untuk combo tertentu                              |
-| `omniroute_switch_combo`        | Ganti combo aktif berdasarkan ID/nama                             |
-| `omniroute_check_quota`         | Status kuota per penyedia atau semua penyedia                     |
-| `omniroute_route_request`       | Kirim penyelesaian chat melalui OmniRoute                         |
-| `omniroute_cost_report`         | Analitik biaya untuk periode waktu tertentu                       |
-| `omniroute_list_models_catalog` | Katalog model lengkap beserta kemampuannya                        |
+| Alat                            | Deskripsi                                       |
+| :------------------------------ | :---------------------------------------------- |
+| `omniroute_get_health`          | Kesehatan gateway, pemutus sirkuit, uptime      |
+| `omniroute_list_combos`         | Semua combo yang dikonfigurasi beserta modelnya |
+| `omniroute_get_combo_metrics`   | Metrik performa untuk combo tertentu            |
+| `omniroute_switch_combo`        | Ganti combo aktif berdasarkan ID/nama           |
+| `omniroute_check_quota`         | Status kuota per penyedia atau semua penyedia   |
+| `omniroute_route_request`       | Kirim penyelesaian chat melalui OmniRoute       |
+| `omniroute_cost_report`         | Analitik biaya untuk periode waktu tertentu     |
+| `omniroute_list_models_catalog` | Katalog model lengkap beserta kemampuannya      |
 
 ## Alat Lanjutan (8)
 
@@ -78,10 +78,10 @@ Setiap pemanggilan alat dicatat ke `mcp_tool_audit` dengan:
 
 ## Berkas
 
-| Berkas                                       | Tujuan                                               |
-| :------------------------------------------- | :--------------------------------------------------- |
-| `open-sse/mcp-server/server.ts`              | Pembuatan server MCP + pendaftaran 16 alat           |
-| `open-sse/mcp-server/transport.ts`           | Transportasi Stdio + HTTP                            |
-| `open-sse/mcp-server/auth.ts`                | Validasi kunci API + lingkup                         |
-| `open-sse/mcp-server/audit.ts`               | Pencatatan audit pemanggilan alat                    |
-| `open-sse/mcp-server/tools/advancedTools.ts` | 8 pengendali alat lanjutan                           |
+| Berkas                                       | Tujuan                                     |
+| :------------------------------------------- | :----------------------------------------- |
+| `open-sse/mcp-server/server.ts`              | Pembuatan server MCP + pendaftaran 16 alat |
+| `open-sse/mcp-server/transport.ts`           | Transportasi Stdio + HTTP                  |
+| `open-sse/mcp-server/auth.ts`                | Validasi kunci API + lingkup               |
+| `open-sse/mcp-server/audit.ts`               | Pencatatan audit pemanggilan alat          |
+| `open-sse/mcp-server/tools/advancedTools.ts` | 8 pengendali alat lanjutan                 |

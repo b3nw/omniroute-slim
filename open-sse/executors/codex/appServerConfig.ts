@@ -156,7 +156,10 @@ export function isLocalAppServerHost(hostname: string): boolean {
  * psd-sourced token may go anywhere: whoever wrote the psd already knows it.
  */
 export function resolveAppServerConfig(psd: ProviderSpecificData): CodexAppServerConfig | null {
-  const urlRes = firstStringWithSource(psd?.codexAppServerUrl, process.env.OMNIROUTE_CODEX_APPSERVER_WS);
+  const urlRes = firstStringWithSource(
+    psd?.codexAppServerUrl,
+    process.env.OMNIROUTE_CODEX_APPSERVER_WS
+  );
   if (!urlRes || !isWebSocketUrl(urlRes.value)) return null;
 
   const tokenRes = resolveTokenWithSource(psd);
@@ -174,13 +177,21 @@ export function resolveAppServerConfig(psd: ProviderSpecificData): CodexAppServe
     firstString(psd?.codexAppServerCwd, process.env.OMNIROUTE_CODEX_APPSERVER_CWD) ?? "/tmp";
 
   const approvalPolicy =
-    firstString(psd?.codexAppServerApprovalPolicy, process.env.OMNIROUTE_CODEX_APPSERVER_APPROVAL) ??
-    undefined;
+    firstString(
+      psd?.codexAppServerApprovalPolicy,
+      process.env.OMNIROUTE_CODEX_APPSERVER_APPROVAL
+    ) ?? undefined;
   const sandbox =
     firstString(psd?.codexAppServerSandbox, process.env.OMNIROUTE_CODEX_APPSERVER_SANDBOX) ??
     undefined;
 
-  return { url, token, cwd, ...(approvalPolicy ? { approvalPolicy } : {}), ...(sandbox ? { sandbox } : {}) };
+  return {
+    url,
+    token,
+    cwd,
+    ...(approvalPolicy ? { approvalPolicy } : {}),
+    ...(sandbox ? { sandbox } : {}),
+  };
 }
 
 /**

@@ -10,14 +10,14 @@ Panduan lengkap untuk menginstal dan mengkonfigurasi OmniRoute pada sebuah VM (V
 
 ## Prasyarat
 
-| Item       | Minimum                  | Direkomendasikan |
-| ---------- | ------------------------ | ---------------- |
-| **CPU**    | 1 vCPU                   | 2 vCPU           |
-| **RAM**    | 1 GB                     | 2 GB             |
-| **Disk**   | 10 GB SSD                | 25 GB SSD        |
-| **OS**     | Ubuntu 22.04 LTS         | Ubuntu 24.04 LTS |
-| **Domain** | Terdaftar di Cloudflare  | —                |
-| **Docker** | Docker Engine 24+        | Docker 27+       |
+| Item       | Minimum                 | Direkomendasikan |
+| ---------- | ----------------------- | ---------------- |
+| **CPU**    | 1 vCPU                  | 2 vCPU           |
+| **RAM**    | 1 GB                    | 2 GB             |
+| **Disk**   | 10 GB SSD               | 25 GB SSD        |
+| **OS**     | Ubuntu 22.04 LTS        | Ubuntu 24.04 LTS |
+| **Domain** | Terdaftar di Cloudflare | —                |
+| **Docker** | Docker Engine 24+       | Docker 27+       |
 
 **Provider yang telah diuji**: Akamai (Linode), DigitalOcean, Vultr, Hetzner, AWS Lightsail.
 
@@ -255,9 +255,9 @@ nginx -t && systemctl reload nginx
 
 Di dasbor Cloudflare → DNS:
 
-| Tipe | Nama   | Konten                  | Proxy       |
-| ---- | ------ | ----------------------- | ----------- |
-| A    | `llms` | `203.0.113.10` (IP VM)  | ✅ Proxied  |
+| Tipe | Nama   | Konten                 | Proxy      |
+| ---- | ------ | ---------------------- | ---------- |
+| A    | `llms` | `203.0.113.10` (IP VM) | ✅ Proxied |
 
 ### 4.2 Konfigurasi SSL
 

@@ -5,12 +5,7 @@
  * required — boundedness is verified by an adversarial-input test.
  */
 export type RiskCategory =
-  | "stack_trace"
-  | "private_key"
-  | "secret_assignment"
-  | "k8s_secret"
-  | "db_migration"
-  | "legal";
+  "stack_trace" | "private_key" | "secret_assignment" | "k8s_secret" | "db_migration" | "legal";
 
 export const MAX_PEM_LEN = 4096;
 

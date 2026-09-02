@@ -122,8 +122,7 @@ export function extractContentText(json: unknown): string {
     const parts: string[] = [];
     for (const choice of choices) {
       const message = (choice as Record<string, unknown>)?.message as
-        | Record<string, unknown>
-        | undefined;
+        Record<string, unknown> | undefined;
       const content = message?.content;
       if (typeof content === "string") parts.push(content);
       else if (Array.isArray(content)) {

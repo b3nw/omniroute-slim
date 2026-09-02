@@ -224,7 +224,8 @@ function validateLlmCompressorConfig(config: Record<string, unknown>): EngineVal
   }
   if (config["minTokens"] !== undefined) {
     const v = config["minTokens"];
-    if (typeof v !== "number" || Number.isNaN(v) || v < 0) errors.push("minTokens must be a number >= 0");
+    if (typeof v !== "number" || Number.isNaN(v) || v < 0)
+      errors.push("minTokens must be a number >= 0");
   }
   if (config["compressionRate"] !== undefined) {
     const v = config["compressionRate"];

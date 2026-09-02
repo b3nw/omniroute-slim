@@ -14,7 +14,7 @@ import { NO_RENDER } from "./types.ts";
  */
 export function renderTerraformPlan(
   text: string,
-  _detection: CommandDetectionResult,
+  _detection: CommandDetectionResult
 ): RenderResult {
   // "No changes" is already compact — idempotent no-op
   if (/^No changes\./m.test(text)) return NO_RENDER(text);

@@ -41,9 +41,7 @@ export class ZenmuxFreeExecutor extends BaseExecutor {
       );
     }
 
-    const messages = (
-      bodyObj.messages as Array<{ role: string; content: unknown }>
-    ) || [];
+    const messages = (bodyObj.messages as Array<{ role: string; content: unknown }>) || [];
     const modelId = (bodyObj.model as string) || "deepseek/deepseek-chat";
     const maxTokens = (bodyObj.max_tokens as number) || 4096;
 
@@ -138,7 +136,11 @@ export class ZenmuxFreeExecutor extends BaseExecutor {
                 finish_reason: "stop",
               },
             ],
-            usage: { prompt_tokens: 0, completion_tokens: Math.ceil(txt.length / 4), total_tokens: 0 },
+            usage: {
+              prompt_tokens: 0,
+              completion_tokens: Math.ceil(txt.length / 4),
+              total_tokens: 0,
+            },
           }),
           { headers: { "Content-Type": "application/json" } }
         ),

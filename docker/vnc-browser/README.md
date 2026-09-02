@@ -25,30 +25,30 @@ The container image includes a local bridge because modern Chromium binds its de
 
 Docker assigns ephemeral host ports and binds them to loopback:
 
-| Purpose | Default container port | Host exposure |
-| --- | ---: | --- |
-| Browser web UI | `3000` | `127.0.0.1:<ephemeral>` |
-| DevTools/CDP bridge | `9223` | `127.0.0.1:<ephemeral>` |
+| Purpose             | Default container port | Host exposure           |
+| ------------------- | ---------------------: | ----------------------- |
+| Browser web UI      |                 `3000` | `127.0.0.1:<ephemeral>` |
+| DevTools/CDP bridge |                 `9223` | `127.0.0.1:<ephemeral>` |
 
 Remote operators must access the browser UI through an authenticated application proxy or an SSH tunnel. Do not publish either port on `0.0.0.0`.
 
 ## Configuration
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `OMNIROUTE_VNC_IMAGE` | `omniroute-vnc-chromium:local` | Compatible browser image |
-| `OMNIROUTE_VNC_CONTAINER_VNC_PORT` | `3000` | Browser UI port inside the container |
-| `OMNIROUTE_VNC_CONTAINER_CDP_PORT` | `9223` | CDP bridge port inside the container |
-| `OMNIROUTE_VNC_CONTAINER_PROFILE_DIR` | `/config` | Profile mount point inside the container |
-| `OMNIROUTE_VNC_PROFILE_DIR` | `$HOME/.omniroute/browser-login-profiles` | Host profile root |
-| `OMNIROUTE_VNC_PERSIST_PROFILES` | `false` | Reuse a connection profile across sessions |
-| `OMNIROUTE_VNC_IDLE_MS` | `600000` | Idle-session timeout in milliseconds |
-| `OMNIROUTE_VNC_MAX_MS` | `1800000` | Maximum session lifetime in milliseconds |
-| `OMNIROUTE_VNC_MAX_SESSIONS` | `4` | Maximum concurrent sessions |
-| `OMNIROUTE_VNC_READY_MS` | `45000` | Browser/CDP startup timeout in milliseconds |
-| `OMNIROUTE_VNC_HARVEST_MS` | `20000` | Credential-harvest timeout in milliseconds |
-| `OMNIROUTE_VNC_CHROMIUM_ARGS` | see `manifest.ts` | Chromium command-line arguments |
-| `OMNIROUTE_DOCKER_BIN` | `docker` | Docker-compatible CLI executable |
+| Variable                              | Default                                   | Purpose                                     |
+| ------------------------------------- | ----------------------------------------- | ------------------------------------------- |
+| `OMNIROUTE_VNC_IMAGE`                 | `omniroute-vnc-chromium:local`            | Compatible browser image                    |
+| `OMNIROUTE_VNC_CONTAINER_VNC_PORT`    | `3000`                                    | Browser UI port inside the container        |
+| `OMNIROUTE_VNC_CONTAINER_CDP_PORT`    | `9223`                                    | CDP bridge port inside the container        |
+| `OMNIROUTE_VNC_CONTAINER_PROFILE_DIR` | `/config`                                 | Profile mount point inside the container    |
+| `OMNIROUTE_VNC_PROFILE_DIR`           | `$HOME/.omniroute/browser-login-profiles` | Host profile root                           |
+| `OMNIROUTE_VNC_PERSIST_PROFILES`      | `false`                                   | Reuse a connection profile across sessions  |
+| `OMNIROUTE_VNC_IDLE_MS`               | `600000`                                  | Idle-session timeout in milliseconds        |
+| `OMNIROUTE_VNC_MAX_MS`                | `1800000`                                 | Maximum session lifetime in milliseconds    |
+| `OMNIROUTE_VNC_MAX_SESSIONS`          | `4`                                       | Maximum concurrent sessions                 |
+| `OMNIROUTE_VNC_READY_MS`              | `45000`                                   | Browser/CDP startup timeout in milliseconds |
+| `OMNIROUTE_VNC_HARVEST_MS`            | `20000`                                   | Credential-harvest timeout in milliseconds  |
+| `OMNIROUTE_VNC_CHROMIUM_ARGS`         | see `manifest.ts`                         | Chromium command-line arguments             |
+| `OMNIROUTE_DOCKER_BIN`                | `docker`                                  | Docker-compatible CLI executable            |
 
 ## Security and lifecycle
 

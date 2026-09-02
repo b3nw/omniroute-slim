@@ -99,9 +99,10 @@ export function recordLearnedThinkingCap(
  */
 export function parseThinkingBudgetMax(errText: unknown): number | null {
   if (typeof errText !== "string" || !errText) return null;
-  const match = /thinking_?budget[^\d-]*(?:must be in the range|range)[^\d-]*\[\s*-?\d+\s*,\s*(\d+)\s*\]/i.exec(
-    errText
-  );
+  const match =
+    /thinking_?budget[^\d-]*(?:must be in the range|range)[^\d-]*\[\s*-?\d+\s*,\s*(\d+)\s*\]/i.exec(
+      errText
+    );
   if (!match) return null;
   const max = Number(match[1]);
   return Number.isFinite(max) ? max : null;

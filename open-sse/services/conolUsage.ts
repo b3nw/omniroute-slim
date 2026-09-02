@@ -35,8 +35,7 @@ function remainingQuota(remaining: number, total = remaining): UsageQuota {
     used,
     total: boundedTotal,
     remaining,
-    remainingPercentage:
-      boundedTotal > 0 ? Math.round((remaining / boundedTotal) * 1000) / 10 : 0,
+    remainingPercentage: boundedTotal > 0 ? Math.round((remaining / boundedTotal) * 1000) / 10 : 0,
     resetAt: null,
     unlimited: false,
   };

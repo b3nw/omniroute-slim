@@ -30,9 +30,7 @@ function tokenize(text: string): string[] {
   let start = -1;
   for (let i = 0; i <= lower.length; i++) {
     const ch = i < lower.length ? lower.charCodeAt(i) : -1;
-    const isAlnum =
-      ch !== -1 &&
-      ((ch >= 97 && ch <= 122) || (ch >= 48 && ch <= 57));
+    const isAlnum = ch !== -1 && ((ch >= 97 && ch <= 122) || (ch >= 48 && ch <= 57));
     if (isAlnum) {
       if (start === -1) start = i;
     } else {
@@ -64,11 +62,7 @@ function boilerplateScore(tokens: string[]): number {
   return count / tokens.length;
 }
 
-export function scoreSentences(
-  sentences: string[],
-  query: string,
-  cfg: RelevanceConfig
-): number[] {
+export function scoreSentences(sentences: string[], query: string, cfg: RelevanceConfig): number[] {
   if (sentences.length === 0) return [];
   if (!query || query.trim().length === 0) return sentences.map(() => 0);
 

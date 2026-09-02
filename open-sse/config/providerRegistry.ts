@@ -28,10 +28,7 @@ import {
   mapStainlessArch,
 } from "./providers/shared.ts";
 
-import {
-  getEffectiveAliasMap,
-  onAliasCacheInvalidation,
-} from "./providerAliasOverrides.ts";
+import { getEffectiveAliasMap, onAliasCacheInvalidation } from "./providerAliasOverrides.ts";
 
 // ── Generator Functions ───────────────────────────────────────────────────
 

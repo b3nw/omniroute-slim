@@ -61,10 +61,15 @@ export function registerMcp(program) {
             ? JSON.parse(argsPositional)
             : {};
 
-      const exitCode = await runMcpCallCommand(tool, args, {
-        ...opts,
-        stream: opts.stream,
-      }, globalOpts);
+      const exitCode = await runMcpCallCommand(
+        tool,
+        args,
+        {
+          ...opts,
+          stream: opts.stream,
+        },
+        globalOpts
+      );
 
       if (exitCode !== 0) process.exit(exitCode);
     });
@@ -127,7 +132,9 @@ async function mcpJsonRpcCall(tool, args, { stream = false, globalOpts = {} } = 
 
   if (!initRes.ok) {
     const text = await initRes.text().catch(() => "");
-    process.stderr.write(`MCP initialize failed: HTTP ${initRes.status}${text ? ` — ${text}` : ""}\n`);
+    process.stderr.write(
+      `MCP initialize failed: HTTP ${initRes.status}${text ? ` — ${text}` : ""}\n`
+    );
     return 1;
   }
 

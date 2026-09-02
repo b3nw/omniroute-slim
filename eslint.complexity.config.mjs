@@ -15,7 +15,12 @@ import tseslint from "typescript-eslint";
 /** @type {import("eslint").Linter.Config[]} */
 const complexityConfig = [
   {
-    files: ["src/**/*.{ts,tsx}", "open-sse/**/*.{ts,tsx}", "electron/**/*.{ts,tsx}", "bin/**/*.{ts,tsx}"],
+    files: [
+      "src/**/*.{ts,tsx}",
+      "open-sse/**/*.{ts,tsx}",
+      "electron/**/*.{ts,tsx}",
+      "bin/**/*.{ts,tsx}",
+    ],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
@@ -38,10 +43,7 @@ const complexityConfig = [
     // count is exactly "functions over the complexity / length thresholds".
     rules: {
       complexity: ["error", 15],
-      "max-lines-per-function": [
-        "error",
-        { max: 80, skipBlankLines: true, skipComments: true },
-      ],
+      "max-lines-per-function": ["error", { max: 80, skipBlankLines: true, skipComments: true }],
     },
   },
   // Ignore everything that is not first-party src/open-sse/electron/bin production code so

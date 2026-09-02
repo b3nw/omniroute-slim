@@ -425,9 +425,7 @@ Both the **head** and **tail** of each section are preserved; middle content is 
 ```json
 {
   "combo": "my-coding-combo",
-  "routing": {
-    /* ... */
-  },
+  "routing": {/* ... */},
   "compression": {
     "engine": "rtk",
     "intensity": "aggressive"

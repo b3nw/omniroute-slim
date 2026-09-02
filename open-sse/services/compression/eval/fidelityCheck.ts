@@ -50,7 +50,12 @@ export async function judgeFidelityBatch(
       const prompt = buildJudgePrompt(item.original, item.compressed);
       const { text, usdCost } = await client.complete(judgeModel, prompt);
       meter.add(usdCost ?? 0);
-      results.push({ id: item.id, verdict: parseJudgeVerdict(text), usdCost: usdCost ?? 0, skippedCapped: false });
+      results.push({
+        id: item.id,
+        verdict: parseJudgeVerdict(text),
+        usdCost: usdCost ?? 0,
+        skippedCapped: false,
+      });
     } catch {
       results.push({ id: item.id, verdict: "unparseable", usdCost: 0, skippedCapped: false });
     }

@@ -1,7 +1,11 @@
 import { createCompressionStats } from "../../stats.ts";
 import type { CompressionResult } from "../../types.ts";
 import type { CompressionEngine } from "../types.ts";
-import { RELEVANCE_SCHEMA, validateRelevanceConfig, resolveRelevanceConfig } from "./configSchema.ts";
+import {
+  RELEVANCE_SCHEMA,
+  validateRelevanceConfig,
+  resolveRelevanceConfig,
+} from "./configSchema.ts";
 import { scoreSentences } from "./scorer.ts";
 
 // Sentence-level "never drop" guard. We canNOT reuse ultraHeuristic's FORCE_PRESERVE_RE
@@ -140,9 +144,7 @@ export const relevanceEngine: CompressionEngine = {
         // Joining all text blocks and stamping the result into each would duplicate and
         // scramble per-block content (core-review issue: multimodal corruption).
         if (Array.isArray(m.content)) {
-          const textBlocks = m.content.filter(
-            (b) => b && typeof b === "object" && "text" in b
-          );
+          const textBlocks = m.content.filter((b) => b && typeof b === "object" && "text" in b);
           if (textBlocks.length !== 1) return msg; // 0 or ≥2 text blocks ⇒ no-op
           const { result, changed } = applyRelevanceToText(
             String((textBlocks[0] as { text: unknown }).text),
@@ -152,9 +154,7 @@ export const relevanceEngine: CompressionEngine = {
           if (!changed) return msg;
           anyChanged = true;
           const newContent = m.content.map((block) =>
-            block === textBlocks[0]
-              ? { ...(block as object), text: result }
-              : block
+            block === textBlocks[0] ? { ...(block as object), text: result } : block
           );
           return { ...m, content: newContent };
         }

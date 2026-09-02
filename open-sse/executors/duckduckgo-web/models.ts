@@ -38,7 +38,10 @@ export function normalizeDuckDuckGoModel(model: string | undefined): string {
 // /duckchat/v1/models. When the live list is unavailable (`null` or empty),
 // pass the request through untouched so an offline probe can never silently
 // rewrite an otherwise valid model id.
-export function pickDuckDuckGoModel(requested: string, liveIds: ReadonlySet<string> | null): string {
+export function pickDuckDuckGoModel(
+  requested: string,
+  liveIds: ReadonlySet<string> | null
+): string {
   if (!liveIds || liveIds.size === 0) return requested;
   if (liveIds.has(requested)) return requested;
   const aliased = DUCKDUCKGO_MODEL_ALIASES[requested] ?? requested;

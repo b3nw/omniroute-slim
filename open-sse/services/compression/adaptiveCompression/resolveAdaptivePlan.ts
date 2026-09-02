@@ -50,7 +50,14 @@ export function resolveAdaptivePlan(input: ResolveAdaptiveInput): ResolveAdaptiv
   if (config.mode === "replace-autotrigger" && baseRank > aggressivenessOf("off")) {
     return {
       plan: basePlan,
-      telemetry: { policy: config.policy, target, headroomBefore, stagesApplied: [], headroomAfter: headroomBefore, fit: headroomBefore >= 0 },
+      telemetry: {
+        policy: config.policy,
+        target,
+        headroomBefore,
+        stagesApplied: [],
+        headroomAfter: headroomBefore,
+        fit: headroomBefore >= 0,
+      },
     };
   }
 
@@ -58,12 +65,22 @@ export function resolveAdaptivePlan(input: ResolveAdaptiveInput): ResolveAdaptiv
   if (headroomBefore >= 0) {
     return {
       plan: basePlan,
-      telemetry: { policy: config.policy, target, headroomBefore, stagesApplied: [], headroomAfter: headroomBefore, fit: true },
+      telemetry: {
+        policy: config.policy,
+        target,
+        headroomBefore,
+        stagesApplied: [],
+        headroomAfter: headroomBefore,
+        fit: true,
+      },
     };
   }
 
   // Escalation: start just ABOVE the base plan's aggressiveness (floor escalates beyond it).
-  const ladder = config.ladderOverride && config.ladderOverride.length > 0 ? config.ladderOverride : DEFAULT_LADDER;
+  const ladder =
+    config.ladderOverride && config.ladderOverride.length > 0
+      ? config.ladderOverride
+      : DEFAULT_LADDER;
   const startTier = config.mode === "floor" ? baseRank : aggressivenessOf("off");
   const stages = ladder.filter((s) => aggressivenessOf(s.engine) > startTier);
 
@@ -97,8 +114,7 @@ export function resolveAdaptivePlan(input: ResolveAdaptiveInput): ResolveAdaptiv
  */
 function planFromStages(basePlan: DerivedPlan, applied: LadderStage[]): DerivedPlan {
   if (applied.length === 0) return basePlan;
-  const basePipeline =
-    basePlan.mode === "stacked" ? basePlan.stackedPipeline : [];
+  const basePipeline = basePlan.mode === "stacked" ? basePlan.stackedPipeline : [];
   const stackedPipeline = [...basePipeline, ...applied];
   return { mode: "stacked", stackedPipeline };
 }

@@ -58,9 +58,7 @@ export interface DynamicToolCallLike {
  */
 export function dynamicToolWireName(namespace: unknown, tool: unknown): string {
   const name = typeof tool === "string" ? tool : "";
-  return typeof namespace === "string" && namespace.length > 0
-    ? `${namespace}__${name}`
-    : name;
+  return typeof namespace === "string" && namespace.length > 0 ? `${namespace}__${name}` : name;
 }
 
 /**

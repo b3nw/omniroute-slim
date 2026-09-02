@@ -13,11 +13,13 @@ export function formatSearchProviderFailure(
   isTimeout: boolean
 ): SearchProviderFailure {
   const rec = err && typeof err === "object" ? (err as Record<string, unknown>) : {};
-  const cause = rec.cause && typeof rec.cause === "object" ? (rec.cause as Record<string, unknown>) : {};
+  const cause =
+    rec.cause && typeof rec.cause === "object" ? (rec.cause as Record<string, unknown>) : {};
   const code =
     typeof cause.code === "string" && /^[A-Z][A-Z0-9_]{1,39}$/.test(cause.code) ? cause.code : "";
   const msg =
-    sanitizeErrorMessage(typeof rec.message === "string" ? rec.message : "fetch failed") || "fetch failed";
+    sanitizeErrorMessage(typeof rec.message === "string" ? rec.message : "fetch failed") ||
+    "fetch failed";
   return {
     success: false,
     status: isTimeout ? 504 : 502,

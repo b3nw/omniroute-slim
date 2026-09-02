@@ -10,16 +10,16 @@ Masalah umum dan solusinya untuk OmniRoute.
 
 ## Perbaikan Cepat
 
-| Masalah                                             | Solusi                                                                                                                                                           |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Login pertama tidak berfungsi                       | Atur `INITIAL_PASSWORD` di `.env` (tidak ada nilai default yang dikodekan langsung)                                                                              |
-| Dashboard terbuka di port yang salah                | Atur `PORT=20128` dan `NEXT_PUBLIC_BASE_URL=http://localhost:20128`                                                                                              |
-| Tidak ada log yang ditulis ke disk                  | Atur `APP_LOG_TO_FILE=true` dan pastikan pengambilan log panggilan diaktifkan                                                                                    |
-| EACCES: permission denied                           | Atur `DATA_DIR=/path/to/writable/dir` untuk mengganti `~/.omniroute`                                                                                            |
-| Strategi routing tidak tersimpan                    | Perbarui ke v1.4.11+ (perbaikan skema Zod untuk persistensi pengaturan)                                                                                         |
-| Login crash / halaman kosong                        | Periksa versi Node.js — lihat [Kompatibilitas Node.js](#nodejs-compatibility) di bawah                                                                          |
+| Masalah                                             | Solusi                                                                                                                                                                      |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Login pertama tidak berfungsi                       | Atur `INITIAL_PASSWORD` di `.env` (tidak ada nilai default yang dikodekan langsung)                                                                                         |
+| Dashboard terbuka di port yang salah                | Atur `PORT=20128` dan `NEXT_PUBLIC_BASE_URL=http://localhost:20128`                                                                                                         |
+| Tidak ada log yang ditulis ke disk                  | Atur `APP_LOG_TO_FILE=true` dan pastikan pengambilan log panggilan diaktifkan                                                                                               |
+| EACCES: permission denied                           | Atur `DATA_DIR=/path/to/writable/dir` untuk mengganti `~/.omniroute`                                                                                                        |
+| Strategi routing tidak tersimpan                    | Perbarui ke v1.4.11+ (perbaikan skema Zod untuk persistensi pengaturan)                                                                                                     |
+| Login crash / halaman kosong                        | Periksa versi Node.js — lihat [Kompatibilitas Node.js](#nodejs-compatibility) di bawah                                                                                      |
 | `dlopen` / `slice is not valid mach-o file` (macOS) | Jalankan `cd $(npm root -g)/omniroute/app && npm rebuild better-sqlite3 && omniroute` — lihat [Pembangunan ulang modul native macOS](#macos-native-module-rebuild) di bawah |
-| Proxy "fetch failed"                                | Pastikan konfigurasi proxy diatur pada tingkat yang tepat — lihat [Masalah Proxy](#proxy-issues) di bawah                                                       |
+| Proxy "fetch failed"                                | Pastikan konfigurasi proxy diatur pada tingkat yang tepat — lihat [Masalah Proxy](#proxy-issues) di bawah                                                                   |
 
 ---
 
@@ -255,12 +255,12 @@ Jika penyedia berulang kali masuk ke status OPEN:
 
 Gunakan **Dashboard → Translator** untuk melakukan debug masalah terjemahan format:
 
-| Mode             | Kapan Digunakan                                                                                              |
-| ---------------- | ------------------------------------------------------------------------------------------------------------ |
-| **Playground**   | Bandingkan format input/output berdampingan — tempel permintaan yang gagal untuk melihat cara terjemahannya  |
-| **Chat Tester**  | Kirim pesan langsung dan periksa payload permintaan/respons lengkap termasuk header                          |
-| **Test Bench**   | Jalankan pengujian batch di berbagai kombinasi format untuk menemukan terjemahan mana yang rusak             |
-| **Live Monitor** | Pantau aliran permintaan secara real-time untuk menangkap masalah terjemahan yang intermiten                 |
+| Mode             | Kapan Digunakan                                                                                             |
+| ---------------- | ----------------------------------------------------------------------------------------------------------- |
+| **Playground**   | Bandingkan format input/output berdampingan — tempel permintaan yang gagal untuk melihat cara terjemahannya |
+| **Chat Tester**  | Kirim pesan langsung dan periksa payload permintaan/respons lengkap termasuk header                         |
+| **Test Bench**   | Jalankan pengujian batch di berbagai kombinasi format untuk menemukan terjemahan mana yang rusak            |
+| **Live Monitor** | Pantau aliran permintaan secara real-time untuk menangkap masalah terjemahan yang intermiten                |
 
 ### Masalah format yang umum
 

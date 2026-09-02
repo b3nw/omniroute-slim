@@ -211,7 +211,10 @@ export function engineToCompressFn(engineId: string): CompressFn {
         // the first string content otherwise.
         for (let i = messages.length - 1; i >= 0; i--) {
           const c = (messages[i] as Record<string, unknown>)["content"];
-          if (typeof c === "string" && (messages[i] as Record<string, unknown>)["role"] !== "system") {
+          if (
+            typeof c === "string" &&
+            (messages[i] as Record<string, unknown>)["role"] !== "system"
+          ) {
             return c;
           }
         }

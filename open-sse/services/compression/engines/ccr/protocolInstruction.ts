@@ -59,9 +59,7 @@ function messageContainsSentinel(message: MessageWithContent): boolean {
         part &&
         typeof part === "object" &&
         typeof (part as Record<string, unknown>)["text"] === "string" &&
-        ((part as Record<string, unknown>)["text"] as string).includes(
-          CCR_PROTOCOL_MARKER_SENTINEL
-        )
+        ((part as Record<string, unknown>)["text"] as string).includes(CCR_PROTOCOL_MARKER_SENTINEL)
     );
   }
   return false;

@@ -36,7 +36,11 @@ export function extractMessageText(content: unknown): string {
       .filter(Boolean)
       .join("\n");
   }
-  if (content && typeof content === "object" && typeof (content as { text?: string }).text === "string") {
+  if (
+    content &&
+    typeof content === "object" &&
+    typeof (content as { text?: string }).text === "string"
+  ) {
     return (content as { text: string }).text;
   }
   return "";
@@ -55,7 +59,8 @@ export function extractToolCallsText(message: ChatMessage | null | undefined): s
       if (fn && typeof fn === "object") {
         const f = fn as Record<string, unknown>;
         const name = typeof f.name === "string" ? f.name : "";
-        const args = typeof f.arguments === "string" ? f.arguments : JSON.stringify(f.arguments ?? {});
+        const args =
+          typeof f.arguments === "string" ? f.arguments : JSON.stringify(f.arguments ?? {});
         if (name) parts.push(`tool_call:${name}:${args}`);
       } else if (typeof rec.name === "string") {
         parts.push(`tool_call:${rec.name}:${JSON.stringify(rec.arguments ?? rec.input ?? {})}`);

@@ -184,15 +184,15 @@ With Stacked:        10K-2.5K tokens sent     (78-95% eligible RTK+Caveman range
 
 ## Output Styles
 
-Output styles inject a system prompt instruction to steer the model's writing style. They are defined in the output style catalog and support multiple languages and intensity levels (`lite`, `full`, `ultra`). 
+Output styles inject a system prompt instruction to steer the model's writing style. They are defined in the output style catalog and support multiple languages and intensity levels (`lite`, `full`, `ultra`).
 
-| Style | Description | Supported Languages | Levels |
-| --- | --- | --- | --- |
-| `terse-prose` | Drop filler/articles/hedging; keep technical substance exact. | `en`, `pt-BR`, `ja`, `id`, `vi` | `lite`, `full`, `ultra` |
-| `less-code` | YAGNI ladder: smallest working change, no unrequested abstractions. | `en`, `pt-BR`, `vi`, `ja`, `id` | `lite`, `full`, `ultra` |
-| `ponytail` | Lazy senior-dev discipline: climb the YAGNI ladder, fix root cause, smallest working diff. | `en`, `pt-BR`, `vi`, `ja`, `id` | `lite`, `full`, `ultra` |
+| Style         | Description                                                                                  | Supported Languages             | Levels                  |
+| ------------- | -------------------------------------------------------------------------------------------- | ------------------------------- | ----------------------- |
+| `terse-prose` | Drop filler/articles/hedging; keep technical substance exact.                                | `en`, `pt-BR`, `ja`, `id`, `vi` | `lite`, `full`, `ultra` |
+| `less-code`   | YAGNI ladder: smallest working change, no unrequested abstractions.                          | `en`, `pt-BR`, `vi`, `ja`, `id` | `lite`, `full`, `ultra` |
+| `ponytail`    | Lazy senior-dev discipline: climb the YAGNI ladder, fix root cause, smallest working diff.   | `en`, `pt-BR`, `vi`, `ja`, `id` | `lite`, `full`, `ultra` |
 | `i-have-adhd` | Action-first output: next action leads, steps numbered, one concrete next step, no preamble. | `en`, `pt-BR`, `vi`, `ja`, `id` | `lite`, `full`, `ultra` |
-| `terse-cjk` | Classical-Chinese ultra-terse style (locale-gated to zh). | `zh` | `lite`, `full`, `ultra` |
+| `terse-cjk`   | Classical-Chinese ultra-terse style (locale-gated to zh).                                    | `zh`                            | `lite`, `full`, `ultra` |
 
 Each level appends a shared boundary clause ensuring that code blocks, URLs, file paths, commands, and identifiers remain verbatim.
 
@@ -470,13 +470,13 @@ into a catalog of composable output styles: `OUTPUT_STYLE_CATALOG` in
 instruction that makes the model itself produce cheaper output; styles can be enabled
 together and are injected in catalog order.
 
-| Style | `id` | What it does | Instruction languages |
-| --- | --- | --- | --- |
-| Terse prose | `terse-prose` | Drop filler/articles/hedging; keep technical substance exact. Same text as the legacy caveman output mode (referenced, not re-typed). | en, pt-BR, ja, id |
-| Less code | `less-code` | YAGNI ladder: smallest working change, no unrequested abstractions. | en only (backlog: [#10426](https://github.com/diegosouzapw/OmniRoute/issues/10426)) |
-| Ponytail (lazy senior dev) | `ponytail` | "The best code is the code never written": reuse > rewrite, root cause > symptom, shortest working diff. | en, pt-BR, vi, ja, id |
-| I have ADHD (action-first) | `i-have-adhd` | Action first (command/path/snippet before prose), numbered bounded steps, ONE concrete next step, no preamble/recap/closers. Adapted from [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd) (MIT). | en, pt-BR, vi, ja, id |
-| Terse CJK (文言) | `terse-cjk` | Classical-Chinese ultra-terse style. | zh (locale-gated: only offered when the detected language is `zh`) |
+| Style                      | `id`          | What it does                                                                                                                                                                                                 | Instruction languages                                                               |
+| -------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| Terse prose                | `terse-prose` | Drop filler/articles/hedging; keep technical substance exact. Same text as the legacy caveman output mode (referenced, not re-typed).                                                                        | en, pt-BR, ja, id                                                                   |
+| Less code                  | `less-code`   | YAGNI ladder: smallest working change, no unrequested abstractions.                                                                                                                                          | en only (backlog: [#10426](https://github.com/diegosouzapw/OmniRoute/issues/10426)) |
+| Ponytail (lazy senior dev) | `ponytail`    | "The best code is the code never written": reuse > rewrite, root cause > symptom, shortest working diff.                                                                                                     | en, pt-BR, vi, ja, id                                                               |
+| I have ADHD (action-first) | `i-have-adhd` | Action first (command/path/snippet before prose), numbered bounded steps, ONE concrete next step, no preamble/recap/closers. Adapted from [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd) (MIT). | en, pt-BR, vi, ja, id                                                               |
+| Terse CJK (文言)           | `terse-cjk`   | Classical-Chinese ultra-terse style.                                                                                                                                                                         | zh (locale-gated: only offered when the detected language is `zh`)                  |
 
 Every style ships three intensity levels — `lite`, `full`, `ultra` — and every level
 ends with the shared boundaries clause, which keeps code blocks, file paths, commands,

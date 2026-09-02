@@ -126,7 +126,10 @@ async function slmOrHeuristic(prose: string, cfg: UltraConfig): Promise<ProseSlm
     });
     return { text, usedSlm: true };
   } catch {
-    return { text: pruneByScore(prose, cfg.compressionRate, cfg.minScoreThreshold), usedSlm: false };
+    return {
+      text: pruneByScore(prose, cfg.compressionRate, cfg.minScoreThreshold),
+      usedSlm: false,
+    };
   }
 }
 

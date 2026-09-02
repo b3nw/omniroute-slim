@@ -9,7 +9,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const PREFIX_TRIM_RE = /^(?:models\/|antigravity\/)+/i;
 
 function normalizeCloudCodeModel(model: string): string {
-  return String(model || "").trim().replace(PREFIX_TRIM_RE, "");
+  return String(model || "")
+    .trim()
+    .replace(PREFIX_TRIM_RE, "");
 }
 
 function stripGeminiThinkingConfig(value: unknown): unknown {

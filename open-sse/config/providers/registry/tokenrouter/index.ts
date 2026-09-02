@@ -25,7 +25,12 @@ export const tokenrouterProvider: RegistryEntry = {
   authHeader: "bearer",
   defaultContextLength: 128000,
   models: [
-    { id: "minimax-3", name: "MiniMax 3 (free, TokenRouter)", contextLength: 128000, toolCalling: true },
+    {
+      id: "minimax-3",
+      name: "MiniMax 3 (free, TokenRouter)",
+      contextLength: 128000,
+      toolCalling: true,
+    },
     {
       id: "deepseek-v4-pro",
       name: "DeepSeek V4 Pro (TokenRouter)",

@@ -115,7 +115,10 @@ export function applyBottleneckDoExpirePatch(): void {
     // Guard: _run is called twice for jobs with wait > 0 (first with the delay,
     // then with wait=0 when the timer fires). Without the flag, fixedDoExpire
     // would wrap itself recursively on the second call.
-    if (typeof job?.doExpire === "function" && !(job as unknown as Record<string, unknown>)._doExpirePatched) {
+    if (
+      typeof job?.doExpire === "function" &&
+      !(job as unknown as Record<string, unknown>)._doExpirePatched
+    ) {
       (job as unknown as Record<string, unknown>)._doExpirePatched = true;
       const originalDoExpire = job.doExpire.bind(job);
       // Bottleneck registers the job in _states under options.id (Job.js

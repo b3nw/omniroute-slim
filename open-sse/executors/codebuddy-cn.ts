@@ -149,8 +149,10 @@ export class CodeBuddyCnExecutor extends DefaultExecutor {
     // --- Agent system prompt replacement ---
     // Tencent's content filter flags CLI agent system prompts as sensitive content.
     // Detect and replace them with a neutral prompt.
-    const NEUTRAL_PROMPT = "You are a helpful AI assistant that helps with software engineering tasks.";
-    const AGENT_PATTERN = /you are claude code|claude.?code.+official.+cli|anthropic.+official.+cli|anxthxropic.+official.+cli|you are (?:cursor|windsurf|cline|aider|continue|copilot|cody)|you are an? (?:ai )?(?:coding |code )?agent|cc_entrypoint\s*=\s*(?:cli|vscode|jetbrains|gui)|claude.?code.+issues|give feedback.+claude.?code|you are .{0,30}(?:powerful )?ai agent|orchestration capabilities|OhMyOpenCode|<agent-identity>|<Role>|<Behavior_Instructions>/i;
+    const NEUTRAL_PROMPT =
+      "You are a helpful AI assistant that helps with software engineering tasks.";
+    const AGENT_PATTERN =
+      /you are claude code|claude.?code.+official.+cli|anthropic.+official.+cli|anxthxropic.+official.+cli|you are (?:cursor|windsurf|cline|aider|continue|copilot|cody)|you are an? (?:ai )?(?:coding |code )?agent|cc_entrypoint\s*=\s*(?:cli|vscode|jetbrains|gui)|claude.?code.+issues|give feedback.+claude.?code|you are .{0,30}(?:powerful )?ai agent|orchestration capabilities|OhMyOpenCode|<agent-identity>|<Role>|<Behavior_Instructions>/i;
     const flatten = (content: unknown): string =>
       typeof content === "string"
         ? content
@@ -191,7 +193,13 @@ export class CodeBuddyCnExecutor extends DefaultExecutor {
         if (new TextEncoder().encode(s).byteLength >= 65536) {
           out.tools = (out.tools as Array<Record<string, unknown>>).map((tool) => {
             if (!tool || typeof tool !== "object" || Array.isArray(tool)) return tool;
-            if (tool.type !== "function" || !tool.function || typeof tool.function !== "object" || Array.isArray(tool.function)) return tool;
+            if (
+              tool.type !== "function" ||
+              !tool.function ||
+              typeof tool.function !== "object" ||
+              Array.isArray(tool.function)
+            )
+              return tool;
             if (!Object.prototype.hasOwnProperty.call(tool.function, "description")) return tool;
             const cf = { ...(tool.function as Record<string, unknown>) };
             delete cf.description;

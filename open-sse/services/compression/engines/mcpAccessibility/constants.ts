@@ -54,7 +54,11 @@ export function clampMcpAccessibilityConfig(raw: unknown): McpAccessibilityConfi
   const d = DEFAULT_MCP_ACCESSIBILITY_CONFIG;
   return {
     enabled: record["enabled"] !== false,
-    maxTextChars: boundedInt(record["maxTextChars"], MCP_ACCESSIBILITY_MIN_MAX_TEXT_CHARS, d.maxTextChars),
+    maxTextChars: boundedInt(
+      record["maxTextChars"],
+      MCP_ACCESSIBILITY_MIN_MAX_TEXT_CHARS,
+      d.maxTextChars
+    ),
     collapseThreshold: boundedInt(record["collapseThreshold"], 1, d.collapseThreshold),
     collapseKeepHead: boundedInt(record["collapseKeepHead"], 0, d.collapseKeepHead),
     collapseKeepTail: boundedInt(record["collapseKeepTail"], 0, d.collapseKeepTail),

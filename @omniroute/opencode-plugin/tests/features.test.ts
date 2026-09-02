@@ -402,11 +402,7 @@ test("provider hook: enrichment fetcher NOT called when features.enrichment:fals
   );
   const out = await hook.models!({} as never, { auth: apiAuth("sk") as never });
   assert.equal(called, 0, "enrichment fetcher NOT called when gated off");
-  assert.equal(
-    out["omniroute/claude-sonnet-4-6"].name,
-    "claude-sonnet-4-6",
-    "raw id preserved"
-  );
+  assert.equal(out["omniroute/claude-sonnet-4-6"].name, "claude-sonnet-4-6", "raw id preserved");
 });
 
 test("provider hook: compression metadata fetcher NOT called by default (opt-in)", async () => {
@@ -514,8 +510,7 @@ test("config hook: features.mcpAutoEmit:true writes mcp entry with provider apiK
   const input: { provider?: Record<string, unknown>; mcp?: Record<string, unknown> } = {};
   await hook(input as never);
   const entry = input.mcp?.["opencode-omniroute"] as
-    | { type: string; url: string; enabled: boolean; headers: Record<string, string> }
-    | undefined;
+    { type: string; url: string; enabled: boolean; headers: Record<string, string> } | undefined;
   assert.ok(entry, "mcp entry written");
   assert.equal(entry.type, "remote");
   assert.equal(

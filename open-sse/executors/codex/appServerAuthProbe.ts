@@ -14,10 +14,7 @@
  * lightweight client + transport, and so it is independently unit-testable with a
  * fake websocketFn.
  */
-import {
-  CodexAppServerClient,
-  type CodexAppServerWebsocketFn,
-} from "./appServerClient.ts";
+import { CodexAppServerClient, type CodexAppServerWebsocketFn } from "./appServerClient.ts";
 import type { CodexAppServerConfig } from "./appServerConfig.ts";
 
 export type CodexAppServerAuthStatus =

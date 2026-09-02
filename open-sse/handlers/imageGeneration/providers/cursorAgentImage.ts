@@ -74,7 +74,11 @@ const JPEG_MAGIC = Buffer.from([0xff, 0xd8, 0xff]);
 const SPAWN_ALLOWED_LOCALITIES = new Set(["loopback", "lan"]);
 
 /** Locked instruction — ingress callers can only trigger image gen, never a shell. */
-export function buildCursorAgentImagePrompt(userPrompt: string, outPath: string, size?: unknown): string {
+export function buildCursorAgentImagePrompt(
+  userPrompt: string,
+  outPath: string,
+  size?: unknown
+): string {
   const sizeHint =
     typeof size === "string" && size.trim() ? ` Target size/aspect: ${size.trim()}.` : "";
   return [
@@ -90,7 +94,9 @@ export function buildCursorAgentImagePrompt(userPrompt: string, outPath: string,
 export function normalizeCursorSeatToken(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return trimmed;
-  return trimmed.includes("::") ? trimmed.split("::").slice(1).join("::").trim() || trimmed : trimmed;
+  return trimmed.includes("::")
+    ? trimmed.split("::").slice(1).join("::").trim() || trimmed
+    : trimmed;
 }
 
 /**
@@ -471,7 +477,10 @@ export async function handleCursorAgentImageGeneration({
     }
     // ENOENT from spawn → treat as missing CLI
     const status =
-      err && typeof err === "object" && "code" in err && (err as { code?: string }).code === "ENOENT"
+      err &&
+      typeof err === "object" &&
+      "code" in err &&
+      (err as { code?: string }).code === "ENOENT"
         ? 501
         : 502;
     return saveImageErrorResult({

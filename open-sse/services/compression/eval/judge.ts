@@ -44,25 +44,43 @@ export const CONTROL_PAIR = {
   degraded: "It returns 0 because the value is set to zero.",
 } as const;
 
-export interface SelfTestResult { passed: boolean; detail: string; }
+export interface SelfTestResult {
+  passed: boolean;
+  detail: string;
+}
 
 /**
  * Run the control pair through the judge. PASS requires: degraded => materially-differs AND
  * good => same. Any other outcome (including unparseable) FAILS, so the runner aborts before
  * emitting untrusted scores.
  */
-export async function runSelfTest(client: ModelClient, judgeModel: string): Promise<SelfTestResult> {
+export async function runSelfTest(
+  client: ModelClient,
+  judgeModel: string
+): Promise<SelfTestResult> {
   const goodVerdict = parseJudgeVerdict(
-    (await client.complete(judgeModel, buildJudgePrompt(CONTROL_PAIR.reference, CONTROL_PAIR.good))).text
+    (await client.complete(judgeModel, buildJudgePrompt(CONTROL_PAIR.reference, CONTROL_PAIR.good)))
+      .text
   );
   const degradedVerdict = parseJudgeVerdict(
-    (await client.complete(judgeModel, buildJudgePrompt(CONTROL_PAIR.reference, CONTROL_PAIR.degraded))).text
+    (
+      await client.complete(
+        judgeModel,
+        buildJudgePrompt(CONTROL_PAIR.reference, CONTROL_PAIR.degraded)
+      )
+    ).text
   );
   if (degradedVerdict !== "materially-differs") {
-    return { passed: false, detail: `judge failed to flag the known-degraded control (got "${degradedVerdict}")` };
+    return {
+      passed: false,
+      detail: `judge failed to flag the known-degraded control (got "${degradedVerdict}")`,
+    };
   }
   if (goodVerdict !== "same") {
-    return { passed: false, detail: `judge flagged the known-good control as "${goodVerdict}" (expected same)` };
+    return {
+      passed: false,
+      detail: `judge flagged the known-good control as "${goodVerdict}" (expected same)`,
+    };
   }
   return { passed: true, detail: "control pair ranked correctly" };
 }

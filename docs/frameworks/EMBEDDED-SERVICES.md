@@ -34,12 +34,12 @@ via API keys), embedded services run on the same machine as OmniRoute and commun
 
 Four services are embedded as of v3.8.44:
 
-| Service         | npm package                                    | Default port | Purpose                                                                                                          |
-| --------------- | ----------------------------------------------- | :----------: | ------------------------------------------------------------------------------------------------------------------ |
-| **9Router**     | `9router`                                      |    20130     | AI router that OmniRoute can use as a sub-provider. Models exposed as `9router/{sub}/{model}`                     |
-| **CLIProxyAPI** | `@anthropic/cli-proxy` (via `cliproxy` binary) |     auto     | Local proxy adapter for Anthropic CLI auth flows. Provides fallback routing when OAuth tokens expire              |
-| **Mux**         | `mux` (headless `mux server`)                  |     8322     | Local agent-orchestration daemon (coder/mux). Lifecycle-managed only — not a routing target (no LLM proxying).   |
-| **Bifrost**     | `@maximhq/bifrost`                             |    8080      | Go AI-gateway relay backend. When running, auto-selected by the relay route (`/v1/relay/`)                       |
+| Service         | npm package                                    | Default port | Purpose                                                                                                        |
+| --------------- | ---------------------------------------------- | :----------: | -------------------------------------------------------------------------------------------------------------- |
+| **9Router**     | `9router`                                      |    20130     | AI router that OmniRoute can use as a sub-provider. Models exposed as `9router/{sub}/{model}`                  |
+| **CLIProxyAPI** | `@anthropic/cli-proxy` (via `cliproxy` binary) |     auto     | Local proxy adapter for Anthropic CLI auth flows. Provides fallback routing when OAuth tokens expire           |
+| **Mux**         | `mux` (headless `mux server`)                  |     8322     | Local agent-orchestration daemon (coder/mux). Lifecycle-managed only — not a routing target (no LLM proxying). |
+| **Bifrost**     | `@maximhq/bifrost`                             |     8080     | Go AI-gateway relay backend. When running, auto-selected by the relay route (`/v1/relay/`)                     |
 
 All four follow the same supervisory model:
 
@@ -458,15 +458,15 @@ surface (the bearer token is generated the same way as 9Router's via
 there is no dedicated rotation endpoint yet). Mux is lifecycle-managed only: unlike
 9Router, it has no Layer 4 executor and is never registered as a routing provider.
 
-| Method | Path                            | Description                          |
-| ------ | -------------------------------- | ------------------------------------- |
-| `POST` | `/api/services/mux/install`    | Install Mux from npm (`npm i mux`)   |
-| `POST` | `/api/services/mux/start`      | Start Mux (`mux server`)             |
-| `POST` | `/api/services/mux/stop`       | Stop Mux                             |
-| `POST` | `/api/services/mux/restart`    | Restart Mux                          |
-| `POST` | `/api/services/mux/update`     | Update to newer npm version          |
-| `GET`  | `/api/services/mux/status`     | Live + DB status                     |
-| `POST` | `/api/services/mux/auto-start` | Toggle auto-start                    |
+| Method | Path                           | Description                        |
+| ------ | ------------------------------ | ---------------------------------- |
+| `POST` | `/api/services/mux/install`    | Install Mux from npm (`npm i mux`) |
+| `POST` | `/api/services/mux/start`      | Start Mux (`mux server`)           |
+| `POST` | `/api/services/mux/stop`       | Stop Mux                           |
+| `POST` | `/api/services/mux/restart`    | Restart Mux                        |
+| `POST` | `/api/services/mux/update`     | Update to newer npm version        |
+| `GET`  | `/api/services/mux/status`     | Live + DB status                   |
+| `POST` | `/api/services/mux/auto-start` | Toggle auto-start                  |
 
 ---
 
@@ -476,16 +476,16 @@ Bifrost is a Go AI-gateway relay backend (`@maximhq/bifrost`). It uses the same
 endpoint shape as CLIProxyAPI (no `rotate-key` — Bifrost manages its own provider
 keys in `config.json` under its `-app-dir`).
 
-| Method | Path                               | Description                                            |
-| ------ | ---------------------------------- | ------------------------------------------------------ |
-| `POST` | `/api/services/bifrost/install`    | Install Bifrost from npm (`@maximhq/bifrost`)          |
-| `POST` | `/api/services/bifrost/start`      | Start Bifrost on port 8080 (default)                   |
-| `POST` | `/api/services/bifrost/stop`       | Stop Bifrost                                           |
-| `POST` | `/api/services/bifrost/restart`    | Restart Bifrost                                        |
-| `POST` | `/api/services/bifrost/update`     | Update to newer version                                |
-| `GET`  | `/api/services/bifrost/status`     | Live + DB status                                       |
-| `POST` | `/api/services/bifrost/auto-start` | Toggle auto-start                                      |
-| `GET`  | `/api/services/bifrost/logs`       | SSE log tail (via shared `[name]/logs` dynamic route)  |
+| Method | Path                               | Description                                           |
+| ------ | ---------------------------------- | ----------------------------------------------------- |
+| `POST` | `/api/services/bifrost/install`    | Install Bifrost from npm (`@maximhq/bifrost`)         |
+| `POST` | `/api/services/bifrost/start`      | Start Bifrost on port 8080 (default)                  |
+| `POST` | `/api/services/bifrost/stop`       | Stop Bifrost                                          |
+| `POST` | `/api/services/bifrost/restart`    | Restart Bifrost                                       |
+| `POST` | `/api/services/bifrost/update`     | Update to newer version                               |
+| `GET`  | `/api/services/bifrost/status`     | Live + DB status                                      |
+| `POST` | `/api/services/bifrost/auto-start` | Toggle auto-start                                     |
+| `GET`  | `/api/services/bifrost/logs`       | SSE log tail (via shared `[name]/logs` dynamic route) |
 
 **Routing wiring:** When `BIFROST_BASE_URL` is unset and the supervised Bifrost
 instance is running, `getBifrostRoutingConfig()` (in `routingBackend.ts`) automatically

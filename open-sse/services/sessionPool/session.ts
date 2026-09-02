@@ -32,7 +32,7 @@ export class Session {
     fingerprint: Fingerprint,
     private readonly cooldownBase: number,
     private readonly cooldownMax: number,
-    private readonly cooldownJitter: number,
+    private readonly cooldownJitter: number
   ) {
     this.id = `sess-${fingerprint.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     this.fingerprint = fingerprint;
@@ -65,7 +65,7 @@ export class Session {
     this.consecutiveFails++;
     const base = Math.min(
       this.cooldownBase * Math.pow(2, this.consecutiveFails - 1),
-      this.cooldownMax,
+      this.cooldownMax
     );
     const jitter = Math.random() * this.cooldownJitter;
     this.cooldownUntil = Date.now() + base + jitter;

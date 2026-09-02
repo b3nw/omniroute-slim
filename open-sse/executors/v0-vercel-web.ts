@@ -67,8 +67,7 @@ export class V0VercelWebExecutor extends BaseExecutor {
 
     if (!wantStream) {
       const data = (await upstream.json()) as Record<string, unknown>;
-      const message = (data?.choices as Array<{ message?: Record<string, unknown> }>)?.[0]
-        ?.message;
+      const message = (data?.choices as Array<{ message?: Record<string, unknown> }>)?.[0]?.message;
       const content = (message?.content as string) || (data?.content as string) || "";
       const reasoningContent =
         (message?.reasoning_content as string) || (data?.reasoning_content as string) || "";

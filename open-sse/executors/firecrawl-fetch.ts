@@ -24,7 +24,8 @@ function getFirecrawlBaseUrl(credentials?: WebFetchCredentials): string {
   const envBase = process.env.FIRECRAWL_BASE_URL?.trim();
   if (envBase) return envBase.replace(/\/+$/, "");
   const providerData = credentials?.providerSpecificData;
-  const credBase = typeof credentials?.baseUrl === "string" ? credentials.baseUrl : providerData?.baseUrl;
+  const credBase =
+    typeof credentials?.baseUrl === "string" ? credentials.baseUrl : providerData?.baseUrl;
   if (typeof credBase === "string" && credBase.trim()) {
     return credBase.trim().replace(/\/+$/, "");
   }

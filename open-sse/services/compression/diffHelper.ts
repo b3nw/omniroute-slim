@@ -190,9 +190,10 @@ export function buildCompressionPreviewDiff(
 
   let fallbackReason: string | undefined;
   if (validation.fallbackApplied) {
-    fallbackReason = validation.errors.length > 0
-      ? `validation-failed: ${validation.errors[0]}`
-      : "validation-failed";
+    fallbackReason =
+      validation.errors.length > 0
+        ? `validation-failed: ${validation.errors[0]}`
+        : "validation-failed";
   } else if (stats?.fallbackApplied) {
     fallbackReason = "compression-fallback";
   }

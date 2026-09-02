@@ -10,7 +10,6 @@ Visual guide to every section of the OmniRoute dashboard.
 
 ## 🔌 Providers
 
-
 ![Providers Dashboard](screenshots/01-providers.png)
 
 ---

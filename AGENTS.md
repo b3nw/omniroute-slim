@@ -9,6 +9,7 @@
 `OmniRoute-Slim` is a streamlined, decoupled LLM proxy and router forked from `OmniRoute`. It preserves all core proxying, streaming format translation, catalog sync, model combos, upstream forward proxies (with TLS fingerprint emulation), quota tracking, and WebUI management, while excising all peripheral subsystems (MITM local cert proxy, autonomous agents, vector memory/RAG, gamification, 45 translation bundles).
 
 ### Core Invariants:
+
 1. **Never Re-introduce Excluded Subsystems**: Do not add back MITM root CA interception, multi-agent frameworks (A2A/Conductor/ACP), vector memory stores, or gamification.
 2. **Preserve Upstream Proxying & TLS Emulation**: Upstream forward proxies (HTTP, HTTPS, SOCKS5 with remote DNS), proxy pools, and TLS JA3/JA4 fingerprinting in `proxyFetch.ts` are core features.
 3. **Preserve Quota & Credential Health Systems**: Quota pools, spend limits, Antigravity dual-quota tracking, single-flight OAuth locks, and credential health probing are core features.

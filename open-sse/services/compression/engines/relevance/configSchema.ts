@@ -56,8 +56,10 @@ export function validateRelevanceConfig(config: Record<string, unknown>): Engine
 export function resolveRelevanceConfig(stepConfig: Record<string, unknown>): RelevanceConfig {
   return {
     enabled: typeof stepConfig.enabled === "boolean" ? stepConfig.enabled : false,
-    overlapThreshold: typeof stepConfig.overlapThreshold === "number" ? stepConfig.overlapThreshold : 0.1,
+    overlapThreshold:
+      typeof stepConfig.overlapThreshold === "number" ? stepConfig.overlapThreshold : 0.1,
     budgetPercent: typeof stepConfig.budgetPercent === "number" ? stepConfig.budgetPercent : 0.5,
-    boilerplateWeight: typeof stepConfig.boilerplateWeight === "number" ? stepConfig.boilerplateWeight : 0.5,
+    boilerplateWeight:
+      typeof stepConfig.boilerplateWeight === "number" ? stepConfig.boilerplateWeight : 0.5,
   };
 }

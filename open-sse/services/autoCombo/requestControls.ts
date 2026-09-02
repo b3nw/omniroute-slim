@@ -71,11 +71,7 @@ export function resolveRequestModePack(input: unknown): RequestModePack {
  */
 export function parseRequestBudgetCap(input: unknown): number | undefined {
   const n =
-    typeof input === "number"
-      ? input
-      : typeof input === "string"
-        ? Number(input.trim())
-        : NaN;
+    typeof input === "number" ? input : typeof input === "string" ? Number(input.trim()) : NaN;
   if (!Number.isFinite(n) || n <= 0) return undefined;
   return n;
 }

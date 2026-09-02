@@ -52,10 +52,7 @@ import { isVendorRetiredId } from "../modelLifecycle.ts";
 // must never earn a capability-derived tier score: models.dev keeps listing
 // retired models with their capabilities, so without this veto layer 3
 // recreates the ranking inversion that #11503 removed from layer 4.
-const LIFECYCLE_JSON_URL = new URL(
-  "../../../config/quality/model-lifecycle.json",
-  import.meta.url,
-);
+const LIFECYCLE_JSON_URL = new URL("../../../config/quality/model-lifecycle.json", import.meta.url);
 let _retiredModels: Set<string> | null = null;
 
 function loadRetiredModels(): Set<string> {
@@ -516,7 +513,10 @@ export function getTaskFitnessWithSource(
       return { score: staticScore, source: "fitness_table" };
     }
 
-    return { score: lookupWildcardBoosts(normalizedModel, normalizedTask), source: "wildcard_boost" };
+    return {
+      score: lookupWildcardBoosts(normalizedModel, normalizedTask),
+      source: "wildcard_boost",
+    };
   }
 
   // Retired: 0.5 is "no evidence", never a quality claim and never a *codex boost.

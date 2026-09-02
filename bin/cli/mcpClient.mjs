@@ -33,7 +33,7 @@ async function callMcpEndpoint(payload, { timeout, stream }) {
     const text = await res.text().catch(() => "");
     throw mcpError(
       `${payload.method} ${payload.id}: HTTP ${res.status}${text ? ` — ${text}` : ""}`,
-      res.status,
+      res.status
     );
   }
   return res;
@@ -60,7 +60,7 @@ export async function mcpCallTool(name, args = {}, options = {}) {
         clientInfo: { name: "omniroute-cli", version: "1.0" },
       },
     },
-    { timeout, stream: options.stream },
+    { timeout, stream: options.stream }
   );
 
   const sessionId = initRes.headers.get("mcp-session-id");
@@ -75,7 +75,7 @@ export async function mcpCallTool(name, args = {}, options = {}) {
       method: "tools/call",
       params: { name, arguments: args },
     },
-    { timeout, stream: options.stream },
+    { timeout, stream: options.stream }
   );
 
   if (options.stream) {

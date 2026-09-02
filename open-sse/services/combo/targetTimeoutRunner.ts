@@ -203,7 +203,10 @@ export function buildTargetTimeoutRunner(deps: {
         // Defensive: should never fire — both race branches always resolve.
         // Include the error message so the root cause is not masked.
         const detail = raceErr instanceof Error ? raceErr.message : String(raceErr);
-        log.error?.("COMBO", `Unexpected rejection in combo timeout race for ${modelStr}: ${detail}`);
+        log.error?.(
+          "COMBO",
+          `Unexpected rejection in combo timeout race for ${modelStr}: ${detail}`
+        );
         return errorResponse(502, `Combo timeout dispatch error: ${detail}`);
       });
     } finally {
