@@ -1,5 +1,4 @@
 import { handleAudioSpeech } from "@omniroute/open-sse/handlers/audioSpeech.ts";
-import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
 import {
   getProviderCredentialsWithQuotaPreflight,
   clearRecoveredProviderState,
@@ -121,4 +120,4 @@ async function postHandler(request, context) {
   return response;
 }
 
-export const POST = withInjectionGuard(postHandler);
+export const POST = postHandler;

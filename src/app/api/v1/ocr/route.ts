@@ -8,7 +8,6 @@ import {
   getProviderCredentialsWithQuotaPreflight,
   clearRecoveredProviderState,
 } from "@/sse/services/auth";
-import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
 import { parseOcrModel } from "@omniroute/open-sse/config/ocrRegistry.ts";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
@@ -112,4 +111,4 @@ async function postHandler(request, context) {
   return response;
 }
 
-export const POST = withInjectionGuard(postHandler);
+export const POST = postHandler;

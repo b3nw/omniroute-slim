@@ -1,9 +1,4 @@
 import { NextResponse } from "next/server";
-import { getAuditRequestContext, logAuditEvent } from "@/lib/compliance/index";
-import {
-  getProviderAuditTarget,
-  summarizeProviderConnectionForAudit,
-} from "@/lib/compliance/providerAudit";
 import {
   createProviderConnection,
   getProviderConnections,
@@ -198,8 +193,6 @@ export async function POST(request: Request) {
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
 
-  const auditContext = getAuditRequestContext(request);
-
   let body: unknown;
   try {
     body = await request.json();
@@ -236,20 +229,6 @@ export async function POST(request: Request) {
         continue;
       }
       created.push(result.created);
-      logAuditEvent({
-        action: "provider.credentials.created",
-        actor: "admin",
-        target: getProviderAuditTarget(result.created),
-        resourceType: "provider_credentials",
-        status: "success",
-        ipAddress: auditContext.ipAddress || undefined,
-        requestId: auditContext.requestId,
-        metadata: {
-          provider: entry.provider,
-          via: "import",
-          connection: summarizeProviderConnectionForAudit(result.created),
-        },
-      });
     } catch (err) {
       errors.push({
         index: i,
@@ -263,21 +242,6 @@ export async function POST(request: Request) {
   if (created.length > 0) {
     await syncToCloudIfEnabled();
   }
-
-  logAuditEvent({
-    action: "provider.credentials.bulk_created",
-    actor: "admin",
-    resourceType: "provider_credentials",
-    status: errors.length === entries.length ? "failure" : "success",
-    ipAddress: auditContext.ipAddress || undefined,
-    requestId: auditContext.requestId,
-    metadata: {
-      via: "import",
-      total: entries.length,
-      success: created.length,
-      failed: errors.length,
-    },
-  });
 
   return NextResponse.json(
     {

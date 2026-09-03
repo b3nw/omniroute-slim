@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import type { SearchProviderCatalogItem } from "@/shared/schemas/searchTools";
-import type { PlaygroundState } from "@/lib/playground/codeExport";
 
 import SearchToolsTopBar, { type ActiveTab } from "./components/SearchToolsTopBar";
 import SearchToolsConfigPane, { type ConfigState } from "./components/SearchToolsConfigPane";
@@ -64,24 +63,14 @@ export default function SearchToolsClient() {
     setConfigState((prev) => ({ ...prev, ...patch }));
   };
 
-  // Build export state from current config (passed to TopBar for ExportCodeModal)
-  const exportState: PlaygroundState = {
-    endpoint: activeTab === "scrape" ? "web.fetch" : "search",
-    baseUrl: typeof window !== "undefined" ? window.location.origin : "http://localhost:20128",
-    searchProvider: configState.provider,
-    searchType: configState.searchType,
-    fetchFormat: configState.fetchFormat as PlaygroundState["fetchFormat"],
-  };
-
   return (
     <div className="flex flex-col h-[calc(100vh-120px)]" data-testid="search-tools-studio">
-      {/* Top bar: tabs + metrics + export */}
+      {/* Top bar: tabs + metrics */}
       <SearchToolsTopBar
         activeTab={activeTab}
         onTabChange={setActiveTab}
         latencyMs={latencyMs}
         costUsd={costUsd}
-        exportState={exportState}
       />
 
       {/* Concept card — always visible, collapsible */}

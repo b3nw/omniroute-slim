@@ -585,15 +585,6 @@ export async function collectDoctorChecks(context = {}, options = {}) {
     checks.push(await checkMachineTokenAuth(options));
   }
 
-  // CLI tool health checks
-  try {
-    const { collectCliToolChecks } = await import("../../../src/lib/cli-helper/doctor/checks.ts");
-    const cliChecks = await collectCliToolChecks();
-    checks.push(...cliChecks);
-  } catch (err) {
-    checks.push(warn("CLI Tools", `Could not run CLI tool checks: ${err.message}`));
-  }
-
   return {
     dataDir,
     dbPath,

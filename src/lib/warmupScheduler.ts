@@ -5,7 +5,7 @@ import { extractResolvedProxyConfig } from "@/lib/tokenHealthCheck";
 import { refreshAndUpdateCredentials } from "@/lib/usage/providerLimits";
 import { runWithProxyContext } from "@omniroute/open-sse/utils/proxyFetch";
 import { logger } from "@omniroute/open-sse/utils/logger";
-import { matchesCron } from "@/lib/jobs/cronMatch";
+import { matchesCron } from "@/lib/cronMatch";
 import { getCircuitBreakerStore } from "./warmupScheduler/circuitBreakerFactory";
 import { TERMINAL_CONNECTION_STATUSES } from "@/lib/quota/connectionRecovery";
 import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLeaseIsolation";

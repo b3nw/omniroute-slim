@@ -1,6 +1,5 @@
 import { handleChat } from "@/sse/handlers/chat";
 import { initTranslators } from "@omniroute/open-sse/translator/index.ts";
-import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
 import { withChatAdmission } from "@/shared/middleware/withChatAdmission";
 import { requireJsonContentType } from "@/shared/middleware/requireJsonContentType";
 import {
@@ -37,11 +36,8 @@ export async function OPTIONS() {
 
 /**
  * POST /v1/messages - Claude format (auto convert via handleChat)
- *
- * `preParsedBody` is threaded from withInjectionGuard (#4041) so the body is
- * parsed at most once per request.
  */
-async function postHandler(request: any, context: any, preParsedBody: any = null) {
+async function postHandler(request: any, context: any) {
   // Reject non-JSON Content-Type with 415 before touching the body — mirrors OpenAI's
   // reference API and matches /v1/chat/completions (#6414).
   const ctRejection = requireJsonContentType(request);
@@ -56,7 +52,7 @@ async function postHandler(request: any, context: any, preParsedBody: any = null
   // /v1/responses (#2544). Anthropic clients ignore SSE comments for their watchdog, so
   // emit a real `event: ping` (ANTHROPIC_PING_FRAME). Non-streaming callers keep the
   // verbatim path.
-  let body = preParsedBody;
+  let body = null;
   if (body == null) {
     try {
       body = await request
@@ -79,4 +75,4 @@ async function postHandler(request: any, context: any, preParsedBody: any = null
   return await handleChat(request, null, body);
 }
 
-export const POST = withChatAdmission(withInjectionGuard(postHandler));
+export const POST = withChatAdmission(postHandler);

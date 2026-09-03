@@ -381,10 +381,7 @@ export async function registerNodejs(): Promise<void> {
     { startRuntimeConfigHotReload },
     { startSpendBatchWriter },
     { startCleanupScheduler },
-    { registerDefaultGuardrails },
     { ensurePersistentManagementPasswordHash },
-    { skillExecutor },
-    { registerBuiltinSkills },
   ] = await Promise.all([
     import("@/lib/gracefulShutdown"),
     import("@/lib/apiBridgeServer"),
@@ -396,10 +393,7 @@ export async function registerNodejs(): Promise<void> {
     import("@/lib/config/hotReload"),
     import("@/lib/spend/batchWriter"),
     import("@/lib/db/cleanup"),
-    import("@/lib/guardrails"),
     import("@/lib/auth/managementPassword"),
-    import("@/lib/skills/executor"),
-    import("@/lib/skills/builtins"),
   ]);
 
   // Proxy health scheduler (auto-removes dead proxies on interval)
@@ -411,11 +405,7 @@ export async function registerNodejs(): Promise<void> {
   initGracefulShutdown();
   initApiBridgeServer();
   startSpendBatchWriter();
-  registerDefaultGuardrails();
-  registerBuiltinSkills(skillExecutor);
   console.log("[STARTUP] Spend batch writer started");
-  console.log("[STARTUP] Guardrail registry initialized");
-  console.log("[STARTUP] Builtin skill handlers registered");
   if (!isBackgroundServicesDisabled()) {
     startBackgroundRefresh();
     console.log("[STARTUP] Quota cache background refresh started");
@@ -428,9 +418,6 @@ export async function registerNodejs(): Promise<void> {
     console.log(
       `[STARTUP] Cloud/model sync background bootstrap ${cloudSyncInitialized ? "initialized" : "skipped"}`
     );
-    const { initBatchProcessor } = await import("@omniroute/open-sse/services/batchProcessor");
-    initBatchProcessor();
-    console.log("[STARTUP] Batch processor started");
   }
 
   try {
@@ -538,24 +525,20 @@ export async function registerNodejs(): Promise<void> {
   }
 
   try {
-    const { initAuditLog, cleanupExpiredLogs } = await import("@/lib/compliance/index");
-    initAuditLog();
-    console.log("[COMPLIANCE] Audit log table initialized");
-
+    const { cleanupExpiredLogs } = await import("@/lib/db/logRetention");
     const cleanup = await cleanupExpiredLogs();
     if (
       cleanup.deletedUsage ||
       cleanup.deletedCallLogs ||
       cleanup.deletedProxyLogs ||
       cleanup.deletedRequestDetailLogs ||
-      cleanup.deletedAuditLogs ||
       cleanup.deletedMcpAuditLogs
     ) {
-      console.log("[COMPLIANCE] Expired log cleanup:", cleanup);
+      console.log("[RETENTION] Expired log cleanup:", cleanup);
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn("[COMPLIANCE] Could not initialize audit log:", msg);
+    console.warn("[RETENTION] Could not run log retention cleanup:", msg);
   }
 
   // Storage-configured scheduled VACUUM (#4437): registers the timer from
@@ -612,15 +595,6 @@ export async function registerNodejs(): Promise<void> {
           console.warn("[STARTUP] Auto-refresh daemon failed to start (non-fatal):", msg);
         }),
 
-      // Conductor bridge (PRD Conductor RF1): mirrors OmniConductor hub tasks into the
-      // A2A TaskManager via the hub SSE. Opt-in — self-gated on CONDUCTOR_HUB_URL.
-      import("@/lib/conductor/boot").then((m) => {
-        if (m.initConductorBridge()) console.log("[STARTUP] Conductor bridge started");
-      }).catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn("[STARTUP] Conductor bridge failed to start (non-fatal):", msg);
-      }),
-
       // Proactive connection-cooldown recovery (#8): re-validate connections whose
       // transient `rate_limited_until` window has elapsed OUTSIDE the request hot path,
       // so the first request after a cooldown does not pay the probe latency.
@@ -629,31 +603,6 @@ export async function registerNodejs(): Promise<void> {
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
           console.warn("[STARTUP] Connection recovery scheduler failed to start (non-fatal):", msg);
-        }),
-
-      // Arena ELO sync: model intelligence from the Arena AI leaderboard, powering the
-      // Free Provider Rankings page. On by default; non-blocking, never fatal.
-      import("@/lib/arenaEloSync")
-        .then(async (m) => {
-          const started = await m.initArenaEloSync();
-          if (started) console.log("[STARTUP] Arena ELO sync initialized");
-        })
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.warn("[STARTUP] Arena ELO sync failed to start (non-fatal):", msg);
-        }),
-
-      // Radar daily feed sync: only arms itself when RADAR_ENABLED AND the user
-      // opt-in are already on (flag-off boot stays timer-free — Radar inertia
-      // contract). Non-blocking, never fatal.
-      import("@/lib/radar/scheduler")
-        .then((m) => {
-          const started = m.initRadarSyncScheduler();
-          if (started) console.log("[STARTUP] Radar sync scheduler initialized");
-        })
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.warn("[STARTUP] Radar sync scheduler failed to start (non-fatal):", msg);
         }),
 
       // Pricing sync: opt-in external pricing data (self-gated by PRICING_SYNC_ENABLED inside
@@ -697,28 +646,6 @@ export async function registerNodejs(): Promise<void> {
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
           console.warn("[STARTUP] context-window reconcile failed to start (non-fatal):", msg);
-        }),
-
-      // TV6 typed memory decay: optional periodic sweep of decayed episodic memories.
-      // Doubly opt-in (no-op unless MEMORY_TYPED_DECAY_ENABLED=true AND
-      // MEMORY_TYPED_DECAY_SWEEP_INTERVAL>0). Never deletes by default. Never fatal.
-      import("@/lib/memory/typedDecay")
-        .then((m) => m.startMemoryDecaySweep())
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.warn("[STARTUP] memory decay sweep failed to start (non-fatal):", msg);
-        }),
-
-      // MemoryBackend provider pattern (PR #8752): initialize configured memory
-      // backends from settings (sqlite, obsidian, notion, custom HTTP, etc.).
-      // Reads the DB settings synchronously (non-blocking, never fatal). Must
-      // run after the DB is ready AND after getSettings/applyRuntimeSettings so
-      // memory backend config is hydrated.
-      import("@/lib/memory/index")
-        .then((m) => m.initMemoryBackends())
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.warn("[STARTUP] memory backend initialization failed (non-fatal):", msg);
         }),
 
       // Backup schedule (#8513): execute `backup-schedule.json` cron server-side.

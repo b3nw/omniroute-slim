@@ -24,7 +24,6 @@ import {
 import { pickMaskedDisplayValue } from "@/shared/utils/maskEmail";
 import { isAutomatedTestProcess } from "@/shared/utils/testProcess";
 import { refreshGithubCopilotSubTokenIfNeeded } from "@/lib/tokenHealthCheckCopilot";
-import { checkCursorConnectionIfNeeded } from "@/lib/tokenHealthCheckCursor";
 import { checkKimiWebConnectionIfNeeded } from "@/lib/tokenHealthCheckKimi";
 import {
   checkWebCookieConnectionIfNeeded,
@@ -631,30 +630,6 @@ export async function checkConnection(conn) {
     log(
       `${LOG_PREFIX} ${conn.provider}/${getConnectionLogLabel(conn)} is a deprecated provider; marking expired (migrate to ${deprecation.migrateTo})`
     );
-    return;
-  }
-
-  // Cursor's refreshToken is always null (no refresh_token by design), so
-  // falling into the generic !conn.refreshToken block below was always a
-  // silent no-op for Cursor. Explicit provider dispatch here is clearer than
-  // relying on that fallthrough.
-  if (String(conn.provider || "").toLowerCase() === "cursor") {
-    const tokenExpiresAt = getEffectiveTokenExpiryMs(conn);
-    const isAboutToExpire = tokenExpiresAt > 0 && tokenExpiresAt - Date.now() < TOKEN_EXPIRY_BUFFER;
-    if (tokenExpiresAt > 0 && !isAboutToExpire) return;
-    if (isInRefreshBackoff(conn, Date.now())) return;
-
-    const now = new Date().toISOString();
-    await checkCursorConnectionIfNeeded({
-      conn,
-      now,
-      buildRefreshFailureUpdate,
-      log,
-      logWarn,
-      logError,
-      getConnectionLogLabel,
-      logPrefix: LOG_PREFIX,
-    });
     return;
   }
 

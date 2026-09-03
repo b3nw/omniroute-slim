@@ -5,7 +5,6 @@ import { handleChat } from "@/sse/handlers/chat";
 import { generateRequestId } from "@/shared/utils/requestId";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { initTranslators } from "@omniroute/open-sse/translator/index.ts";
-import { createInjectionGuard } from "@/middleware/promptInjectionGuard";
 import { acceptHeaderForcesStream } from "@omniroute/open-sse/utils/aiSdkCompat.ts";
 import {
   OPENAI_CHAT_ERROR_FRAME,
@@ -37,9 +36,6 @@ import {
 } from "@/shared/constants/chatgptWebRetirement";
 
 let initPromise = null;
-
-// Singleton injection guard instance
-const injectionGuard = createInjectionGuard();
 
 /**
  * Initialize translators once (Promise-based singleton — no race condition)
@@ -205,26 +201,9 @@ export async function POST(request) {
             /* swallow — fall through with original model */
           });
         }
-
-        const { blocked, result } = injectionGuard(parsedBody);
-        if (blocked) {
-          return finishAdmission(
-            new Response(
-              JSON.stringify({
-                error: {
-                  message: "Request blocked: potential prompt injection detected",
-                  type: "injection_detected",
-                  code: "SECURITY_001",
-                  detections: result.detections.length,
-                },
-              }),
-              { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } }
-            )
-          );
-        }
       }
     } catch (error) {
-      console.error("[SECURITY] Prompt injection guard failed:", error);
+      console.error("[chat] Request body pre-parse failed:", error);
     }
 
     // Gate the early SSE keepalive wrapper: only wrap when the client explicitly

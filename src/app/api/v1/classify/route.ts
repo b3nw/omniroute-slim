@@ -3,7 +3,6 @@ import {
   getProviderCredentialsWithQuotaPreflight,
   clearRecoveredProviderState,
 } from "@/sse/services/auth";
-import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import { enforceApiKeyPolicy } from "@/shared/utils/apiKeyPolicy";
@@ -76,4 +75,4 @@ async function postHandler(request: Request) {
   return response;
 }
 
-export const POST = withInjectionGuard(postHandler);
+export const POST = postHandler;

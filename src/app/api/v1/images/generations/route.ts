@@ -1,5 +1,4 @@
 import { handleImageGeneration } from "@omniroute/open-sse/handlers/imageGeneration.ts";
-import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
 import {
   getProviderCredentialsWithQuotaPreflight,
   clearRecoveredProviderState,
@@ -395,4 +394,4 @@ async function postHandler(request, context) {
   return errorResponse((result as any).status, message);
 }
 
-export const POST = withInjectionGuard(postHandler);
+export const POST = postHandler;

@@ -1,4 +1,3 @@
-import { sanitizePII } from "./piiSanitizer";
 
 const SENSITIVE_KEYS = new Set([
   "api_key",
@@ -138,10 +137,9 @@ export function redactPayload(payload: unknown): unknown {
   return redacted;
 }
 
-export function sanitizePayloadPII(payload: unknown): unknown {
-  if (typeof payload === "string") {
-    return sanitizePII(payload).text;
-  }
+/** Replace opaque binary blobs (base64 data URLs, buffers) with a short
+ * description so stored log payloads stay readable and bounded. */
+export function describeBinaryPayloads(payload: unknown): unknown {
   if (!payload || typeof payload !== "object") {
     return payload;
   }
@@ -149,22 +147,22 @@ export function sanitizePayloadPII(payload: unknown): unknown {
     return describeOpaqueBinary(payload);
   }
   if (Array.isArray(payload)) {
-    return payload.map(sanitizePayloadPII);
+    return payload.map(describeBinaryPayloads);
   }
 
-  const sanitized: JsonRecord = {};
+  const described: JsonRecord = {};
   for (const [key, value] of Object.entries(payload)) {
-    sanitized[key] = sanitizePayloadPII(value);
+    described[key] = describeBinaryPayloads(value);
   }
-  return sanitized;
+  return described;
 }
 
 export function protectPayloadForLog(payload: unknown): unknown {
   if (payload === null || payload === undefined) return null;
   const normalized = normalizePayloadForLog(payload);
   const reasoningOmitted = omitEncryptedReasoningForLog(normalized);
-  const piiSanitized = sanitizePayloadPII(reasoningOmitted);
-  return redactPayload(piiSanitized);
+  const binaryDescribed = describeBinaryPayloads(reasoningOmitted);
+  return redactPayload(binaryDescribed);
 }
 
 export function serializePayloadForStorage(payload: unknown, maxLength = 65536): string | null {

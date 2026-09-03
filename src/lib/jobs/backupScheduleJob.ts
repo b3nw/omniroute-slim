@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { matchesCron } from "@/lib/jobs/cronMatch";
+import { matchesCron } from "@/lib/cronMatch";
 // Reuses the CLI's own backup implementation rather than duplicating it — the
 // `omniroute backup auto enable` schedule this job executes is written by
 // exactly that CLI, with the exact same cloud/encrypt/retention semantics.

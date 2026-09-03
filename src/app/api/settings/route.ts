@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import {
   getSettings,
   getSettingsRevision,
@@ -28,18 +27,6 @@ import {
 } from "@/lib/auth/managementPassword";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { isPaidModelTarget } from "@/shared/utils/freeModels";
-import { getAuditRequestContext, logAuditEvent } from "@/lib/compliance";
-import { isAuthRequired, isDashboardSessionAuthenticated } from "@/shared/utils/apiAuth";
-import { isCliTokenAuthValid } from "@/lib/middleware/cliTokenAuth";
-import { extractApiKey } from "@/sse/services/auth";
-import { getApiKeyMetadata } from "@/lib/db/apiKeys";
-import { getRadarAdminUrl } from "@/lib/radar/links";
-import {
-  AUTHZ_HEADER_AUTH_ID,
-  AUTHZ_HEADER_AUTH_KIND,
-  AUTHZ_HEADER_PEER_LOCALITY,
-} from "@/server/authz/headers";
-import { readSubjectFromHeaders } from "@/server/authz/assertAuth";
 
 /**
  * Force this route to run dynamically per-request and never be cached/prerendered.
@@ -59,27 +46,6 @@ function settingsResponseHeaders(settingsRevision: number): Record<string, strin
     ...SETTINGS_RESPONSE_HEADERS,
     ETag: String(settingsRevision),
   };
-}
-
-const RadarAdminOwnerSubjectSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("dashboard_session"), id: z.literal("dashboard") }).strict(),
-  z.object({ kind: z.literal("anonymous"), id: z.literal("anonymous") }).strict(),
-]);
-
-export async function resolveOwnerRadarAdminUrl(request: Request): Promise<string | null> {
-  const subject = RadarAdminOwnerSubjectSchema.safeParse({
-    kind: request.headers.get(AUTHZ_HEADER_AUTH_KIND),
-    id: request.headers.get(AUTHZ_HEADER_AUTH_ID),
-  });
-  if (!subject.success) return null;
-  if (subject.data.kind === "dashboard_session") return getRadarAdminUrl();
-
-  // Fresh local installs can intentionally run without login. In that mode,
-  // only the pipeline's non-forgeable loopback verdict represents the owner;
-  // CLI/internal/manage-scope credentials must not receive the private URL.
-  if (request.headers.get(AUTHZ_HEADER_PEER_LOCALITY) !== "loopback") return null;
-  if (await isAuthRequired(request)) return null;
-  return getRadarAdminUrl();
 }
 
 /** Parse opt-in CAS token from If-Match (preferred) or PATCH body. */
@@ -126,99 +92,6 @@ const SECURITY_IMPACTING_KEYS = [
   "oidcClientSecret",
 ] as const;
 
-/**
- * Derive an audit actor string from the inbound request. Falls back to
- * `"dashboard"` for cookie sessions, `"apikey:<id>"` for Bearer API keys,
- * `"cli"` for CLI machine-token sessions, and `"anonymous"` otherwise. Best
- * effort — any lookup error degrades to `"unknown"` so the audit row still
- * carries actor context.
- */
-async function deriveAuditActor(request: Request): Promise<string> {
-  try {
-    if (await isDashboardSessionAuthenticated(request)) return "dashboard";
-  } catch {
-    /* fall through */
-  }
-  const subject = readSubjectFromHeaders(request.headers);
-  if (subject.kind === "management_key" && subject.label === "local-cli-token") return "cli";
-  try {
-    if (await isCliTokenAuthValid(request)) return "cli";
-  } catch {
-    /* fall through */
-  }
-  try {
-    const apiKey = extractApiKey(request);
-    if (apiKey) {
-      const meta = await getApiKeyMetadata(apiKey);
-      if (meta?.id) return `apikey:${meta.id}`;
-      return "apikey:unknown";
-    }
-  } catch {
-    return "unknown";
-  }
-  return "anonymous";
-}
-
-/** Deep-equality for diff detection. JSON round-trip handles plain settings. */
-function isDeepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (typeof a !== "object" || typeof b !== "object") return false;
-  try {
-    return JSON.stringify(a) === JSON.stringify(b);
-  } catch {
-    return false;
-  }
-}
-
-/** Build per-key `{before, after}` diff for changed keys (top-level only). */
-function computeSettingsDiff(
-  before: Record<string, unknown>,
-  after: Record<string, unknown>,
-  candidateKeys: string[]
-): Record<string, { before: unknown; after: unknown }> {
-  const diff: Record<string, { before: unknown; after: unknown }> = {};
-  for (const key of candidateKeys) {
-    if (!isDeepEqual(before[key], after[key])) {
-      diff[key] = { before: before[key], after: after[key] };
-    }
-  }
-  return diff;
-}
-
-/** List of top-level body keys the operator attempted to change (audit context). */
-function attemptedKeysOf(body: Record<string, unknown> | null | undefined): string[] {
-  if (!body || typeof body !== "object") return [];
-  return Object.keys(body).filter(
-    (k) =>
-      k !== "currentPassword" && k !== "newPassword" && k !== "password" && k !== "expectedRevision"
-  );
-}
-
-/** Emit a settings.update_failed row. Never throws — audit must not break flow. */
-function emitSettingsFailureAudit(
-  request: Request,
-  actor: string,
-  reason: string,
-  attemptedKeys: string[]
-) {
-  try {
-    const { ipAddress, requestId } = getAuditRequestContext(request);
-    logAuditEvent({
-      action: "settings.update_failed",
-      actor,
-      target: "settings",
-      resourceType: "settings",
-      status: "failure",
-      ipAddress: ipAddress || undefined,
-      requestId: requestId || undefined,
-      details: { reason, attempted_keys: attemptedKeys },
-    });
-  } catch {
-    /* best effort */
-  }
-}
-
 export async function GET(request: Request) {
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
@@ -260,9 +133,7 @@ export async function GET(request: Request) {
         // without a dedicated round trip. See sidebarVisibility.ts's
         // `isSidebarItemVisibleForFlags()`.
         radarEnabled: isFeatureFlagEnabled("RADAR_ENABLED"),
-        // Owner-only operational link. This route is management-authenticated;
-        // the URL has no public default and is omitted from static client code.
-        radarAdminUrl: await resolveOwnerRadarAdminUrl(request),
+        radarAdminUrl: null,
         ...(cliproxyapiModelMapping !== null
           ? { cliproxyapi_model_mapping: cliproxyapiModelMapping }
           : {}),
@@ -279,39 +150,21 @@ export async function PATCH(request: Request) {
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
 
-  // Derive actor + raw body once so the rejection paths can audit consistently.
-  const actor = await deriveAuditActor(request);
   let rawBody: Record<string, unknown> = {};
   try {
     rawBody = (await request.json()) as Record<string, unknown>;
   } catch {
-    // Malformed JSON — surface a zod-style failure path so the rejection
-    // is auditable like every other 400.
-    emitSettingsFailureAudit(request, actor, "INVALID_JSON", []);
     return NextResponse.json(
       { error: { code: "INVALID_JSON", message: "Request body is not valid JSON" } },
       { status: 400 }
     );
   }
-  const attemptedKeys = attemptedKeysOf(rawBody);
   const expectedRevision = parseExpectedRevision(request, rawBody);
 
   try {
     // Zod validation
     const validation = validateBody(updateSettingsSchema, rawBody);
     if (isValidationFailure(validation)) {
-      // Detect spawn-capable prefix rejection (spec AC-8) so the audit row
-      // names the correct error code; otherwise fall back to the generic
-      // validation-failure label.
-      const isBypassPrefixRejection = (validation.error.details || []).some(
-        (d) => typeof d.message === "string" && d.message.includes("BYPASS_PREFIX_NOT_ALLOWED")
-      );
-      emitSettingsFailureAudit(
-        request,
-        actor,
-        isBypassPrefixRejection ? "BYPASS_PREFIX_NOT_ALLOWED" : "VALIDATION_FAILED",
-        attemptedKeys
-      );
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
     const body: typeof validation.data & { password?: string } = { ...validation.data };
@@ -330,7 +183,6 @@ export async function PATCH(request: Request) {
         : ((current.oidcAllowedSubjects as unknown[] | undefined) ?? []);
       const hasAtLeastOne = subjects.some((s) => typeof s === "string" && s.trim().length > 0);
       if (!hasAtLeastOne) {
-        emitSettingsFailureAudit(request, actor, "OIDC_ALLOWED_SUBJECTS_REQUIRED", attemptedKeys);
         return NextResponse.json(
           {
             error: {
@@ -370,7 +222,6 @@ export async function PATCH(request: Request) {
         (passwordState.settings.requireLogin === false || Boolean(body.newPassword));
       if (!isColdBoot) {
         if (!body.currentPassword) {
-          emitSettingsFailureAudit(request, actor, "PASSWORD_REQUIRED", attemptedKeys);
           return NextResponse.json(
             {
               error: {
@@ -384,7 +235,6 @@ export async function PATCH(request: Request) {
         }
         const isValid = await verifyManagementPassword(body.currentPassword, storedPasswordHash);
         if (!isValid) {
-          emitSettingsFailureAudit(request, actor, "PASSWORD_MISMATCH", attemptedKeys);
           return NextResponse.json(
             {
               error: {
@@ -407,7 +257,6 @@ export async function PATCH(request: Request) {
       const currentSettings = await getSettings();
       if ((currentSettings as Record<string, unknown>)?.hidePaidModels === true) {
         if (isPaidModelTarget(body.webSearchRouteModel) === "paid") {
-          emitSettingsFailureAudit(request, actor, "PAID_MODEL_TARGET_BLOCKED", attemptedKeys);
           return NextResponse.json(
             {
               error: {
@@ -433,14 +282,11 @@ export async function PATCH(request: Request) {
     delete body.currentPassword;
     delete body.expectedRevision;
 
-    // Snapshot BEFORE the write so the success row can record a real diff.
-    const beforeSnapshot = (await getSettings()) as Record<string, unknown>;
     let settings: Awaited<ReturnType<typeof getSettings>>;
     try {
       settings = await updateSettings(body, { expectedRevision });
     } catch (error) {
       if (error instanceof SettingsRevisionConflictError) {
-        emitSettingsFailureAudit(request, actor, "SETTINGS_REVISION_CONFLICT", attemptedKeys);
         return NextResponse.json(
           {
             error: {
@@ -461,7 +307,6 @@ export async function PATCH(request: Request) {
     if (cpaUrl && typeof cpaUrl === "string") {
       const urlValidation = validateProxyUrl(cpaUrl);
       if (urlValidation.valid === false) {
-        emitSettingsFailureAudit(request, actor, "CLIPROXY_URL_INVALID", attemptedKeys);
         return NextResponse.json(
           { error: `Invalid CLIProxyAPI URL: ${urlValidation.error}` },
           { status: 400 }
@@ -511,29 +356,6 @@ export async function PATCH(request: Request) {
         enabled: !!enabled,
         ...(cpaModelMapping !== undefined ? { cliproxyapiModelMapping: cpaModelMapping } : {}),
       });
-    }
-
-    // Audit success — diff of changed keys only. Idempotent PATCH (no diff)
-    // intentionally writes NO row (spec §Observability + AC-9/AC-11).
-    try {
-      const afterSnapshot = settings as Record<string, unknown>;
-      const candidateKeys = Object.keys(body);
-      const diff = computeSettingsDiff(beforeSnapshot, afterSnapshot, candidateKeys);
-      if (Object.keys(diff).length > 0) {
-        const { ipAddress, requestId } = getAuditRequestContext(request);
-        logAuditEvent({
-          action: "settings.update",
-          actor,
-          target: "settings",
-          resourceType: "settings",
-          status: "success",
-          ipAddress: ipAddress || undefined,
-          requestId: requestId || undefined,
-          details: { diff },
-        });
-      }
-    } catch {
-      // Audit failure must never break the write — swallow.
     }
 
     const { password, ...safeSettings } = settings;

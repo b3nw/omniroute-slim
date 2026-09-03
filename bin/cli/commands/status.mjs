@@ -34,7 +34,6 @@ export function registerStatus(program) {
 
 export async function runStatusCommand(opts = {}) {
   const isJson = opts.output === "json";
-  const isVerbose = opts.verbose;
 
   const dataDir = resolveDataDir();
   const dbPath = resolveStoragePath(dataDir);
@@ -52,22 +51,6 @@ export async function runStatusCommand(opts = {}) {
     configExists: fs.existsSync(path.join(dataDir, "config")),
   };
 
-  if (isVerbose || !isJson) {
-    try {
-      const { detectAllTools } = await import("../../../src/lib/cli-helper/tool-detector.ts");
-      const tools = await detectAllTools();
-      status.tools = tools.map((t) => ({
-        id: t.id,
-        name: t.name,
-        installed: t.installed,
-        configured: t.configured,
-        version: t.version || null,
-      }));
-    } catch {
-      status.tools = "unavailable";
-    }
-  }
-
   if (isJson) {
     console.log(JSON.stringify(status, null, 2));
     return 0;
@@ -80,16 +63,6 @@ export async function runStatusCommand(opts = {}) {
     `  Database:    ${status.database.exists ? "Found" : "Not found"} (${status.database.size || "N/A"})`
   );
   console.log(`  Config Dir:  ${status.configExists ? "Exists" : "Not found"}`);
-
-  if (status.tools) {
-    console.log("\n  CLI Tools:");
-    for (const tool of status.tools) {
-      const icon = tool.configured ? "✓" : tool.installed ? "~" : "✗";
-      console.log(
-        `    ${icon} ${tool.name.padEnd(14)} ${tool.installed ? "installed" : "not installed"}${tool.version ? ` (${tool.version})` : ""}`
-      );
-    }
-  }
 
   return 0;
 }

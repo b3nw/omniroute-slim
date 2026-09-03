@@ -12,7 +12,6 @@ import {
 import { SafeOutboundFetchError } from "@/shared/network/safeOutboundFetch";
 import { normalizeSessionCookieHeader } from "@/lib/providers/webCookieAuth";
 import { normalizeGeminiCookieInput } from "@omniroute/open-sse/utils/geminiCookies.ts";
-import { buildJulesApiUrl } from "@/lib/cloudAgent/julesApi.ts";
 import {
   META_AI_ASBD_ID,
   META_AI_FRIENDLY_NAME,
@@ -484,6 +483,14 @@ export async function validateT3WebProvider({ apiKey, providerSpecificData = {} 
   } catch (error: any) {
     return toValidationErrorResult(error);
   }
+}
+
+/** Jules REST API base — https://developers.google.com/jules/api */
+const JULES_API_BASE_URL = "https://jules.googleapis.com/v1alpha";
+
+function buildJulesApiUrl(path: string): string {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  return `${JULES_API_BASE_URL}${normalized}`;
 }
 
 /** Jules API — GET /v1alpha/sources with X-Goog-Api-Key (see developers.google.com/jules/api). */

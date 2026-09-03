@@ -15,7 +15,7 @@ import {
   hasUsageLimitUpdate,
   parseApiKeyUsageLimitFields,
 } from "./apiKeyUsageLimitFields";
-import { setNoLog } from "../compliance/noLog";
+import { setNoLog } from "./noLog";
 import { resolveModelAlias } from "@omniroute/open-sse/services/modelDeprecation.ts";
 import { getProviderAlias, resolveProviderId } from "@/shared/constants/providers";
 import { getSyncedAvailableModelsByConnection, getCustomModels, getModelIsHidden } from "./models";
@@ -735,13 +735,6 @@ export async function regenerateApiKey(id: string) {
 
   await deleteRedisAuthCacheEntries(row.key_hash, newHash);
 
-  const { logAuditEvent } = await import("@/lib/compliance");
-  logAuditEvent({
-    action: "apiKey.regenerate",
-    target: id,
-    details: { name: String(row.name || "") },
-  });
-
   return { id, key: newKey };
 }
 
@@ -1068,20 +1061,10 @@ export async function updateApiKeyPermissions(
 
   if (changedRows === 0) return false;
 
-  const { logAuditEvent } = await import("@/lib/compliance");
-
   if (normalized.isBanned !== undefined) {
-    logAuditEvent({
-      action: normalized.isBanned ? "apiKey.ban" : "apiKey.unban",
-      target: id,
-    });
   }
 
   if (normalized.isActive !== undefined) {
-    logAuditEvent({
-      action: normalized.isActive ? "apiKey.activate" : "apiKey.deactivate",
-      target: id,
-    });
   }
 
   if (scopesUpdate !== undefined) {
@@ -1092,27 +1075,12 @@ export async function updateApiKeyPermissions(
     const hadManage = previousScopes.includes("manage");
     const hasManage = nextScopes.includes("manage");
     if (!hadManage && hasManage) {
-      logAuditEvent({
-        action: "apiKey.scopes.grant",
-        target: id,
-        details: { scopes: nextScopes, previous: previousScopes },
-      });
     } else if (hadManage && !hasManage) {
-      logAuditEvent({
-        action: "apiKey.scopes.revoke",
-        target: id,
-        details: { scopes: nextScopes, previous: previousScopes },
-      });
     } else if (
       previousScopes.length !== nextScopes.length ||
       previousScopes.some((s) => !nextScopes.includes(s)) ||
       nextScopes.some((s) => !previousScopes.includes(s))
     ) {
-      logAuditEvent({
-        action: "apiKey.scopes.update",
-        target: id,
-        details: { scopes: nextScopes, previous: previousScopes },
-      });
     }
   }
 

@@ -19,8 +19,6 @@ import {
   createProgressTransform as defaultProgress,
   wantsProgress as defaultWantsProgress,
 } from "../../utils/progressTracker.ts";
-import { createPiiSseTransform as defaultPiiSse } from "@/lib/streamingPiiTransform";
-import { isFeatureFlagEnabled as defaultFeatureFlag } from "@/shared/utils/featureFlags";
 import { OMNIROUTE_RESPONSE_HEADERS } from "@/shared/constants/headers";
 import { SSE_HEARTBEAT_INTERVAL_MS } from "../../config/constants.ts";
 /**
@@ -40,8 +38,6 @@ type HeadersLike = Headers | Record<string, unknown> | null | undefined;
 export interface StreamingPipelineDeps {
   wantsProgress: typeof defaultWantsProgress;
   pipeWithDisconnect: typeof defaultPipeWithDisconnect;
-  isFeatureFlagEnabled: typeof defaultFeatureFlag;
-  createPiiSseTransform: typeof defaultPiiSse;
   createProgressTransform: typeof defaultProgress;
   createSseHeartbeatTransform: typeof defaultHeartbeat;
   shapeForClientFormat: typeof defaultShape;
@@ -51,8 +47,6 @@ export interface StreamingPipelineDeps {
 const DEFAULT_DEPS: StreamingPipelineDeps = {
   wantsProgress: defaultWantsProgress,
   pipeWithDisconnect: defaultPipeWithDisconnect,
-  isFeatureFlagEnabled: defaultFeatureFlag,
-  createPiiSseTransform: defaultPiiSse,
   createProgressTransform: defaultProgress,
   createSseHeartbeatTransform: defaultHeartbeat,
   shapeForClientFormat: defaultShape,
@@ -80,15 +74,13 @@ export function assembleStreamingPipeline(
   const progressEnabled = deps.wantsProgress(args.clientRawRequestHeaders);
   let finalStream;
 
-  let piiStream = deps.pipeWithDisconnect(
+  let baseStream = deps.pipeWithDisconnect(
     args.providerResponse,
     args.transformStream,
     args.streamController
   );
   if (typeof args.createPiiTransform === "function") {
-    piiStream = piiStream.pipeThrough((args.createPiiTransform as () => TransformStream)());
-  } else if (deps.isFeatureFlagEnabled("PII_RESPONSE_SANITIZATION")) {
-    piiStream = piiStream.pipeThrough(deps.createPiiSseTransform());
+    baseStream = baseStream.pipeThrough((args.createPiiTransform as () => TransformStream)());
   }
 
   if (progressEnabled) {
@@ -96,10 +88,10 @@ export function assembleStreamingPipeline(
       signal: args.streamController.signal,
     });
     // Chain: provider → transform → progress → client
-    finalStream = piiStream.pipeThrough(progressTransform);
+    finalStream = baseStream.pipeThrough(progressTransform);
     args.responseHeaders[OMNIROUTE_RESPONSE_HEADERS.progress] = "enabled";
   } else {
-    finalStream = piiStream;
+    finalStream = baseStream;
   }
   finalStream = finalStream.pipeThrough(
     deps.createSseHeartbeatTransform({

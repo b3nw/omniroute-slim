@@ -9,7 +9,7 @@ const CONTENT_CAP_BYTES = 256 * 1024;
 
 // Lazy-load MarkdownMessage to avoid increasing initial bundle size
 const MarkdownMessage = lazy(
-  () => import("@/app/(dashboard)/dashboard/playground/components/MarkdownMessage")
+  () => import("@/shared/components/MarkdownMessage")
 );
 
 interface ScrapeResultProps {

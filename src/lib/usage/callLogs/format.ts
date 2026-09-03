@@ -1,6 +1,5 @@
 import type { RequestPipelinePayloads } from "@omniroute/open-sse/utils/requestLogger.ts";
 import { classifyProviderError } from "@omniroute/open-sse/services/errorClassifier.ts";
-import { sanitizePII } from "../../piiSanitizer";
 import { omitEncryptedReasoningFromLogChunks, protectPayloadForLog } from "../../logPayloads";
 import type { CallLogDetailState } from "../callLogArtifacts";
 // #7879: re-export the canonical helper so existing consumers of this module
@@ -44,11 +43,11 @@ export function normalizeDetailState(value: unknown): CallLogDetailState {
 
 export function sanitizeErrorForLog(error: unknown): unknown {
   if (error === null || error === undefined) return null;
-  if (typeof error === "string") return sanitizePII(error).text;
+  if (typeof error === "string") return error;
   if (error instanceof Error) {
     return {
-      message: sanitizePII(error.message).text,
-      stack: sanitizePII(error.stack || "").text || undefined,
+      message: error.message,
+      stack: error.stack || undefined,
       name: error.name,
     };
   }
@@ -112,7 +111,7 @@ export function buildRequestSummary(
 
   const summary: JsonRecord = {};
   if (typeof body.query === "string" && body.query.trim().length > 0) {
-    summary.query = sanitizePII(body.query).text;
+    summary.query = body.query;
   }
 
   const filters = Object.fromEntries(

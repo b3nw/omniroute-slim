@@ -5,7 +5,6 @@ import {
   ClaudeAuthFileError,
   writeClaudeAuthFileToLocalCli,
 } from "@/lib/oauth/utils/claudeAuthFile";
-import { getAuditRequestContext, logAuditEvent } from "@/lib/compliance/index";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
 
 function toErrorResponse(error: unknown) {
@@ -27,8 +26,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
 
-  const auditContext = getAuditRequestContext(request);
-
   try {
     const writeGuard = ensureCliConfigWriteAllowed();
     if (writeGuard) {
@@ -37,23 +34,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     const { id } = await params;
     const result = await writeClaudeAuthFileToLocalCli(id);
-
-    logAuditEvent({
-      action: "provider.credentials.applied",
-      actor: "admin",
-      target: id,
-      resourceType: "provider_credentials",
-      status: "success",
-      ipAddress: auditContext.ipAddress || undefined,
-      requestId: auditContext.requestId,
-      metadata: {
-        provider: "claude",
-        authPath: result.authPath,
-        savedBakPath: result.savedBakPath,
-        centralizedBackupPath: result.centralizedBackupPath,
-        mcpOAuthPreserved: result.mcpOAuthPreserved,
-      },
-    });
 
     return NextResponse.json({
       success: true,

@@ -403,8 +403,8 @@ export function translateRequest(
   }
 
   // #7293: hoist any system message at index > 0 onto index 0 for providers that reject
-  // a non-first system role (systemMessageMustBeFirst() — same source of truth as the
-  // memory-injection half, #6135/PR#6225). Runs for every path — including same-format
+  // a non-first system role (systemMessageMustBeFirst() — strictSystemProviders.ts is the
+  // single source of truth, #6135/PR#6225). Runs for every path — including same-format
   // (OpenAI→OpenAI) passthrough, where none of the format-specific translators below
   // execute — so a client-injected mid-array system message (OpenCode/Kilo Code style
   // clients) is still normalized before reaching the upstream. No-op for non-strict

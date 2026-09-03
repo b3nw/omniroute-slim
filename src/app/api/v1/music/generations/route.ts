@@ -1,5 +1,4 @@
 import { handleMusicGeneration } from "@omniroute/open-sse/handlers/musicGeneration.ts";
-import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
 import {
   getProviderCredentialsWithQuotaPreflight,
   clearRecoveredProviderState,
@@ -118,4 +117,4 @@ async function postHandler(request, context) {
   return failedMediaGenerationResponse(result, "Music generation provider error");
 }
 
-export const POST = withInjectionGuard(postHandler);
+export const POST = postHandler;

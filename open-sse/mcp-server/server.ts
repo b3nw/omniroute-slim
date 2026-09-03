@@ -17,7 +17,6 @@ import {
   routeRequestInput,
   costReportInput,
   listModelsCatalogInput,
-  webSearchInput,
   buildWebSearchInputSchema,
   xSearchInput,
   webFetchInput,
@@ -41,7 +40,6 @@ import {
 } from "./schemas/tools.ts";
 import { startMcpHeartbeat } from "./runtimeHeartbeat.ts";
 import { countUniqueMcpTools } from "./toolCount.ts";
-import { z } from "zod";
 import { closeAuditDb, logToolCall } from "./audit.ts";
 import {
   evaluateToolScopes,
@@ -69,19 +67,9 @@ import {
   handleOneproxyStats,
 } from "./tools/advancedTools.ts";
 import { handlePickFastestModel } from "./tools/pickFastestModel.ts";
-import { memoryTools } from "./tools/memoryTools.ts";
-import { skillTools } from "./tools/skillTools.ts";
-import { agentSkillTools } from "./tools/agentSkillTools.ts";
-import { githubSkillTools } from "./tools/githubSkillTools.ts";
-import { skillRegistry } from "../../src/lib/skills/registry.ts";
-import { skillExecutor } from "../../src/lib/skills/executor.ts";
 import { pluginTools } from "./tools/pluginTools.ts";
 import { compressionTools } from "./tools/compressionTools.ts";
 import { poolTools } from "./tools/poolTools.ts";
-import { gamificationTools } from "./tools/gamificationTools.ts";
-import { notionTools } from "./tools/notionTools.ts";
-import { obsidianTools } from "./tools/obsidianTools.ts";
-import { localCorpusTools } from "./tools/localCorpusTools.ts";
 import { compressMcpRegistryMetadata } from "./descriptionCompressor.ts";
 import { reduceToolManifest, readMcpToolProfileFromEnv } from "./toolCardinality.ts";
 import { smartFilterText } from "../services/compression/engines/mcpAccessibility/index.ts";
@@ -110,16 +98,8 @@ const MCP_ALLOWED_SCOPES = new Set(
 );
 const TOTAL_MCP_TOOL_COUNT = countUniqueMcpTools({
   MCP_TOOLS,
-  memoryTools,
-  skillTools,
-  agentSkillTools,
-  githubSkillTools,
   poolTools,
-  gamificationTools,
   pluginTools,
-  notionTools,
-  obsidianTools,
-  localCorpusTools,
   compressionTools,
 });
 
@@ -171,11 +151,6 @@ function toNumber(value: unknown, fallback = 0): number {
 // future string serialization can never silently invert a boolean lane report.
 function isLaneFlagOn(value: unknown): boolean {
   return value === true || value === "1" || value === "true";
-}
-
-function toStringArray(value: unknown, fallback: string[] = []): string[] {
-  const values = toArray(value).filter((entry): entry is string => typeof entry === "string");
-  return values.length > 0 ? values : fallback;
 }
 
 function normalizeComboModels(
@@ -808,17 +783,11 @@ export function createMcpServer(options?: CreateMcpServerOptions): McpServer {
     return registerResource(name, uriOrTemplate as never, metadata as never, readCallback as never);
   }) as typeof server.registerResource;
 
-  const RESERVED_MCP_NAMES = new Set([
+  const _RESERVED_MCP_NAMES = new Set([
     ...MCP_TOOLS.map((t) => t.name),
-    ...Object.keys(memoryTools),
-    ...Object.keys(skillTools),
     ...Object.keys(compressionTools),
     ...Object.keys(poolTools),
     ...pluginTools.map((t) => t.name),
-    ...gamificationTools.map((t) => t.name),
-    ...obsidianTools.map((t) => t.name),
-    ...notionTools.map((t) => t.name),
-    ...localCorpusTools.map((t) => t.name),
   ]);
 
   server.registerTool(
@@ -1164,110 +1133,6 @@ export function createMcpServer(options?: CreateMcpServerOptions): McpServer {
 
   registerToolSearchTool(server, withScopeEnforcement);
 
-  // ── Memory Tools ──────────────────────────────
-  Object.values(memoryTools).forEach((toolDef: any) => {
-    server.registerTool(
-      toolDef.name,
-      {
-        description: toolDef.description,
-        // @ts-ignore: dynamic zod access
-        inputSchema: toolDef.inputSchema,
-      },
-      withScopeEnforcement(
-        toolDef.name,
-        async (args, extra) => {
-          try {
-            const parsedArgs = toolDef.inputSchema.parse(args ?? {});
-            // @ts-ignore - handler type lost through dynamic Object.values() access
-            const result = await toolDef.handler(parsedArgs, extra);
-            return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            return { content: [{ type: "text" as const, text: `Error: ${msg}` }], isError: true };
-          }
-        },
-        toolDef.scopes
-      )
-    );
-  });
-
-  // ── Skill Tools ──────────────────────────────
-  Object.values(skillTools).forEach((toolDef: any) => {
-    server.registerTool(
-      toolDef.name,
-      {
-        description: toolDef.description,
-        // @ts-ignore: dynamic zod access
-        inputSchema: toolDef.inputSchema,
-      },
-      withScopeEnforcement(
-        toolDef.name,
-        async (args, extra) => {
-          try {
-            const parsedArgs = toolDef.inputSchema.parse(args ?? {});
-            // @ts-ignore - handler type lost through dynamic Object.values() access
-            const result = await toolDef.handler(parsedArgs, extra);
-            return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            return { content: [{ type: "text" as const, text: `Error: ${msg}` }], isError: true };
-          }
-        },
-        toolDef.scopes
-      )
-    );
-  });
-
-  // ── Agent Skill Tools ─────────────────────────
-  Object.values(agentSkillTools).forEach((toolDef) => {
-    server.registerTool(
-      toolDef.name,
-      {
-        description: toolDef.description,
-        // @ts-ignore: dynamic zod access
-        inputSchema: toolDef.inputSchema,
-      },
-      withScopeEnforcement(toolDef.name, async (args, extra) => {
-        try {
-          const parsedArgs = toolDef.inputSchema.parse(args ?? {});
-          // @ts-expect-error - handler type lost through dynamic Object.values() access
-          const result = await toolDef.handler(parsedArgs, extra);
-          return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          return { content: [{ type: "text" as const, text: `Error: ${msg}` }], isError: true };
-        }
-      })
-    );
-  });
-
-  // ── GitHub Skill Tools ──────────────────────────
-  Object.values(githubSkillTools).forEach((toolDef) => {
-    server.registerTool(
-      toolDef.name,
-      {
-        description: toolDef.description,
-        // @ts-ignore: dynamic zod access
-        inputSchema: toolDef.inputSchema,
-      },
-      withScopeEnforcement(
-        toolDef.name,
-        async (args) => {
-          try {
-            const parsedArgs = toolDef.inputSchema.parse(args ?? {});
-            // @ts-expect-error - handler type lost through dynamic Object.values() access
-            const result = await toolDef.handler(parsedArgs);
-            return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            return { content: [{ type: "text" as const, text: `Error: ${msg}` }], isError: true };
-          }
-        },
-        toolDef.scopes
-      )
-    );
-  });
-
   // ── Plugin Tools ──────────────────────────────
   pluginTools.forEach((toolDef) => {
     server.registerTool(
@@ -1359,163 +1224,6 @@ export function createMcpServer(options?: CreateMcpServerOptions): McpServer {
       );
     }
   );
-
-  // ── Gamification Tools ────────────────────────
-  gamificationTools.forEach((toolDef) => {
-    server.registerTool(
-      toolDef.name,
-      {
-        description: toolDef.description,
-        // @ts-ignore: dynamic zod access
-        inputSchema: toolDef.inputSchema,
-      },
-      withScopeEnforcement(
-        toolDef.name,
-        async (args, extra) => {
-          try {
-            const parsedArgs = toolDef.inputSchema.parse(args ?? {});
-            // @ts-ignore: handler expected specific object
-            const result = await toolDef.handler(parsedArgs, extra);
-            return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            return { content: [{ type: "text" as const, text: `Error: ${msg}` }], isError: true };
-          }
-        },
-        toolDef.scopes
-      )
-    );
-  });
-
-  // ── Notion Context Source Tools ───────────────
-  notionTools.forEach((toolDef) => {
-    server.registerTool(
-      toolDef.name,
-      {
-        description: toolDef.description,
-        // @ts-ignore: dynamic zod access
-        inputSchema: toolDef.inputSchema,
-      },
-      withScopeEnforcement(
-        toolDef.name,
-        async (args, extra) => {
-          try {
-            const parsedArgs = toolDef.inputSchema.parse(args ?? {});
-            // @ts-ignore: handler expected specific object
-            const result = await toolDef.handler(parsedArgs, extra);
-            return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            return { content: [{ type: "text" as const, text: `Error: ${msg}` }], isError: true };
-          }
-        },
-        toolDef.scopes
-      )
-    );
-  });
-
-  // ── Local Corpus Context Source Tools ─────────
-  localCorpusTools.forEach((toolDef) => {
-    server.registerTool(
-      toolDef.name,
-      {
-        description: toolDef.description,
-        // @ts-ignore: dynamic zod access
-        inputSchema: toolDef.inputSchema,
-      },
-      withScopeEnforcement(
-        toolDef.name,
-        async (args, extra) => {
-          try {
-            const parsedArgs = toolDef.inputSchema.parse(args ?? {});
-            // @ts-ignore: handler expected specific object
-            const result = await toolDef.handler(parsedArgs, extra);
-            return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-          } catch (error) {
-            return {
-              content: [{ type: "text" as const, text: `Error: ${sanitizeErrorMessage(error)}` }],
-              isError: true,
-            };
-          }
-        },
-        toolDef.scopes
-      )
-    );
-  });
-
-  // ── Obsidian Context Source Tools ─────────────
-  obsidianTools.forEach((toolDef) => {
-    server.registerTool(
-      toolDef.name,
-      {
-        description: toolDef.description,
-        // @ts-ignore: dynamic zod access
-        inputSchema: toolDef.inputSchema,
-      },
-      withScopeEnforcement(
-        toolDef.name,
-        async (args, extra) => {
-          try {
-            const parsedArgs = toolDef.inputSchema.parse(args ?? {});
-            // @ts-ignore: handler expected specific object
-            const result = await toolDef.handler(parsedArgs, extra);
-            return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            return { content: [{ type: "text" as const, text: `Error: ${msg}` }], isError: true };
-          }
-        },
-        toolDef.scopes
-      )
-    );
-  });
-
-  // ── Dynamic Skill Tools (from skills table) ──
-  const skillToMcpToolName = (skill: { name: string }) =>
-    `skill_${skill.name.replace(/[^a-z0-9_-]/gi, "_")}`;
-  try {
-    const enabledSkills = skillRegistry.list().filter((s) => s.enabled);
-    for (const skill of enabledSkills) {
-      const toolName = skillToMcpToolName(skill);
-      if (RESERVED_MCP_NAMES.has(toolName)) continue;
-
-      server.registerTool(
-        toolName,
-        {
-          description: skill.description,
-          inputSchema: z.object({}).passthrough(),
-        },
-        withScopeEnforcement(
-          toolName,
-          async (args, extra) => {
-            const scopeContext = resolveCallerScopeContext(extra, Array.from(MCP_ALLOWED_SCOPES));
-            const apiKeyId = scopeContext.callerId || "mcp";
-            try {
-              const execution = await skillExecutor.execute(
-                skill.name,
-                (args ?? {}) as Record<string, unknown>,
-                { apiKeyId }
-              );
-              return {
-                content: [
-                  { type: "text" as const, text: JSON.stringify(execution.output, null, 2) },
-                ],
-              };
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err);
-              return {
-                content: [{ type: "text" as const, text: `Error: ${msg}` }],
-                isError: true,
-              };
-            }
-          },
-          ["execute:skills"]
-        )
-      );
-    }
-  } catch {
-    // Skills not loaded yet — skip dynamic registration until next reconnect
-  }
 
   return server;
 }

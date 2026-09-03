@@ -9,8 +9,6 @@ import {
   enrichWithAntigravityBackend,
   createConnectionFromAgyToken,
 } from "@/lib/oauth/utils/agyAuthImport";
-import { getAuditRequestContext, logAuditEvent } from "@/lib/compliance/index";
-import { getProviderAuditTarget } from "@/lib/compliance/providerAudit";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
 import { applyLocalAgyAuthSchema } from "@/shared/validation/schemas";
 import { validateBody, isValidationFailure } from "@/shared/validation/helpers";
@@ -42,8 +40,6 @@ function sanitizeConnectionForResponse(connection: Record<string, unknown>) {
 export async function POST(request: Request) {
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
-
-  const auditContext = getAuditRequestContext(request);
 
   // Body is optional for this route; tolerate an empty/absent body.
   let body: unknown = {};
@@ -92,23 +88,6 @@ export async function POST(request: Request) {
       name,
       email,
       overwriteExisting,
-    });
-
-    logAuditEvent({
-      action: "provider.credentials.imported",
-      actor: "admin",
-      target: getProviderAuditTarget(connection),
-      resourceType: "provider_credentials",
-      status: "success",
-      ipAddress: auditContext.ipAddress || undefined,
-      requestId: auditContext.requestId,
-      metadata: {
-        provider: "agy",
-        created,
-        source: "apply-local",
-        email: enriched.email || email,
-        hasProjectId: !!enriched.projectId,
-      },
     });
 
     return NextResponse.json({

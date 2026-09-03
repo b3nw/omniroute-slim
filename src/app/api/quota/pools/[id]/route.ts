@@ -16,7 +16,6 @@ import { buildErrorBody } from "@omniroute/open-sse/utils/error";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { PoolUpdateSchema } from "@/shared/schemas/quota";
 import { getPool, updatePool, deletePool } from "@/lib/db/quotaPools";
-import { logAuditEvent, getAuditRequestContext } from "@/lib/compliance/index";
 import { reconcilePoolExclusivity } from "@/lib/quota/quotaKey";
 
 export const dynamic = "force-dynamic";
@@ -108,15 +107,6 @@ export async function PATCH(request: Request, { params }: RouteParams): Promise<
       );
     }
 
-    const ctx = getAuditRequestContext(request);
-    logAuditEvent({
-      action: "quota.pool.updated",
-      target: id,
-      metadata: parsed.data,
-      ipAddress: ctx.ipAddress ?? undefined,
-      requestId: ctx.requestId,
-    });
-
     return NextResponse.json({ pool });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to update pool";
@@ -134,14 +124,6 @@ export async function DELETE(request: Request, { params }: RouteParams): Promise
     if (!existed) {
       return NextResponse.json(buildErrorBody(404, "Pool not found"), { status: 404 });
     }
-
-    const ctx = getAuditRequestContext(request);
-    logAuditEvent({
-      action: "quota.pool.deleted",
-      target: id,
-      ipAddress: ctx.ipAddress ?? undefined,
-      requestId: ctx.requestId,
-    });
 
     return new Response(null, { status: 204 });
   } catch (err) {

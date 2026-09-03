@@ -144,18 +144,6 @@ export async function enforceQuotaShare(input: EnforceInput): Promise<EnforceDec
       };
       const modelConsumed = await store.peek(input.apiKeyId, modelDimKey).catch(() => 0);
       if (modelConsumed >= modelCap.capValue) {
-        try {
-          const { notifyWebhookEvent } = await import("@/lib/webhookDispatcher");
-          notifyWebhookEvent("quota.exceeded", {
-            apiKeyId: input.apiKeyId,
-            provider: input.provider,
-            connectionId: input.connectionId,
-            reason: "model-cap",
-            model: input.model,
-          });
-        } catch {
-          // webhook is best-effort
-        }
         return {
           kind: "block",
           reason: `Model cap reached for your API key on ${input.provider}/${input.model} [model-cap]`,
@@ -253,19 +241,6 @@ export async function enforceQuotaShare(input: EnforceInput): Promise<EnforceDec
   });
 
   if (decision.kind === "block") {
-    // Fire webhook (fire-and-forget, never blocks the response)
-    try {
-      const { notifyWebhookEvent } = await import("@/lib/webhookDispatcher");
-      notifyWebhookEvent("quota.exceeded", {
-        apiKeyId: input.apiKeyId,
-        provider: input.provider,
-        connectionId: input.connectionId,
-        reason: decision.reason,
-      });
-    } catch {
-      // webhook dispatch is best-effort
-    }
-
     return {
       kind: "block",
       reason: messageForReason(decision.reason, input.provider),

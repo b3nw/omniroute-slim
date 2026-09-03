@@ -138,7 +138,6 @@ import { markAccountExhaustedFrom429 } from "../../domain/quotaCache";
 import { resolveForcedConnectionForCredentialPool } from "../services/sessionAffinityPin.ts";
 import { RequestTelemetry, recordTelemetry } from "../../shared/utils/requestTelemetry";
 import { generateRequestId } from "../../shared/utils/requestId";
-import { logAuditEvent } from "../../lib/compliance/index";
 import { enforceApiKeyPolicy } from "../../shared/utils/apiKeyPolicy";
 import { hasProviderQuotaBypassScope } from "../../shared/constants/apiKeyPolicyScopes";
 import { isMicrosoftDesignerWebProviderRetiredError } from "../../shared/constants/designerWebRetirement";
