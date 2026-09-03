@@ -6,7 +6,6 @@ import { getMessages, getLocale, getTranslations } from "next-intl/server";
 import { getSettings } from "@/lib/db/settings";
 import type { Viewport } from "next";
 import { PwaRegister } from "@/shared/components/PwaRegister";
-import { LocaleAutoDetect } from "@/shared/components/LocaleAutoDetect";
 import { BasePathNetworkProvider } from "@/shared/components/BasePathNetworkProvider";
 
 const inter = Inter({
@@ -146,7 +145,6 @@ export default async function RootLayout({ children }) {
         <NextIntlClientProvider locale={locale} messages={messages}>
           <BasePathNetworkProvider>
             <PwaRegister />
-            <LocaleAutoDetect />
             <ThemeProvider>{children}</ThemeProvider>
           </BasePathNetworkProvider>
         </NextIntlClientProvider>

@@ -18,14 +18,6 @@ let catalog = null;
 let activeLocale = null;
 
 export function detectLocale() {
-  // Read the env chain for parity with the historical contract; any value —
-  // including a hostile one — normalizes to the single shipped catalog.
-  void (
-    process.env.OMNIROUTE_LANG ||
-    process.env.LC_ALL ||
-    process.env.LC_MESSAGES ||
-    process.env.LANG
-  );
   return LOCALE;
 }
 
