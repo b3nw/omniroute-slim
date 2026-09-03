@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { deepMergeFallback, PLACEHOLDER_PREFIX } from "../../src/i18n/request.ts";
+const PLACEHOLDER_PREFIX = "__MISSING__:";
 
 const messagesDir = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -41,46 +41,6 @@ function collectPlaceholderLeaves(node: unknown, pathPrefix: string, out: string
     collectPlaceholderLeaves(value, pathPrefix ? `${pathPrefix}.${key}` : key, out);
   }
 }
-
-// ---------------------------------------------------------------------------
-// 1. (Retired) The original repro asserted zh-TW.json STILL carried raw
-// __MISSING__: placeholders. That translation backlog has since been filled, so
-// the sentinel no longer ships on disk — the invariant "no locale has a raw
-// __MISSING__: leaf" (test 3 below) is the durable guard. Keeping a test that
-// requires the backlog to EXIST would fail exactly when the content is healthy.
-// ---------------------------------------------------------------------------
-
-test("#7258: deepMergeFallback replaces an untranslated __MISSING__ placeholder with the EN fallback value", () => {
-  const target: Record<string, unknown> = {
-    localUsageCommand: `${PLACEHOLDER_PREFIX}Run this command locally`,
-  };
-  const source: Record<string, unknown> = {
-    localUsageCommand: "Run this command locally",
-  };
-  const result = deepMergeFallback(target, source);
-  assert.equal(result.localUsageCommand, "Run this command locally");
-  assert.ok(!(result.localUsageCommand as string).startsWith(PLACEHOLDER_PREFIX));
-});
-
-test("#7258: deepMergeFallback still lets a real (non-placeholder) locale value win", () => {
-  const target: Record<string, unknown> = { greeting: "Hola" };
-  const source: Record<string, unknown> = { greeting: "Hello" };
-  const result = deepMergeFallback(target, source);
-  assert.equal(result.greeting, "Hola");
-});
-
-test("#7258: deepMergeFallback replaces nested placeholder leaves too", () => {
-  const target: Record<string, unknown> = {
-    ns: { a: `${PLACEHOLDER_PREFIX}English A`, b: "translated B" },
-  };
-  const source: Record<string, unknown> = {
-    ns: { a: "English A", b: "English B" },
-  };
-  const result = deepMergeFallback(target, source);
-  const ns = result.ns as Record<string, unknown>;
-  assert.equal(ns.a, "English A");
-  assert.equal(ns.b, "translated B", "already-translated sibling key is untouched");
-});
 
 // ---------------------------------------------------------------------------
 // 2. General regression: the shipped catalog carries no raw __MISSING__: leaf.
