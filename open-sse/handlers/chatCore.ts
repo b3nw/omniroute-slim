@@ -2,7 +2,6 @@ import {
   extractRequestToolIdentityMap,
   resolveResponseToolNameMap,
 } from "./chatCore/requestToolIdentity.ts";
-import { injectMemoryAndSkills } from "./chatCore/memorySkillsInjection.ts";
 import { resolveChatCoreRequestSetup } from "./chatCore/requestSetup.ts";
 import { normalizeOpenAICompatibleTools } from "./chatCore/openAICompatibleTools.ts";
 import { buildFailureUsageRecord } from "./chatCore/failureUsage.ts";
@@ -16,7 +15,6 @@ export {
   relocateDirectiveOnlyMessages,
 } from "./chatCore/claudeSystemRole.ts";
 import { checkIdempotencyCache } from "./chatCore/idempotency.ts";
-import { checkSemanticCache } from "./chatCore/semanticCache.ts";
 import { checkLifecycle, resolveLifecycle } from "./chatCore/modelLifecyclePolicy.ts";
 import {
   shouldDefaultAllowClassifier,
@@ -24,14 +22,11 @@ import {
   buildDefaultAllowClaudeMessage,
 } from "./chatCore/claudeClassifierCompat.ts";
 import { applyClientUsageBuffer } from "./chatCore/clientUsageBuffer.ts";
-import { buildPostCallGuardrailContext } from "./chatCore/postCallGuardrailContext.ts";
-import { storeSemanticCacheResponse } from "./chatCore/semanticCacheStore.ts";
 import { buildNonStreamingResponseHeaders } from "./chatCore/nonStreamingResponseHeaders.ts";
 import { buildNonStreamingJsonResponse } from "./chatCore/nonStreamingJsonResponse.ts";
 import { enforceOutputTokenBudget } from "./chatCore/outputTokenBudget.ts";
 import { maybeConvertJsonBodyToSse } from "./chatCore/jsonBodyToSse.ts";
 import { assembleStreamingResponseHeaders } from "./chatCore/streamingResponseHeaders.ts";
-import { storeStreamingSemanticCacheResponse } from "./chatCore/streamingSemanticCacheStore.ts";
 import { assembleStreamingPipeline } from "./chatCore/streamingPipeline.ts";
 import { sanitizeChatRequestBody } from "./chatCore/sanitization.ts";
 import {
@@ -72,7 +67,6 @@ function routingFinishReason(body: unknown): string | null {
 }
 import {
   getHeaderValueCaseInsensitive,
-  isNoMemoryRequested,
   resolveCompressionHeader,
   isStripReasoningRequested,
 } from "./chatCore/headers.ts";
@@ -119,11 +113,6 @@ export {
   buildStreamingResponseHeaders,
   stripStaleForwardingHeaders,
 };
-import {
-  extractMemoryTextFromResponse,
-  extractMemoryTextFromRequestBody,
-  resolveMemoryOwnerId,
-} from "./chatCore/memoryExtraction.ts";
 import { CORS_HEADERS } from "../utils/cors.ts";
 import { checkResourcePressureGuard } from "../utils/resourcePressure.ts";
 import { normalizeHeaders } from "../utils/headers.ts";
@@ -263,7 +252,6 @@ import { updateProviderConnection, getProviderConnectionById } from "@/lib/db/pr
 import { wasRefreshTokenRotated } from "@omniroute/open-sse/services/refreshSerializer.ts";
 import { connectionHasExtraKeys } from "../services/apiKeyRotator.ts";
 import { recordKeyHealthStatus as recordKeyHealthStatusFor } from "./chatCore/keyHealth.ts";
-import { getSkillsModelIdForFormat } from "./chatCore/skillsFormat.ts";
 import { readNonStreamingResponseBody } from "./chatCore/nonStreamingResponseBody.ts";
 import {
   isSemaphoreCapacityError,
@@ -291,7 +279,6 @@ import {
   getCallLogPipelineCaptureStreamChunks,
   getCallLogPipelineMaxSizeBytes,
 } from "@/lib/logEnv";
-import { logAuditEvent } from "@/lib/compliance";
 import { emit } from "@/lib/events/eventBus";
 import { adaptBodyForCompression } from "../services/compression/bodyAdapter.ts";
 import { ensureEngineBreakdown } from "../services/compression/engineBreakdown.ts";
@@ -327,7 +314,6 @@ import { recordContextEditingTelemetryHook } from "./chatCore/contextEditingTele
 import { recordCompressionCacheStats } from "./chatCore/compressionCacheStats.ts";
 import { writeCavemanOutputAnalytics } from "./chatCore/cavemanOutputAnalytics.ts";
 import { scheduleQuotaShareConsumption } from "./chatCore/quotaShareConsumption.ts";
-import { emitRequestGamificationEvent } from "./chatCore/gamificationEvent.ts";
 import {
   runPluginOnResponseHook,
   runPluginOnStreamCompleteHook,
@@ -358,7 +344,6 @@ import { getProviderCredentials, extractSessionAffinityKey } from "@/sse/service
 import { assertExclusiveConnectionLeaseFence } from "@/lib/db/exclusiveConnectionLeases";
 import { deleteSessionAccountAffinity } from "@/lib/db/sessionAccountAffinity";
 import { getCacheControlSettings } from "@/lib/cacheControlSettings";
-import { guardrailRegistry } from "@/lib/guardrails";
 import {
   shouldPreserveCacheControl,
   resolveConnectionCacheOverride,
@@ -405,13 +390,6 @@ import {
   recordCoreOwnedAntigravityQuotaState,
   shouldDeferAntigravityQuotaStateToCaller,
 } from "../services/accountFallback.ts";
-import {
-  generateSignature,
-  getCachedResponse,
-  setCachedResponse,
-  isCacheableForRead,
-  isCacheableForWrite,
-} from "@/lib/semanticCache";
 import { saveIdempotency } from "@/lib/idempotencyLayer";
 import {
   isModelUnavailableError,
@@ -447,9 +425,7 @@ import { generateRequestId } from "@/shared/utils/requestId";
 import { isLocalStreamLifecycleError } from "@/shared/utils/circuitBreaker";
 import { shouldIsolateProbeFailures } from "@/shared/utils/probeOrigin";
 import { writeTerminalStatus } from "@/shared/utils/terminalStatus";
-import { extractFacts } from "@/lib/memory/extraction";
-import { handleToolCallExecution } from "@/lib/skills/interception";
-import { MEMORY_BUILTIN_TOOL_NAMES } from "@/lib/skills/memoryBuiltins";
+import { handleBuiltinToolExecution } from "./chatCore/builtinToolExecution.ts";
 import { OMNIROUTE_RESPONSE_HEADERS } from "@/shared/constants/headers";
 import { resolveProviderId } from "@/shared/constants/providers";
 import { getClaudeCodeCompatibleRequestDefaults } from "@/lib/providers/requestDefaults";
@@ -818,16 +794,6 @@ export async function handleChatCore({
       body.model = model;
     }
 
-    logAuditEvent({
-      action: "routing.background_task_redirect",
-      actor: apiKeyInfo?.name || "system",
-      target: connectionId || provider || "chat",
-      details: {
-        original_model: originalModel,
-        redirected_to: bgRedirect.degradedModel,
-        reason: bgRedirect.reason,
-      },
-    });
   }
 
   // Custom aliases remain explicit; lifecycle replacements are advisory and never silently routed.
@@ -1150,7 +1116,6 @@ export async function handleChatCore({
   });
   effectiveServiceTier = resolveEffectiveServiceTier(body);
   setGeminiThoughtSignatureMode(settings.antigravitySignatureCacheMode);
-  const semanticCacheEnabled = settings.semanticCacheEnabled !== false;
 
   const reqLogger = await createRequestLogger(sourceFormat, targetFormat, model, {
     enabled: detailedLoggingEnabled,
@@ -1182,35 +1147,6 @@ export async function handleChatCore({
   }
 
   log?.debug?.("FORMAT", `${sourceFormat} → ${targetFormat} | stream=${stream}`);
-
-  // Preserve original body for cache signature — the body variable is mutated
-  // multiple times below (sanitization, memory/skills injection) before the
-  // cache store path runs at Phase 9.1 (non-streaming) / Phase 9.2 (streaming).
-  // Without this snapshot, the write-time signature differs from the read-time
-  // one, producing 0% hit rate. (#cache-signature-asymmetry)
-  const bodyForCacheWrite = body;
-
-  // ── Phase 9.1: Semantic cache check (temp=0, any streaming mode) ──
-  const cacheHit = await checkSemanticCache({
-    semanticCacheEnabled,
-    body,
-    clientRawRequest,
-    model,
-    provider,
-    stream: !!stream,
-    reqLogger,
-    effectiveServiceTier,
-    connectionId,
-    startTime,
-    log,
-    persistAttemptLogs,
-    apiKeyId: apiKeyInfo?.id ?? undefined,
-    cacheDefaultMode: (apiKeyInfo as { cacheDefaultMode?: "legacy" | "bypass" } | null)
-      ?.cacheDefaultMode,
-  });
-  if (cacheHit) {
-    return cacheHit;
-  }
 
   const reasoningInputFormat =
     sourceFormat === FORMATS.OPENAI_RESPONSES
@@ -1248,24 +1184,6 @@ export async function handleChatCore({
   }
 
   body = sanitizeChatRequestBody(body, sourceFormat, targetFormat);
-  // Per-request opt-out: clients that manage their own context send
-  // `x-omniroute-no-memory: true` to skip memory+skills injection (a null owner
-  // disables both branches in injectMemoryAndSkills). See PRD-2026-06-19-no-memory-header.
-  const memoryOwnerId = isNoMemoryRequested(clientRawRequest?.headers ?? null)
-    ? null
-    : resolveMemoryOwnerId(apiKeyInfo as Record<string, unknown> | null);
-  const injectionResult = await injectMemoryAndSkills({
-    body,
-    memoryOwnerId,
-    provider,
-    effectiveModel,
-    sourceFormat,
-    targetFormat,
-    backgroundReason,
-    log,
-  });
-  body = injectionResult.body;
-  const memorySettings = injectionResult.memorySettings;
 
   // Translate request (pass reqLogger for intermediate logging)
   // ── Proactive Context Compression (Phase 4) ──
@@ -2022,18 +1940,6 @@ export async function handleChatCore({
           `Context compressed: ${stats.original} → ${stats.final} tokens${layersInfo}`
         );
 
-        logAuditEvent({
-          action: "context.proactive_compression",
-          actor: apiKeyInfo?.name || "system",
-          target: connectionId || provider || "chat",
-          details: {
-            provider,
-            model: effectiveModel,
-            original_tokens: stats.original,
-            final_tokens: stats.final,
-            layers: "layers" in stats ? stats.layers : undefined,
-          },
-        });
       } else {
         log?.debug?.("CONTEXT", `Compression not applied: context already fits within target`);
       }
@@ -3302,18 +3208,6 @@ export async function handleChatCore({
                   "CODEX_FAILOVER",
                   `Rotating codex account: ${String(failedConnectionId).slice(0, 8)} → ${newConnectionId.slice(0, 8)} (attempt ${attempts + 2}/${maxAttempts})`
                 );
-
-                logAuditEvent({
-                  action: "codex.account_rotation",
-                  actor: apiKeyInfo?.name || "system",
-                  target: newConnectionId,
-                  details: {
-                    failed_connection_id: failedConnectionId,
-                    new_connection_id: newConnectionId,
-                    attempt: attempts + 1,
-                    retry_after_ms: retryAfterMs,
-                  },
-                });
 
                 // Update credentials in-place so getExecutionCredentials() picks up the new account
                 Object.assign(credentials, nextCreds);
@@ -5009,7 +4903,6 @@ export async function handleChatCore({
           responseToolSchemas
         )
       : responseBody;
-    const memoryExtractionResponse = translatedResponse;
 
     // T26: Strip markdown code blocks if provider format is Claude
     if (sourceFormat === "claude" && !stream) {
@@ -5095,58 +4988,26 @@ export async function handleChatCore({
       }
     );
 
-    if (memoryOwnerId && memorySettings?.enabled && memorySettings.maxTokens > 0) {
-      const requestMemoryText = extractMemoryTextFromRequestBody(body as Record<string, unknown>);
-      if (requestMemoryText) {
-        extractFacts(requestMemoryText, memoryOwnerId, pipelineSessionId);
-      }
-
-      const memoryText = extractMemoryTextFromResponse(memoryExtractionResponse);
-      if (memoryText) {
-        extractFacts(memoryText, memoryOwnerId, pipelineSessionId);
-      }
-    }
-
-    const customSkillExecutionEnabled =
-      Boolean(memoryOwnerId) && memorySettings?.skillsEnabled === true;
+    // Execute the synthetic web_search / web_fetch fallback tool calls, if the
+    // request had either fallback enabled, and splice the results back in.
     const builtinToolNames = [
       webSearchFallbackPlan.toolName,
       webFetchFallbackPlan.toolName,
-      ...(memoryOwnerId && memorySettings?.enabled ? MEMORY_BUILTIN_TOOL_NAMES : []),
     ].filter((name): name is string => Boolean(name));
-    if (customSkillExecutionEnabled || builtinToolNames.length > 0) {
-      const skillSessionId = pipelineSessionId;
-
-      translatedResponse = await handleToolCallExecution(
+    if (builtinToolNames.length > 0) {
+      translatedResponse = await handleBuiltinToolExecution(
         translatedResponse,
-        getSkillsModelIdForFormat(sourceFormat),
+        effectiveModel,
         {
-          apiKeyId: memoryOwnerId || "local",
-          sessionId: skillSessionId,
+          apiKeyId: apiKeyInfo?.id || "local",
+          sessionId: pipelineSessionId,
           requestId: skillRequestId,
           builtinToolNames,
-          customSkillExecutionEnabled,
           provider,
           model: effectiveModel,
         }
       );
     }
-
-    const guardrailContext = buildPostCallGuardrailContext({
-      apiKeyInfo,
-      body,
-      clientRawRequest,
-      log,
-      model,
-      provider,
-      responsePayloadFormat,
-      clientResponseFormat,
-    });
-    const postCallGuardrails = await guardrailRegistry.runPostCallHooks(
-      translatedResponse,
-      guardrailContext
-    );
-    translatedResponse = postCallGuardrails.response;
 
     const responseUsage = isJsonRecord(usage)
       ? usage
@@ -5157,39 +5018,6 @@ export async function handleChatCore({
     const estimatedCost = costUsage
       ? await calculateCost(provider, model, costUsage, { serviceTier: effectiveServiceTier })
       : 0;
-
-    if (postCallGuardrails.blocked) {
-      const guardrailMessage = postCallGuardrails.message || "Response blocked by guardrail";
-      persistAttemptLogs({
-        status: HTTP_STATUS.BAD_REQUEST,
-        tokens: usage,
-        responseBody,
-        providerRequest: finalBody || translatedBody,
-        providerResponse: looksLikeSSE
-          ? {
-              _streamed: true,
-              _format: "sse-json",
-              summary: responseBody,
-            }
-          : responseBody,
-        clientResponse: buildErrorBody(HTTP_STATUS.BAD_REQUEST, guardrailMessage),
-        claudeCacheMeta: claudePromptCacheLogMeta,
-        claudeCacheUsageMeta: cacheUsageLogMeta,
-        cacheSource: "upstream",
-      });
-      if (apiKeyInfo?.id && estimatedCost > 0) {
-        recordCost(apiKeyInfo.id, estimatedCost);
-      }
-      log?.warn?.(
-        "GUARDRAIL",
-        `Response blocked by ${postCallGuardrails.guardrail || "guardrail"}: ${guardrailMessage}`
-      );
-      finalizePendingScope(pendingScope, {
-        providerResponse: responseBody,
-        clientResponse: translatedResponse,
-      });
-      return createErrorResult(HTTP_STATUS.BAD_REQUEST, guardrailMessage);
-    }
 
     // Validate the *translated* response actually carries client-usable output.
     // isEmptyContentResponse (above) runs on the raw responseBody before translation;
@@ -5275,18 +5103,6 @@ export async function handleChatCore({
       );
     }
 
-    // ── Phase 9.1: Cache store (non-streaming, temp=0) ──
-    storeSemanticCacheResponse({
-      enabled: semanticCacheEnabled,
-      body: bodyForCacheWrite,
-      headers: clientRawRequest?.headers,
-      translatedResponse,
-      model,
-      apiKeyId: apiKeyInfo?.id ?? undefined,
-      usage,
-      log,
-    });
-
     // ── Phase 9.2: Save for idempotency ──
     // Reuse the key resolved by checkIdempotencyCache() above (single derivation per
     // request). (#3821-review LEDGER-6)
@@ -5324,9 +5140,6 @@ export async function handleChatCore({
       log,
     });
     // === /Quota Share POST-hook ===
-
-    // ── Gamification event (fire-and-forget) ──
-    await emitRequestGamificationEvent({ apiKeyId: apiKeyInfo?.id, model, provider });
 
     finalizePendingScope(pendingScope, {
       providerResponse: responseBody,
@@ -5719,38 +5532,6 @@ export async function handleChatCore({
     });
     // === /Quota Share POST-hook streaming ===
 
-    if (
-      memoryOwnerId &&
-      memorySettings?.enabled &&
-      memorySettings.maxTokens > 0 &&
-      streamStatus === 200
-    ) {
-      const requestMemoryText = extractMemoryTextFromRequestBody(body as Record<string, unknown>);
-      if (requestMemoryText) {
-        extractFacts(requestMemoryText, memoryOwnerId, pipelineSessionId);
-      }
-
-      const streamedMemoryText = extractMemoryTextFromResponse(
-        (streamResponseBody ?? null) as Record<string, unknown> | null
-      );
-      if (streamedMemoryText) {
-        extractFacts(streamedMemoryText, memoryOwnerId, pipelineSessionId);
-      }
-    }
-
-    // Semantic cache: store assembled streaming response for future cache hits
-    storeStreamingSemanticCacheResponse({
-      enabled: semanticCacheEnabled,
-      streamStatus,
-      streamResponseBody,
-      body: bodyForCacheWrite,
-      headers: clientRawRequest?.headers,
-      model,
-      apiKeyId: apiKeyInfo?.id ?? undefined,
-      streamUsage,
-      log,
-    });
-
     // Plugin onStreamComplete hook — fire-and-forget, fail-open (#9571)
     runPluginOnStreamCompleteHook({
       status: normalizedStreamStatus,
@@ -5876,9 +5657,6 @@ export async function handleChatCore({
     echoModel,
     responseHeaders,
   });
-
-  // ── Gamification event (fire-and-forget) ──
-  await emitRequestGamificationEvent({ apiKeyId: apiKeyInfo?.id, model, provider });
 
   // ── Plugin onResponse hook (fire-and-forget) ──
   await runPluginOnResponseHook({

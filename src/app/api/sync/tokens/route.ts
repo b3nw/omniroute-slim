@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getAuditRequestContext, logAuditEvent } from "@/lib/compliance/index";
 import { createErrorResponse, createErrorResponseFromUnknown } from "@/lib/api/errorResponse";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { createSyncTokenSchema } from "@/shared/validation/schemas";
@@ -28,8 +27,6 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
-
-  const auditContext = getAuditRequestContext(request);
 
   let rawBody;
   try {
@@ -62,17 +59,6 @@ export async function POST(request: Request) {
       createdAt: issued.record.createdAt,
       updatedAt: issued.record.updatedAt,
     };
-
-    logAuditEvent({
-      action: "sync.token.created",
-      actor: "admin",
-      target: issued.record.name,
-      resourceType: "sync_token",
-      status: "success",
-      ipAddress: auditContext.ipAddress || undefined,
-      requestId: auditContext.requestId,
-      metadata: tokenSummary,
-    });
 
     return NextResponse.json(
       {

@@ -126,19 +126,6 @@ async function cleanup(): Promise<void> {
     closeLogRotation();
     console.log("[Shutdown] Log rotation timer stopped.");
 
-    // Tear down any persistent VNC login browser containers so they don't leak
-    // past the server process. Best-effort; no-op if the feature was never used
-    // or the docker CLI is unavailable.
-    try {
-      const { stopAllSessions, listSessions } = await import("@/lib/vncSession/service");
-      if (listSessions().length > 0) {
-        await stopAllSessions();
-        console.log("[Shutdown] VNC login sessions stopped.");
-      }
-    } catch {
-      /* feature unused / docker missing */
-    }
-
     try {
       const { stopChatGptWebCodexRuntime } =
         await import("@omniroute/open-sse/executors/chatgpt-web-codex/runtime.ts");

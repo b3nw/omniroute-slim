@@ -4,7 +4,6 @@ import { getInstalledVersion, getLatestVersion } from "@/lib/services/installers
 import { getOrCreateApiKey, maskApiKey } from "@/lib/services/apiKey";
 import { createErrorResponse } from "@/lib/api/errorResponse";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
-import { logAuditEvent } from "@/lib/compliance/index";
 
 const TOOL = "9router";
 
@@ -56,13 +55,6 @@ export async function GET(request: Request = new Request("http://localhost/")): 
 
       // Gravar no audit log (best-effort — falha silenciosa para não bloquear reveal)
       try {
-        logAuditEvent({
-          action: "service.reveal_api_key",
-          target: TOOL,
-          resourceType: "service",
-          status: "success",
-          details: { tool: TOOL },
-        });
       } catch {
         /* best-effort */
       }

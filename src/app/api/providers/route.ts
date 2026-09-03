@@ -1,10 +1,5 @@
 import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
-import { getAuditRequestContext, logAuditEvent } from "@/lib/compliance/index";
-import {
-  getProviderAuditTarget,
-  summarizeProviderConnectionForAudit,
-} from "@/lib/compliance/providerAudit";
 import {
   getProviderConnections,
   getProviderConnectionsCount,
@@ -154,8 +149,6 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
-
-  const auditContext = getAuditRequestContext(request);
 
   try {
     const body = await request.json();
@@ -376,27 +369,6 @@ export async function POST(request: Request) {
       );
     }
 
-    try {
-      logAuditEvent({
-        action: "provider.credentials.created",
-        actor: "admin",
-        target: getProviderAuditTarget(newConnection),
-        resourceType: "provider_credentials",
-        status: "success",
-        ipAddress: auditContext.ipAddress || undefined,
-        requestId: auditContext.requestId,
-        metadata: {
-          provider: provider,
-          connection: summarizeProviderConnectionForAudit(newConnection),
-        },
-      });
-    } catch (auditError) {
-      console.log(
-        `[providers] logAuditEvent failed after connection creation for ${newConnection.id}:`,
-        auditError
-      );
-    }
-
     return NextResponse.json({ connection: result }, { status: 201 });
   } catch (error) {
     console.log("Error creating provider:", error);
@@ -408,8 +380,6 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
-
-  const auditContext = getAuditRequestContext(request);
 
   let rawBody;
   try {
@@ -449,15 +419,6 @@ export async function PATCH(request: Request) {
 
     // Partial failure (some ids no longer exist) is logged as "warn" so the
     // Activity feed reflects that not every requested id was applied.
-    logAuditEvent({
-      action: "provider.credentials.batch_updated",
-      actor: "admin",
-      resourceType: "provider_credentials",
-      status: notFoundIds.length > 0 ? "warn" : "success",
-      ipAddress: auditContext.ipAddress || undefined,
-      requestId: auditContext.requestId,
-      metadata: { isActive, updated: updatedIds.length, notFound: notFoundIds, ids },
-    });
 
     return NextResponse.json(
       {
@@ -476,8 +437,6 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
-
-  const auditContext = getAuditRequestContext(request);
 
   let body: { ids?: string[] };
   try {
@@ -519,16 +478,6 @@ export async function DELETE(request: Request) {
     }
 
     await syncToCloudIfEnabled();
-
-    logAuditEvent({
-      action: "provider.credentials.batch_revoked",
-      actor: "admin",
-      resourceType: "provider_credentials",
-      status: "success",
-      ipAddress: auditContext.ipAddress || undefined,
-      requestId: auditContext.requestId,
-      metadata: { count: deleted, ids: body.ids },
-    });
 
     return NextResponse.json(
       { message: `Deleted ${deleted} connection(s)`, deleted },

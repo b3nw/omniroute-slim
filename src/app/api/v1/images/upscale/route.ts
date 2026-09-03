@@ -5,7 +5,6 @@ import {
   parseUpscaleModel,
 } from "@omniroute/open-sse/config/upscaleRegistry.ts";
 import { extractUpscaleSourceImage } from "@omniroute/open-sse/handlers/imageUpscale/shared.ts";
-import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
 import {
   getProviderCredentialsWithQuotaPreflight,
   clearRecoveredProviderState,
@@ -271,4 +270,4 @@ async function postHandler(request: Request) {
   });
 }
 
-export const POST = withInjectionGuard(postHandler);
+export const POST = postHandler;

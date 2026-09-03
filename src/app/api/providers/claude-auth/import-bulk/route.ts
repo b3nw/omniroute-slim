@@ -6,8 +6,6 @@ import {
   enrichWithBootstrap,
   createConnectionFromAuthFile,
 } from "@/lib/oauth/utils/claudeAuthImport";
-import { getAuditRequestContext, logAuditEvent } from "@/lib/compliance/index";
-import { getProviderAuditTarget } from "@/lib/compliance/providerAudit";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
 import { importClaudeAuthBulkSchema } from "@/shared/validation/schemas";
 import { validateBody, isValidationFailure } from "@/shared/validation/helpers";
@@ -28,8 +26,6 @@ function sanitizeConnectionForResponse(connection: Record<string, unknown>) {
 export async function POST(request: Request) {
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
-
-  const auditContext = getAuditRequestContext(request);
 
   let body: unknown;
   try {
@@ -63,20 +59,6 @@ export async function POST(request: Request) {
       const safe = sanitizeConnectionForResponse(connection as Record<string, unknown>);
       created.push(safe);
 
-      logAuditEvent({
-        action: "provider.credentials.imported",
-        actor: "admin",
-        target: getProviderAuditTarget(connection),
-        resourceType: "provider_credentials",
-        status: "success",
-        ipAddress: auditContext.ipAddress || undefined,
-        requestId: auditContext.requestId,
-        metadata: {
-          provider: "claude",
-          email: enriched.email || e.email,
-          bulkIndex: i,
-        },
-      });
     } catch (err) {
       let message: string;
       if (err instanceof ClaudeAuthFileError) {
@@ -87,22 +69,6 @@ export async function POST(request: Request) {
       errors.push({ index: i, name: label, message });
     }
   }
-
-  logAuditEvent({
-    action: "provider.credentials.bulk_imported",
-    actor: "admin",
-    target: "claude",
-    resourceType: "provider_credentials",
-    status: errors.length === entries.length ? "failure" : "success",
-    ipAddress: auditContext.ipAddress || undefined,
-    requestId: auditContext.requestId,
-    metadata: {
-      provider: "claude",
-      total: entries.length,
-      success: created.length,
-      failed: errors.length,
-    },
-  });
 
   return NextResponse.json({
     success: created.length,

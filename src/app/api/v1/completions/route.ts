@@ -1,7 +1,5 @@
-import { CORS_HEADERS } from "@/shared/utils/cors";
 import { buildClientRawRequest, handleChat } from "@/sse/handlers/chat";
 import { initTranslators } from "@omniroute/open-sse/translator/index.ts";
-import { createInjectionGuard } from "@/middleware/promptInjectionGuard";
 import { asTextCompletionResponse } from "./textCompletionTransform.ts";
 import {
   readCompressionRequestHeader,
@@ -10,7 +8,6 @@ import {
 import { withChatAdmission } from "@/shared/middleware/withChatAdmission";
 
 let initPromise = null;
-const injectionGuard = createInjectionGuard();
 
 function ensureInitialized() {
   if (!initPromise) {
@@ -49,26 +46,10 @@ async function postHandler(request: Request) {
   // on the response when internal early-returns drop the meta the docs promise.
   const compressionRequestHeader = readCompressionRequestHeader(request);
 
-  // Prompt injection guard
   try {
     const cloned = request.clone();
     const body = await cloned.json().catch(() => null);
     if (body) {
-      const { blocked, result } = injectionGuard(body);
-      if (blocked) {
-        return new Response(
-          JSON.stringify({
-            error: {
-              message: "Request blocked: potential prompt injection detected",
-              type: "injection_detected",
-              code: "SECURITY_001",
-              detections: result.detections.length,
-            },
-          }),
-          { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } }
-        );
-      }
-
       // Normalize legacy completions format: { prompt, model } → { messages, model }
       // If the body has `prompt` but no `messages`, convert to chat format.
       if (body.prompt !== undefined && !body.messages) {
@@ -100,7 +81,7 @@ async function postHandler(request: Request) {
       }
     }
   } catch (error) {
-    console.error("[SECURITY] Prompt injection guard failed:", error);
+    console.error("[completions] Legacy prompt normalization failed:", error);
   }
 
   // Standard path: body already has messages[] (chat format). Still emit the legacy

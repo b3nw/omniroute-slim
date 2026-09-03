@@ -29,7 +29,6 @@
  */
 
 import { CORS_HEADERS, handleCorsOptions } from "@/shared/utils/cors";
-import { createInjectionGuard } from "@/middleware/promptInjectionGuard";
 import { getRelayTokenByHash, checkRateLimit, recordRelayUsage } from "@/lib/db/relayProxies";
 import { buildErrorBody } from "@omniroute/open-sse/utils/error";
 import { getProviderPluginManifestHeader } from "@omniroute/open-sse/config/providerPluginManifestUrl.ts";
@@ -66,7 +65,6 @@ const BIFROST_TIMEOUT_MS = Number(process.env.BIFROST_TIMEOUT_MS || "30000");
 const BIFROST_STREAMING_ENABLED = process.env.BIFROST_STREAMING_ENABLED !== "0";
 const BIFROST_ENABLED = process.env.BIFROST_ENABLED !== "0";
 
-const injectionGuard = createInjectionGuard();
 
 type RelayUsageRecorder = (status: "success" | "error", statusCode: number) => void;
 
@@ -216,25 +214,6 @@ export async function POST(request: Request) {
       );
     }
     const body = parsed.data;
-
-    const guard = injectionGuard(body);
-    if (guard.blocked) {
-      recordRelayUsage(token.id, {
-        requestId: request.headers.get("x-request-id") || undefined,
-        status: "error",
-        statusCode: 400,
-        latencyMs: Date.now() - startTime,
-        clientIp,
-        userAgent,
-      });
-      return new Response(
-        JSON.stringify({
-          ...buildErrorBody(400, "Request blocked: potential prompt injection detected"),
-          detections: guard.result.detections.length,
-        }),
-        { status: 400, headers: JSON_CORS_HEADERS }
-      );
-    }
 
     const allowedModels: string[] = JSON.parse(token.allowedModels);
     if (allowedModels.length > 0 && !allowedModels.includes("*")) {

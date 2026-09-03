@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
-import { getAuditRequestContext, logAuditEvent } from "@/lib/compliance/index";
 import { validateClaudeCodeCompatibleProvider } from "@/lib/providers/validation";
 import {
   SAFE_OUTBOUND_FETCH_PRESETS,
@@ -162,7 +161,7 @@ async function probeAudioTranscriptionFallback({
   });
 }
 
-function sanitizeAuditBaseUrl(baseUrl: string) {
+function _sanitizeAuditBaseUrl(baseUrl: string) {
   if (!baseUrl) return null;
   try {
     const parsed = new URL(baseUrl);
@@ -177,7 +176,6 @@ export async function POST(request) {
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
 
-  const auditContext = getAuditRequestContext(request);
   let rawBody;
   try {
     rawBody = await request.json();
@@ -335,20 +333,6 @@ export async function POST(request) {
             : "Validation failed";
       const message = augmentDockerLocalhostHint(error, attemptedBaseUrl, rawMessage);
       if (error instanceof SafeOutboundFetchError && error.code === "URL_GUARD_BLOCKED") {
-        logAuditEvent({
-          action: "provider.validation.ssrf_blocked",
-          actor: "admin",
-          target: "provider-node",
-          resourceType: "provider_validation",
-          status: "blocked",
-          ipAddress: auditContext.ipAddress || undefined,
-          requestId: auditContext.requestId,
-          metadata: {
-            route: "/api/provider-nodes/validate",
-            reason: message,
-            baseUrl: sanitizeAuditBaseUrl(attemptedBaseUrl),
-          },
-        });
       }
       return NextResponse.json({ error: message }, { status });
     }

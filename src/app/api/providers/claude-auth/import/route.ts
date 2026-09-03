@@ -6,8 +6,6 @@ import {
   enrichWithBootstrap,
   createConnectionFromAuthFile,
 } from "@/lib/oauth/utils/claudeAuthImport";
-import { getAuditRequestContext, logAuditEvent } from "@/lib/compliance/index";
-import { getProviderAuditTarget } from "@/lib/compliance/providerAudit";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
 import { importClaudeAuthSchema } from "@/shared/validation/schemas";
 import { validateBody, isValidationFailure } from "@/shared/validation/helpers";
@@ -28,8 +26,6 @@ function sanitizeConnectionForResponse(connection: Record<string, unknown>) {
 export async function POST(request: Request) {
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
-
-  const auditContext = getAuditRequestContext(request);
 
   let body: unknown;
   try {
@@ -62,22 +58,6 @@ export async function POST(request: Request) {
       name,
       email,
       overwriteExisting,
-    });
-
-    logAuditEvent({
-      action: "provider.credentials.imported",
-      actor: "admin",
-      target: getProviderAuditTarget(connection),
-      resourceType: "provider_credentials",
-      status: "success",
-      ipAddress: auditContext.ipAddress || undefined,
-      requestId: auditContext.requestId,
-      metadata: {
-        provider: "claude",
-        created,
-        email: enriched.email || email,
-        hasAccountUUID: !!enriched.accountUUID,
-      },
     });
 
     return NextResponse.json({

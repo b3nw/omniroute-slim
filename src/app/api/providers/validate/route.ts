@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
-import { getAuditRequestContext, logAuditEvent } from "@/lib/compliance/index";
 import { getProviderNodeById } from "@/models";
 import {
   isClaudeCodeCompatibleProvider,
@@ -15,7 +14,7 @@ import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { runWithProxyContextOrDirect } from "@omniroute/open-sse/utils/proxyFetch.ts";
 import { rejectRetiredCommonChatGptWebProvider } from "@/lib/providers/chatgptWebRetirementResponse";
 
-function sanitizeAuditUrl(url: string | null | undefined) {
+function _sanitizeAuditUrl(url: string | null | undefined) {
   if (!url) return null;
   try {
     const parsed = new URL(url);
@@ -30,7 +29,6 @@ export async function POST(request) {
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
 
-  const auditContext = getAuditRequestContext(request);
   let rawBody;
   try {
     rawBody = await request.json();
@@ -143,21 +141,6 @@ export async function POST(request) {
 
     if (!result.valid && typeof result.statusCode === "number") {
       if (result.securityBlocked) {
-        logAuditEvent({
-          action: "provider.validation.ssrf_blocked",
-          actor: "admin",
-          target: provider,
-          resourceType: "provider_validation",
-          status: "blocked",
-          ipAddress: auditContext.ipAddress || undefined,
-          requestId: auditContext.requestId,
-          metadata: {
-            provider,
-            route: "/api/providers/validate",
-            reason: result.error || "Blocked provider validation target",
-            baseUrl: sanitizeAuditUrl(bodyBaseUrl || providerSpecificData?.baseUrl),
-          },
-        });
       }
       return NextResponse.json(
         { error: result.error || "Validation failed" },

@@ -20,7 +20,7 @@ import {
   getReasoningTokensOrNull,
   getObservedReasoning,
 } from "./tokenAccounting";
-import { isNoLog } from "../compliance/noLog";
+import { isNoLog } from "../db/noLog";
 import { protectPayloadForLog, parseStoredPayload } from "../logPayloads";
 import { pickDisplayValue } from "@/shared/utils/maskEmail";
 import {

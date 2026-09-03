@@ -216,57 +216,6 @@ const TOOLS_GROUP: SidebarItemGroup = {
   titleFallback: "Tools",
   items: [
     {
-      id: "cli-code",
-      href: "/dashboard/cli-code",
-      i18nKey: "cliCode",
-      subtitleKey: "cliCodeSubtitle",
-      icon: "terminal",
-    },
-    {
-      id: "cli-agents",
-      href: "/dashboard/cli-agents",
-      i18nKey: "cliAgents",
-      subtitleKey: "cliAgentsSubtitle",
-      icon: "smart_toy",
-    },
-    {
-      id: "acp-agents",
-      href: "/dashboard/acp-agents",
-      i18nKey: "acpAgents",
-      subtitleKey: "acpAgentsSubtitle",
-      icon: "device_hub",
-    },
-    {
-      id: "cloud-agents",
-      href: "/dashboard/cloud-agents",
-      i18nKey: "cloudAgents",
-      subtitleKey: "cloudAgentsSubtitle",
-      icon: "cloud",
-    },
-    {
-      id: "conductor",
-      href: "/dashboard/conductor",
-      i18nKey: "conductor",
-      subtitleKey: "conductorSubtitle",
-      icon: "account_tree",
-      labelFallback: "Conductor",
-      subtitleFallback: "CLI-agent fleet",
-    },
-    {
-      id: "agent-bridge",
-      href: "/dashboard/tools/agent-bridge",
-      i18nKey: "agentBridge",
-      subtitleKey: "agentBridgeSubtitle",
-      icon: "link",
-    },
-    {
-      id: "traffic-inspector",
-      href: "/dashboard/tools/traffic-inspector",
-      i18nKey: "trafficInspector",
-      subtitleKey: "trafficInspectorSubtitle",
-      icon: "network_check",
-    },
-    {
       id: "discovery",
       href: "/dashboard/discovery",
       i18nKey: "discovery",
@@ -288,13 +237,6 @@ const INTEGRATIONS_GROUP: SidebarItemGroup = {
       i18nKey: "apiEndpoints",
       subtitleKey: "apiEndpointsSubtitle",
       icon: "api",
-    },
-    {
-      id: "webhooks",
-      href: "/dashboard/webhooks",
-      i18nKey: "webhooks",
-      subtitleKey: "webhooksSubtitle",
-      icon: "webhook",
     },
   ],
 };
@@ -367,13 +309,6 @@ const ANALYTICS_ITEMS: readonly SidebarItemDefinition[] = [
 ];
 
 const MONITORING_ITEMS: readonly SidebarItemDefinition[] = [
-  {
-    id: "activity",
-    href: "/dashboard/activity",
-    i18nKey: "activity",
-    subtitleKey: "activitySubtitle",
-    icon: "timeline",
-  },
 ];
 
 const LOGS_GROUP: SidebarItemGroup = {
@@ -486,14 +421,6 @@ const COSTS_ITEMS: readonly SidebarItemDefinition[] = [
     subtitleKey: "freeProviderRankingsSubtitle",
     icon: "leaderboard",
   },
-  {
-    id: "radar",
-    href: "/dashboard/radar",
-    i18nKey: "radar",
-    subtitleKey: "radarSubtitle",
-    icon: "radar",
-    featureFlagKey: "RADAR_ENABLED",
-  },
 ];
 
 const AUDIT_GROUP: SidebarItemGroup = {
@@ -516,13 +443,6 @@ const AUDIT_GROUP: SidebarItemGroup = {
       subtitleKey: "auditMcpSubtitle",
       icon: "security",
     },
-    {
-      id: "audit-a2a",
-      href: "/dashboard/audit/a2a",
-      i18nKey: "auditA2a",
-      subtitleKey: "auditA2aSubtitle",
-      icon: "device_hub",
-    },
   ],
 };
 
@@ -533,13 +453,6 @@ const DEVTOOLS_ITEMS: readonly SidebarItemDefinition[] = [
     i18nKey: "translator",
     subtitleKey: "translatorSubtitle",
     icon: "translate",
-  },
-  {
-    id: "playground",
-    href: "/dashboard/playground",
-    i18nKey: "playground",
-    subtitleKey: "playgroundSubtitle",
-    icon: "science",
   },
   {
     id: "search-tools",
@@ -559,44 +472,7 @@ const MCP_ITEM: SidebarItemDefinition = {
 };
 
 const AGENTIC_FEATURES_ITEMS: readonly SidebarSectionChild[] = [
-  {
-    id: "memory",
-    href: "/dashboard/memory",
-    i18nKey: "memory",
-    subtitleKey: "memorySubtitle",
-    icon: "psychology",
-  },
-  {
-    id: "agent-skills",
-    href: "/dashboard/agent-skills",
-    i18nKey: "agentSkills",
-    subtitleKey: "agentSkillsSubtitle",
-    icon: "share",
-  },
-  {
-    id: "chaos-config",
-    href: "/dashboard/chaos",
-    i18nKey: "chaosConfig",
-    labelFallback: "Chaos Mode",
-    subtitleKey: "chaosConfigSubtitle",
-    subtitleFallback: "Multi-model parallel execution",
-    icon: "blender",
-  },
-  {
-    id: "skills",
-    href: "/dashboard/omni-skills",
-    i18nKey: "omniSkills",
-    subtitleKey: "omniSkillsSubtitle",
-    icon: "auto_fix_high",
-  },
   MCP_ITEM,
-  {
-    id: "a2a",
-    href: "/dashboard/a2a",
-    i18nKey: "a2a",
-    subtitleKey: "a2aSubtitle",
-    icon: "device_hub",
-  },
   {
     id: "plugins",
     href: "/dashboard/plugins",
@@ -612,20 +488,6 @@ const GAMIFICATION_GROUP: SidebarItemGroup = {
   titleKey: "gamificationGroup",
   titleFallback: "Gamification",
   items: [
-    {
-      id: "leaderboard",
-      href: "/dashboard/leaderboard",
-      i18nKey: "leaderboard",
-      subtitleKey: "leaderboardSubtitle",
-      icon: "emoji_events",
-    },
-    {
-      id: "profile",
-      href: "/dashboard/profile",
-      i18nKey: "profile",
-      subtitleKey: "profileSubtitle",
-      icon: "person",
-    },
     {
       id: "tokens",
       href: "/dashboard/tokens",
@@ -652,20 +514,6 @@ const BATCH_GROUP: SidebarItemGroup = {
   titleKey: "batchGroup",
   titleFallback: "Batch",
   items: [
-    {
-      id: "batch",
-      href: "/dashboard/batch",
-      i18nKey: "batch",
-      subtitleKey: "batchSubtitle",
-      icon: "view_list",
-    },
-    {
-      id: "batch-files",
-      href: "/dashboard/batch/files",
-      i18nKey: "batchFiles",
-      subtitleKey: "batchFilesSubtitle",
-      icon: "folder",
-    },
   ],
 };
 

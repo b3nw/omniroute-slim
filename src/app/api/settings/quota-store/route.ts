@@ -24,7 +24,6 @@ import { buildErrorBody } from "@omniroute/open-sse/utils/error";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { QuotaStoreSettingsSchema } from "@/shared/schemas/quota";
 import { getSettings, updateSettings } from "@/lib/db/settings";
-import { logAuditEvent, getAuditRequestContext } from "@/lib/compliance/index";
 import { resetQuotaStoreSingleton } from "@/lib/quota/QuotaStore";
 
 export const dynamic = "force-dynamic";
@@ -91,18 +90,6 @@ export async function PUT(request: Request): Promise<Response> {
 
     // Reset singleton so next getQuotaStore() call picks up the new driver
     resetQuotaStoreSingleton();
-
-    const ctx = getAuditRequestContext(request);
-    logAuditEvent({
-      action: "quota.store.driver_changed",
-      metadata: {
-        driver,
-        redisUrlConfigured: Boolean(redisUrl),
-        // NEVER log the actual URL — it's a credential (Hard Rule #1)
-      },
-      ipAddress: ctx.ipAddress ?? undefined,
-      requestId: ctx.requestId,
-    });
 
     return NextResponse.json({
       driver,

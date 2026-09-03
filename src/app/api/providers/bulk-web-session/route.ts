@@ -1,9 +1,4 @@
 import { NextResponse } from "next/server";
-import { getAuditRequestContext, logAuditEvent } from "@/lib/compliance/index";
-import {
-  getProviderAuditTarget,
-  summarizeProviderConnectionForAudit,
-} from "@/lib/compliance/providerAudit";
 import { createProviderConnection, isCloudEnabled } from "@/models";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { syncToCloud } from "@/lib/cloudSync";
@@ -23,8 +18,6 @@ import { rejectRetiredCommonChatGptWebProvider } from "@/lib/providers/chatgptWe
 export async function POST(request: Request) {
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
-
-  const auditContext = getAuditRequestContext(request);
 
   let body: unknown;
   try {
@@ -98,20 +91,6 @@ export async function POST(request: Request) {
       }
       created.push(safe);
 
-      logAuditEvent({
-        action: "provider.credentials.created",
-        actor: "admin",
-        target: getProviderAuditTarget(newConnection),
-        resourceType: "provider_credentials",
-        status: "success",
-        ipAddress: auditContext.ipAddress || undefined,
-        requestId: auditContext.requestId,
-        metadata: {
-          provider,
-          via: "bulk_web_session",
-          connection: summarizeProviderConnectionForAudit(newConnection),
-        },
-      });
     } catch (err) {
       errors.push({
         index: i,
@@ -124,22 +103,6 @@ export async function POST(request: Request) {
   if (created.length > 0) {
     await syncToCloudIfEnabled();
   }
-
-  logAuditEvent({
-    action: "provider.credentials.bulk_imported",
-    actor: "admin",
-    resourceType: "provider_credentials",
-    status: errors.length === entries.length ? "failure" : "success",
-    ipAddress: auditContext.ipAddress || undefined,
-    requestId: auditContext.requestId,
-    metadata: {
-      provider,
-      via: "bulk_web_session",
-      total: entries.length,
-      success: created.length,
-      failed: errors.length,
-    },
-  });
 
   return NextResponse.json(
     {

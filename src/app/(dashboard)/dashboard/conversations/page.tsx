@@ -7,8 +7,8 @@ import { formatTime } from "@/shared/utils/formatting";
 import { copyToClipboard } from "@/shared/utils/clipboard";
 import RequestLoggerDetail from "@/shared/components/RequestLoggerDetail";
 import useEmailPrivacyStore from "@/store/emailPrivacyStore";
-import { ChatBubble } from "@/app/(dashboard)/dashboard/tools/traffic-inspector/components/chat/ChatBubble";
-import type { NormalizedBlock, NormalizedTurn } from "@/mitm/inspector/types";
+import { ChatBubble } from "@/shared/components/conversation/ChatBubble";
+import type { NormalizedBlock, NormalizedTurn } from "@/shared/conversation/types";
 
 interface ConversationRow {
   id: string;
@@ -102,7 +102,7 @@ function StatusBadge({ status }: { status: number | null }) {
 }
 
 /**
- * Builds the exact NormalizedBlock (src/mitm/inspector/types.ts) the
+ * Builds the exact NormalizedBlock (src/shared/conversation/types.ts) the
  * request-detail panel already builds from buildRequestTurns/
  * buildResponseTurns, so a tool call/result renders through the very same
  * ChatBubble → MessageContent → ToolCallBlock/ToolResultBlock pipeline as

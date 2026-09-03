@@ -1,7 +1,7 @@
 "use client";
 
-import ComplianceTab from "./ComplianceTab";
+import McpAuditTab from "./McpAuditTab";
 
 export default function AuditPage() {
-  return <ComplianceTab />;
+  return <McpAuditTab />;
 }

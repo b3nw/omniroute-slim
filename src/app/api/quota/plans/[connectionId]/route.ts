@@ -26,7 +26,6 @@ import {
 } from "@/lib/db/providerPlans";
 import { resolvePlan } from "@/lib/quota/planResolver";
 import { resolveConnectionProvider } from "@/lib/quota/connectionProvider";
-import { logAuditEvent, getAuditRequestContext } from "@/lib/compliance/index";
 
 export const dynamic = "force-dynamic";
 
@@ -72,15 +71,6 @@ export async function PUT(request: Request, { params }: RouteParams): Promise<Re
 
     upsertProviderPlan(connectionId, provider, parsed.data.dimensions, "manual");
 
-    const ctx = getAuditRequestContext(request);
-    logAuditEvent({
-      action: "quota.plan.updated",
-      target: connectionId,
-      metadata: { provider, dimensions: parsed.data.dimensions, source: "manual" },
-      ipAddress: ctx.ipAddress ?? undefined,
-      requestId: ctx.requestId,
-    });
-
     // Return the stored plan
     const plan = getProviderPlan(connectionId);
     return NextResponse.json({ plan });
@@ -98,18 +88,9 @@ export async function DELETE(request: Request, { params }: RouteParams): Promise
     const { connectionId } = await params;
 
     const existing = getProviderPlan(connectionId);
-    const provider = existing?.provider ?? (await resolveConnectionProvider(connectionId));
+    const _provider = existing?.provider ?? (await resolveConnectionProvider(connectionId));
 
     deleteProviderPlan(connectionId);
-
-    const ctx = getAuditRequestContext(request);
-    logAuditEvent({
-      action: "quota.plan.updated",
-      target: connectionId,
-      metadata: { provider, source: "auto", reverted: true },
-      ipAddress: ctx.ipAddress ?? undefined,
-      requestId: ctx.requestId,
-    });
 
     return new Response(null, { status: 204 });
   } catch (err) {

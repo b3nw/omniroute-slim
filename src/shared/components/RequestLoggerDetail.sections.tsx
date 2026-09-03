@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
-import { ChatBubble } from "@/app/(dashboard)/dashboard/tools/traffic-inspector/components/chat/ChatBubble";
-import { buildRequestTurns, buildResponseTurns } from "@/mitm/inspector/conversationNormalizer";
-import type { InterceptedRequest, NormalizedTurn } from "@/mitm/inspector/types";
+import { ChatBubble } from "@/shared/components/conversation/ChatBubble";
+import { buildRequestTurns, buildResponseTurns } from "@/shared/conversation/conversationNormalizer";
+import type { ConversationResponsePayload, NormalizedTurn } from "@/shared/conversation/types";
 
 // ─── Payload Code Block ─────────────────────────────────────────────────────
 
@@ -63,28 +63,16 @@ export function PayloadSection({ title, json, onCopy, collapsible = true, defaul
 // ─── Conversation context section ───────────────────────────────────────────
 // Renders THIS request's own context (its request body's messages/input, plus
 // its response) — a plain single-request normalization, same shape as the
-// traffic-inspector's ConversationTab, no cross-request reconstruction. While
+// conversation viewer, no cross-request reconstruction. While
 // the request is still generating (detail.active === true) the response side
 // shows the partial text captured so far, refreshed on a short poll scoped to
 // just this section.
 const CONVERSATION_ACTIVE_POLL_INTERVAL_MS = 1200;
 
-function asInterceptedResponseBody(responseBody: unknown): InterceptedRequest {
+function asInterceptedResponseBody(responseBody: unknown): ConversationResponsePayload {
   return {
-    id: "",
-    source: "custom-host",
-    timestamp: "",
-    method: "POST",
-    host: "",
-    path: "",
-    requestHeaders: {},
-    requestBody: null,
-    requestSize: 0,
     responseHeaders: {},
     responseBody: responseBody != null ? JSON.stringify(responseBody) : null,
-    responseSize: 0,
-    status: 0,
-    detectedKind: "llm",
   };
 }
 

@@ -38,7 +38,6 @@ import {
 } from "@/app/api/v1/_shared/rateLimit";
 import { getSettings } from "@/lib/db/settings";
 import { isProviderBlockedByIdOrAlias } from "@/shared/utils/noAuthProviders";
-import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -425,4 +424,4 @@ class SearchError extends Error {
   }
 }
 
-export const POST = withInjectionGuard(postHandler);
+export const POST = postHandler;

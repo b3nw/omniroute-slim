@@ -77,7 +77,6 @@ import { createComboContext } from "./combo/context.ts";
 import { phaseComboSetup } from "./combo/comboSetup.ts";
 import { checkCredentialGate, logCredentialSkip } from "./credentialGate.ts";
 import { emit } from "../../src/lib/events/eventBus";
-import { notifyWebhookEvent } from "../../src/lib/webhookDispatcher";
 import { type ProviderCandidate } from "./autoCombo/scoring.ts";
 import { estimateTokens } from "./contextManager.ts";
 import { getSessionConnection } from "./sessionManager.ts";
@@ -1841,20 +1840,6 @@ async function handleComboChatInner({
                 recordStickyWeightedSuccess(combo.name, stickySuccessKey, stickyWeightedLimit);
               }
             }
-            // Webhook fan-out: best-effort, never blocks the response stream.
-            notifyWebhookEvent("request.completed", {
-              combo: combo.name,
-              provider,
-              model: modelStr,
-              account:
-                typeof target.label === "string" && target.label.trim().length > 0
-                  ? target.label.trim()
-                  : "",
-              accountId: effectiveConnectionId ?? "",
-              latencyMs,
-              fallbackCount,
-            });
-
             // Silent-stop fix: reset the consecutive-failure counter for this session-combo pair
             // on every successful dispatch so a transient recovery doesn't get "credited" against
             // the threshold the user already paid through to clear the stale pin.
@@ -2686,12 +2671,6 @@ async function handleComboChatInner({
             strategy,
           });
         }
-        notifyWebhookEvent("request.failed", {
-          combo: combo.name,
-          reason: "COMBO_TIMEOUT",
-          latencyMs,
-          fallbackCount,
-        });
         return errorResponseWithComboDiagnostics(504, msg, buildComboDiag("combo_timeout"), {
           code: "COMBO_TIMEOUT",
           type: "server_error",
@@ -2718,12 +2697,6 @@ async function handleComboChatInner({
       finishComboTrace(traceInvocationId, { status: 503 });
       if (!lastStatus) {
         if (recordedAttempts === 0) {
-          notifyWebhookEvent("request.failed", {
-            combo: combo.name,
-            reason: "ALL_TARGETS_SKIPPED",
-            latencyMs,
-            fallbackCount,
-          });
           return withQuotaExhaustionClassification(
             errorResponseWithComboDiagnostics(
               503,
@@ -2734,12 +2707,6 @@ async function handleComboChatInner({
             observedFailure ? allObservedFailuresQuota : null
           );
         }
-        notifyWebhookEvent("request.failed", {
-          combo: combo.name,
-          reason: "ALL_ACCOUNTS_INACTIVE",
-          latencyMs,
-          fallbackCount,
-        });
         recordComboFailure(effectiveSessionId, combo.name);
         return errorResponseWithComboDiagnostics(
           503,

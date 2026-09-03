@@ -2,7 +2,7 @@
  * Compose process-wide chat admission in front of a route handler.
  *
  * Uses the shipped `admitChatRequest` budget/fairness controller — it does not
- * introduce a second admission path. Call this *outside* `withInjectionGuard`
+ * introduce a second admission path. Call this *outside* the request handler
  * so a large `/v1/responses` or `/v1/messages` body is reserved (or 503-shed)
  * before `request.clone()` / `.json()`.
  */

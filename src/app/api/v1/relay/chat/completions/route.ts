@@ -9,7 +9,6 @@
 import { CORS_HEADERS, handleCorsOptions } from "@/shared/utils/cors";
 import { handleChat } from "@/sse/handlers/chat";
 import { withChatAdmission } from "@/shared/middleware/withChatAdmission";
-import { createInjectionGuard } from "@/middleware/promptInjectionGuard";
 import { getRelayTokenByHash, checkRateLimit, recordRelayUsage } from "@/lib/db/relayProxies";
 import {
   buildErrorBody,
@@ -44,7 +43,6 @@ import type { RelayToken } from "@/lib/db/relayProxies";
 
 const JSON_CORS_HEADERS = { ...CORS_HEADERS, "Content-Type": "application/json" } as const;
 
-const injectionGuard = createInjectionGuard();
 
 type RelayUsageStatus = "success" | "error";
 
@@ -287,33 +285,9 @@ async function postHandler(request: Request) {
 
     let parsedBody: unknown = null;
 
-    // Prompt injection guard (same as main endpoint)
     try {
       parsedBody = await cloned.json().catch(() => null);
       if (parsedBody) {
-        const { blocked, result } = injectionGuard(parsedBody);
-        if (blocked) {
-          recordRelayUsage(token.id, {
-            requestId: request.headers.get("x-request-id") || undefined,
-            status: "error",
-            statusCode: 400,
-            latencyMs: Date.now() - startTime,
-            clientIp,
-            userAgent,
-          });
-          const injectionBody = buildErrorBody(
-            400,
-            "Request blocked: potential prompt injection detected"
-          );
-          return new Response(
-            JSON.stringify({
-              ...injectionBody,
-              detections: result.detections.length,
-            }),
-            { status: 400, headers: JSON_CORS_HEADERS }
-          );
-        }
-
         // Check allowed models
         const allowedModels: string[] = JSON.parse(token.allowedModels);
         if (allowedModels.length > 0 && !allowedModels.includes("*")) {

@@ -10,8 +10,6 @@
  * call sites in the handler stay byte-identical; behaviour is unchanged.
  */
 
-import { extractProviderWarnings } from "@/lib/compliance/providerAudit";
-import { logAuditEvent } from "@/lib/compliance";
 import { emit } from "@/lib/events/eventBus";
 import type { RequestCompletedPayload, RequestFailedPayload } from "@/lib/events/types";
 import { saveCallLog, normalizeTtftMs } from "@/lib/usageDb";
@@ -186,7 +184,7 @@ export function persistAttemptLogs(args: PersistAttemptLogsArgs, ctx: PersistAtt
     provider,
     connectionId,
     model,
-    skillRequestId,
+    skillRequestId: _skillRequestId,
     detailedLoggingEnabled,
     reqLogger,
     pendingRequestId,
@@ -214,25 +212,6 @@ export function persistAttemptLogs(args: PersistAttemptLogsArgs, ctx: PersistAtt
     initialConnectionId,
     finalConnectionId
   );
-
-  const providerWarnings = extractProviderWarnings(providerResponse, clientResponse, responseBody);
-  if (providerWarnings.length > 0) {
-    logAuditEvent({
-      action: "provider.warning",
-      actor: "system",
-      target: [provider, finalConnectionId].filter(Boolean).join(":") || provider || model,
-      resourceType: "provider_warning",
-      status: "warning",
-      requestId: skillRequestId,
-      details: {
-        provider,
-        model,
-        connectionId: finalConnectionId,
-        httpStatus: status,
-        warnings: providerWarnings,
-      },
-    });
-  }
 
   const capturedPipeline = reqLogger?.getPipelinePayloads?.() ?? null;
   const pipelinePayloads = detailedLoggingEnabled

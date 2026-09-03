@@ -17,7 +17,6 @@ import { buildErrorBody } from "@omniroute/open-sse/utils/error";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { PoolCreateSchema } from "@/shared/schemas/quota";
 import { listPools, createPool, ensurePool } from "@/lib/db/quotaPools";
-import { logAuditEvent, getAuditRequestContext } from "@/lib/compliance/index";
 
 export const dynamic = "force-dynamic";
 
@@ -51,20 +50,6 @@ export async function POST(request: Request): Promise<Response> {
     const ensure = new URL(request.url).searchParams.get("ensure") === "true";
     const ensured = ensure ? ensurePool(parsed.data) : null;
     const pool = ensured?.pool ?? createPool(parsed.data);
-    const ctx = getAuditRequestContext(request);
-    logAuditEvent({
-      action: ensured?.updated ? "quota.pool.updated" : "quota.pool.created",
-      target: pool.id,
-      metadata: {
-        connectionId: pool.connectionId,
-        name: pool.name,
-        ensure,
-        created: ensured?.created ?? true,
-        updated: ensured?.updated ?? false,
-      },
-      ipAddress: ctx.ipAddress ?? undefined,
-      requestId: ctx.requestId,
-    });
 
     return NextResponse.json(
       { pool, ...(ensured ? { created: ensured.created, updated: ensured.updated } : {}) },

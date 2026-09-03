@@ -9,7 +9,6 @@ import {
   FAL_IMAGE_EDIT_MAX_REFERENCES,
   isFalImageEditModel,
 } from "@omniroute/open-sse/handlers/imageGeneration/providers/fal.ts";
-import { createInjectionGuard } from "@/middleware/promptInjectionGuard";
 import {
   getProviderCredentialsWithQuotaPreflight,
   clearRecoveredProviderState,
@@ -318,20 +317,6 @@ async function postHandler(request: Request, _context?: unknown) {
     input;
   if (!prompt) {
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing required field: prompt");
-  }
-  const injectionDecision = createInjectionGuard()({ prompt });
-  if (injectionDecision.blocked) {
-    return jsonResponse(
-      {
-        error: {
-          message: "Request blocked: potential prompt injection detected",
-          type: "injection_detected",
-          code: "SECURITY_001",
-          detections: injectionDecision.result.detections.length,
-        },
-      },
-      HTTP_STATUS.BAD_REQUEST
-    );
   }
   if (imageInputCount !== images.length) {
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid reference image");

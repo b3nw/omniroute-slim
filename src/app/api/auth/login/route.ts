@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getAuditRequestContext, logAuditEvent } from "@/lib/compliance/index";
 import { classifyIpScope } from "@/lib/ipUtils";
 import { getCachedSettings } from "@/lib/db/settings";
 import { SignJWT } from "jose";
@@ -31,21 +30,10 @@ export const authRouteInternals = {
 };
 
 export async function POST(request: NextRequest) {
-  const auditContext = getAuditRequestContext(request);
 
   try {
     // Fail-fast if JWT_SECRET is not configured
     if (!process.env.JWT_SECRET) {
-      logAuditEvent({
-        action: "auth.login.misconfigured",
-        actor: "system",
-        target: "dashboard-auth",
-        resourceType: "auth_session",
-        status: "failed",
-        ipAddress: auditContext.ipAddress || undefined,
-        requestId: auditContext.requestId,
-        metadata: { reason: "missing_jwt_secret" },
-      });
       return NextResponse.json(
         { error: "Server misconfigured: JWT_SECRET not set. Contact administrator." },
         { status: 500 }
@@ -89,16 +77,6 @@ export async function POST(request: NextRequest) {
         process.env.OIDC_DISABLE_PASSWORD_LOGIN === "true");
 
     if (oidcDisabledPassword) {
-      logAuditEvent({
-        action: "auth.login.password_disabled_by_oidc",
-        actor: "anonymous",
-        target: "dashboard-auth",
-        resourceType: "auth_session",
-        status: "failed",
-        ipAddress: clientIp || undefined,
-        requestId: auditContext.requestId,
-        metadata: { reason: "password_login_disabled_when_oidc_active" },
-      });
       return NextResponse.json(
         { error: "Password login is disabled when OIDC is active. Please sign in with OIDC." },
         { status: 403 }
@@ -109,16 +87,6 @@ export async function POST(request: NextRequest) {
 
     const guardCheck = checkLoginGuard(clientIp, { enabled: bruteForceEnabled });
     if (!guardCheck.allowed) {
-      logAuditEvent({
-        action: "auth.login.locked",
-        actor: "anonymous",
-        target: "dashboard-auth",
-        resourceType: "auth_session",
-        status: "failed",
-        ipAddress: clientIp || undefined,
-        requestId: auditContext.requestId,
-        metadata: { retryAfterSeconds: guardCheck.retryAfterSeconds || 0 },
-      });
       return NextResponse.json(
         { error: "Too many failed attempts. Try again later." },
         {
@@ -135,16 +103,6 @@ export async function POST(request: NextRequest) {
     const storedHash = getStoredManagementPassword(passwordState.settings);
 
     if (!storedHash) {
-      logAuditEvent({
-        action: "auth.login.setup_required",
-        actor: "anonymous",
-        target: "dashboard-auth",
-        resourceType: "auth_session",
-        status: "failed",
-        ipAddress: auditContext.ipAddress || undefined,
-        requestId: auditContext.requestId,
-        metadata: { reason: "missing_persisted_password" },
-      });
       return NextResponse.json(
         { error: "No password configured. Complete onboarding first.", needsSetup: true },
         { status: 403 }
@@ -176,21 +134,6 @@ export async function POST(request: NextRequest) {
         maxAge: 60 * 60 * 24 * 30,
       });
 
-      logAuditEvent({
-        action: "auth.login.success",
-        actor: "admin",
-        target: "dashboard-auth",
-        resourceType: "auth_session",
-        status: "success",
-        ipAddress: auditContext.ipAddress || undefined,
-        requestId: auditContext.requestId,
-        metadata: {
-          hasStoredPassword: Boolean(storedHash),
-          passwordMigrated: passwordState.migrated,
-          secureCookie: useSecureCookie,
-        },
-      });
-
       clearLoginAttempts(clientIp);
       return NextResponse.json({ success: true });
     }
@@ -200,23 +143,7 @@ export async function POST(request: NextRequest) {
     // #8336: tag the origin scope so the audit view can distinguish a mistyped
     // password from the host itself / the LAN (loopback / private) from a
     // genuinely external attempt, instead of every failure reading as intrusion.
-    const sourceScope = classifyIpScope(auditContext.ipAddress);
-
-    logAuditEvent({
-      action: "auth.login.failed",
-      actor: "anonymous",
-      target: "dashboard-auth",
-      resourceType: "auth_session",
-      status: "failed",
-      ipAddress: auditContext.ipAddress || undefined,
-      requestId: auditContext.requestId,
-      metadata: {
-        reason: "invalid_password",
-        lockedOut: failureDecision.allowed === false,
-        sourceScope,
-        internalOrigin: sourceScope === "loopback" || sourceScope === "private",
-      },
-    });
+    const _sourceScope = classifyIpScope(auditContext.ipAddress);
 
     if (!failureDecision.allowed) {
       return NextResponse.json(
@@ -231,18 +158,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid password" }, { status: 401 });
   } catch (error) {
     console.error("[AUTH] Login failed:", error);
-    logAuditEvent({
-      action: "auth.login.error",
-      actor: "system",
-      target: "dashboard-auth",
-      resourceType: "auth_session",
-      status: "failed",
-      ipAddress: auditContext.ipAddress || undefined,
-      requestId: auditContext.requestId,
-      metadata: {
-        message: error instanceof Error ? error.message : "unknown_error",
-      },
-    });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

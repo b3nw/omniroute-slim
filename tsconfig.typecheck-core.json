@@ -10,13 +10,6 @@
   "include": [],
   "files": [
     "src/app/api/settings/proxy/test/route.ts",
-    "src/app/(dashboard)/dashboard/batch/batch-utils.ts",
-    "src/lib/batches/types.ts",
-    "src/lib/batches/schemas.ts",
-    "src/lib/batches/csvToJsonl.ts",
-    "src/lib/batches/validateJsonl.ts",
-    "src/lib/batches/costEstimator.ts",
-    "src/lib/batches/retryFailed.ts",
     "src/lib/db/apiKeys.ts",
     "src/lib/db/cliToolState.ts",
     "src/lib/db/encryption.ts",
@@ -34,8 +27,7 @@
     "open-sse/mcp-server/scopeEnforcement.ts",
     "open-sse/translator/registry.ts",
     "open-sse/handlers/responseSanitizer.ts",
-    "open-sse/handlers/responseTranslator.ts",
-    "src/lib/tokenHealthCheckCursor.ts"
+    "open-sse/handlers/responseTranslator.ts"
   ],
   "exclude": ["node_modules", ".next", "app.__qa_backup", "vscode-extension"]
 }
