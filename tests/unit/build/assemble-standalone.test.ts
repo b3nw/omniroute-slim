@@ -35,7 +35,6 @@ function seedSidecarSources(root: string) {
   const files = [
     "node_modules/wreq-js/rust/lib.so",
     "node_modules/better-sqlite3/build/Release/better_sqlite3.node",
-    "src/mitm/tproxy/native/build/Release/transparent.node",
     "node_modules/@swc/helpers/package.json",
     "node_modules/pino-abstract-transport/index.js",
     "node_modules/pino-pretty/index.js",
@@ -45,7 +44,6 @@ function seedSidecarSources(root: string) {
     "node_modules/sql.js/dist/sql-wasm.js",
     "node_modules/sql.js/dist/sql-wasm.wasm",
     "src/lib/db/migrations/001_init.sql",
-    "src/mitm/server.cjs",
     "scripts/dev/run-standalone.mjs",
     "scripts/dev/standalone-server-ws.mjs",
     "scripts/dev/peer-stamp.mjs",
@@ -158,12 +156,6 @@ test("async and sync sidecar copy paths produce identical bundle trees", async (
     asyncTree,
     "sync (assembleStandalone) and async (sync*ToDir) must copy the same sidecar tree"
   );
-  // The TPROXY native addon must land at the cwd-relative path the runtime loader
-  // (transparentSocket.ts) resolves in the standalone bundle.
-  assert.ok(
-    asyncTree.includes("src/mitm/tproxy/native/build/Release/transparent.node"),
-    "TPROXY transparent.node copied into the standalone bundle"
-  );
   for (const sqlJsFile of [
     "node_modules/sql.js/package.json",
     "node_modules/sql.js/dist/sql-wasm.js",
@@ -171,22 +163,6 @@ test("async and sync sidecar copy paths produce identical bundle trees", async (
   ]) {
     assert.ok(asyncTree.includes(sqlJsFile), `sql.js runtime file copied: ${sqlJsFile}`);
   }
-  fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-});
-
-test("the TPROXY addon source is skipped gracefully when it was not built (non-Linux)", async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "assemble-skip-"));
-  const projectRoot = path.join(tmp, "src-root");
-  // Seed everything EXCEPT the tproxy addon (simulating a non-Linux build).
-  fs.mkdirSync(projectRoot, { recursive: true });
-  const out = path.join(tmp, "out");
-  fs.mkdirSync(out, { recursive: true });
-  // No throw even though src/mitm/tproxy/native/... is absent.
-  await syncStandaloneNativeAssets(projectRoot, fs.promises, { log() {} }, out);
-  assert.ok(
-    !fs.existsSync(path.join(out, "src/mitm/tproxy/native/build/Release/transparent.node")),
-    "absent addon is simply not copied (graceful skip)"
-  );
   fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 

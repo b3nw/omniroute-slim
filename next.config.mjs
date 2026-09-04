@@ -87,8 +87,6 @@ const dashboardEmbedMode = resolveDashboardEmbedMode(process.env);
 
 const minimalBuildAliases = isMinimalBuild
   ? {
-      "@/mitm/cert/install": "./src/mitm/cert/install.stub.ts",
-      "@/lib/zed-oauth/keychain-reader": "./src/lib/zed-oauth/keychain-reader.stub.ts",
       "@/lib/cloudSync": "./src/lib/cloudSync.stub.ts",
       "@/lib/services/installers/ninerouter": "./src/lib/services/installers/ninerouter.stub.ts",
     }
@@ -240,7 +238,6 @@ const nextConfig = {
     // runtime and are NOT always auto-traced by webpack/turbopack.
     "/*": [
       "./src/lib/db/migrations/**/*",
-      "./src/mitm/server.cjs",
       "./open-sse/services/compression/engines/rtk/filters/**/*.json",
       "./open-sse/services/compression/rules/**/*.json",
       "./open-sse/lib/deepseek-pow-hash.js",
@@ -285,7 +282,6 @@ const nextConfig = {
     "tls-client-node",
     "koffi",
     "tough-cookie",
-    "@ngrok/ngrok",
     // copilot-m365-web.ts imports 'ws' as a client-side WebSocket. When bundled,
     // ws cannot resolve its 'bufferutil' native addon (frame masking) and throws
     // TypeError: b.mask is not a function on the first outgoing frame, causing
@@ -383,8 +379,6 @@ const nextConfig = {
       // webpack resolves it, so the privileged source files are never compiled
       // into the standalone output.
       const replacements = [
-        [/^@\/mitm\/cert\/install$/, "./src/mitm/cert/install.stub.ts"],
-        [/^@\/lib\/zed-oauth\/keychain-reader$/, "./src/lib/zed-oauth/keychain-reader.stub.ts"],
         [/^@\/lib\/cloudSync$/, "./src/lib/cloudSync.stub.ts"],
         [
           /^@\/lib\/services\/installers\/ninerouter$/,
