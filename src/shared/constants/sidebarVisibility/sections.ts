@@ -293,22 +293,12 @@ const ANALYTICS_ITEMS: readonly SidebarItemDefinition[] = [
     icon: "manage_search",
   },
   {
-    id: "analytics-evals",
-    href: "/dashboard/analytics/evals",
-    i18nKey: "analyticsEvals",
-    subtitleKey: "analyticsEvalsSubtitle",
-    icon: "labs",
-  },
-  {
     id: "provider-stats",
     href: "/dashboard/provider-stats",
     i18nKey: "providerStats",
     subtitleKey: "providerStatsSubtitle",
     icon: "speed",
   },
-];
-
-const MONITORING_ITEMS: readonly SidebarItemDefinition[] = [
 ];
 
 const LOGS_GROUP: SidebarItemGroup = {
@@ -423,29 +413,6 @@ const COSTS_ITEMS: readonly SidebarItemDefinition[] = [
   },
 ];
 
-const AUDIT_GROUP: SidebarItemGroup = {
-  type: "group",
-  id: "audit",
-  titleKey: "auditGroup",
-  titleFallback: "Audit",
-  items: [
-    {
-      id: "audit",
-      href: "/dashboard/audit",
-      i18nKey: "auditLog",
-      subtitleKey: "auditLogSubtitle",
-      icon: "policy",
-    },
-    {
-      id: "audit-mcp",
-      href: "/dashboard/audit/mcp",
-      i18nKey: "auditMcp",
-      subtitleKey: "auditMcpSubtitle",
-      icon: "security",
-    },
-  ],
-};
-
 const DEVTOOLS_ITEMS: readonly SidebarItemDefinition[] = [
   {
     id: "translator",
@@ -507,15 +474,6 @@ const OTHER_FEATURES_ITEMS: readonly SidebarItemDefinition[] = [
     icon: "perm_media",
   },
 ];
-
-const BATCH_GROUP: SidebarItemGroup = {
-  type: "group",
-  id: "batch",
-  titleKey: "batchGroup",
-  titleFallback: "Batch",
-  items: [
-  ],
-};
 
 const CONFIGURATION_ITEMS: readonly SidebarItemDefinition[] = [
   {
@@ -669,7 +627,7 @@ export const SIDEBAR_SECTIONS: readonly SidebarSectionDefinition[] = [
     id: "monitoring",
     titleKey: "monitoringSection",
     titleFallback: "Monitoring",
-    children: [...MONITORING_ITEMS, LOGS_GROUP, AUDIT_GROUP, SYSTEM_GROUP],
+    children: [LOGS_GROUP, SYSTEM_GROUP],
   },
   {
     id: "devtools",
@@ -688,7 +646,7 @@ export const SIDEBAR_SECTIONS: readonly SidebarSectionDefinition[] = [
     id: "other-features",
     titleKey: "otherFeaturesSection",
     titleFallback: "Other Features",
-    children: [GAMIFICATION_GROUP, ...OTHER_FEATURES_ITEMS, BATCH_GROUP],
+    children: [GAMIFICATION_GROUP, ...OTHER_FEATURES_ITEMS],
   },
   {
     id: "configuration",
