@@ -1,9 +1,4 @@
-import type {
-  SidebarItemDefinition,
-  SidebarItemGroup,
-  SidebarSectionChild,
-  SidebarSectionDefinition,
-} from "./types";
+import type { SidebarItemDefinition, SidebarItemGroup, SidebarSectionDefinition } from "./types";
 
 // ─── Item arrays ────────────────────────────────────────────────────────────
 
@@ -19,13 +14,6 @@ const HOME_ITEMS: readonly SidebarItemDefinition[] = [
 ];
 
 const OMNI_PROXY_ITEMS: readonly SidebarItemDefinition[] = [
-  {
-    id: "endpoints",
-    href: "/dashboard/endpoint",
-    i18nKey: "endpoints",
-    subtitleKey: "endpointsSubtitle",
-    icon: "api",
-  },
   {
     id: "api-manager",
     href: "/dashboard/api-manager",
@@ -421,32 +409,6 @@ const DEVTOOLS_ITEMS: readonly SidebarItemDefinition[] = [
     subtitleKey: "translatorSubtitle",
     icon: "translate",
   },
-  {
-    id: "search-tools",
-    href: "/dashboard/search-tools",
-    i18nKey: "searchTools",
-    subtitleKey: "searchToolsSubtitle",
-    icon: "manage_search",
-  },
-];
-
-const MCP_ITEM: SidebarItemDefinition = {
-  id: "mcp",
-  href: "/dashboard/mcp",
-  i18nKey: "mcp",
-  subtitleKey: "mcpSubtitle",
-  icon: "hub",
-};
-
-const AGENTIC_FEATURES_ITEMS: readonly SidebarSectionChild[] = [
-  MCP_ITEM,
-  {
-    id: "plugins",
-    href: "/dashboard/plugins",
-    i18nKey: "plugins",
-    subtitleKey: "pluginsSubtitle",
-    icon: "extension",
-  },
 ];
 
 const GAMIFICATION_GROUP: SidebarItemGroup = {
@@ -464,16 +426,6 @@ const GAMIFICATION_GROUP: SidebarItemGroup = {
     },
   ],
 };
-
-const OTHER_FEATURES_ITEMS: readonly SidebarItemDefinition[] = [
-  {
-    id: "media",
-    href: "/dashboard/cache/media",
-    i18nKey: "media",
-    subtitleKey: "mediaSubtitle",
-    icon: "perm_media",
-  },
-];
 
 const CONFIGURATION_ITEMS: readonly SidebarItemDefinition[] = [
   {
@@ -580,13 +532,6 @@ const HELP_ITEMS: readonly SidebarItemDefinition[] = [
     icon: "bug_report",
     external: true,
   },
-  {
-    id: "changelog",
-    href: "/dashboard/changelog",
-    i18nKey: "changelog",
-    subtitleKey: "changelogSubtitle",
-    icon: "campaign",
-  },
 ];
 
 // ─── Sections ────────────────────────────────────────────────────────────────
@@ -637,16 +582,10 @@ export const SIDEBAR_SECTIONS: readonly SidebarSectionDefinition[] = [
     visibility: "debug",
   },
   {
-    id: "agentic-features",
-    titleKey: "agenticFeaturesSection",
-    titleFallback: "Agentic Features",
-    children: AGENTIC_FEATURES_ITEMS,
-  },
-  {
     id: "other-features",
     titleKey: "otherFeaturesSection",
     titleFallback: "Other Features",
-    children: [GAMIFICATION_GROUP, ...OTHER_FEATURES_ITEMS],
+    children: [GAMIFICATION_GROUP],
   },
   {
     id: "configuration",

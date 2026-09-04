@@ -4,14 +4,13 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { maskStoredApiKey } from "../../src/lib/apiKeyExposure";
 
-const COMPONENT_DIR = resolve("src/app/(dashboard)/dashboard/media-providers/components");
+const COMPONENT_DIR = resolve("src/app/(dashboard)/dashboard/providers/playground");
 const EXAMPLE_CARDS = [
   "WebSearchExampleCard.tsx",
   "WebFetchExampleCard.tsx",
   "ImageExampleCard.tsx",
   "TtsExampleCard.tsx",
   "SttExampleCard.tsx",
-  "OcrExampleCard.tsx",
   "MusicExampleCard.tsx",
   "EmbeddingExampleCard.tsx",
   "VideoExampleCard.tsx",
@@ -19,7 +18,7 @@ const EXAMPLE_CARDS = [
 const FIXED_REFERENCE = "LlmChatCard.tsx";
 const MASKED_BEARER = /\bBearer\s*\$?\{?\s*apiKey/;
 
-test("every media ExampleCard avoids sending a masked apiKey as Bearer (#9935)", () => {
+test("every provider playground ExampleCard avoids sending a masked apiKey as Bearer (#9935)", () => {
   for (const file of [...EXAMPLE_CARDS, FIXED_REFERENCE]) {
     const src = readFileSync(resolve(COMPONENT_DIR, file), "utf8");
     assert.ok(

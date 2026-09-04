@@ -15,7 +15,10 @@ export default function RequestTimeoutPage() {
         t("statusPages.408.suggestion2"),
         t("statusPages.408.suggestion3"),
       ]}
-      primaryAction={{ href: "/dashboard/endpoint", label: t("statusPages.408.primaryAction") }}
+      primaryAction={{
+        href: "/dashboard/api-endpoints",
+        label: t("statusPages.408.primaryAction"),
+      }}
       secondaryAction={{ href: "/status", label: t("statusPages.408.secondaryAction") }}
     />
   );

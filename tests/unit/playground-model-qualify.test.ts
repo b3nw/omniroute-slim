@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 const { qualifyPlaygroundModel } =
-  await import("../../src/app/(dashboard)/dashboard/media-providers/components/LlmChatCard.tsx");
+  await import("../../src/app/(dashboard)/dashboard/providers/playground/LlmChatCard.tsx");
 
 // #3050 — vendor-namespaced model ids already contain a "/", so the old
 // `.includes("/")` heuristic skipped the provider prefix and the request was

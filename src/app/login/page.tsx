@@ -81,7 +81,7 @@ export default function LoginPage() {
         const data = await res.json();
         // (#521) If no password is set, redirect to onboarding instead of showing an error
         if (data.needsSetup) {
-          window.location.href = "/dashboard/onboarding";
+          window.location.href = "/dashboard";
           return;
         }
         setError(data.error || t("invalidPassword"));
@@ -167,7 +167,7 @@ export default function LoginPage() {
               <Button
                 variant="primary"
                 className="w-full h-11 text-sm font-medium"
-                onClick={() => router.push("/dashboard/onboarding")}
+                onClick={() => router.push("/dashboard/settings/security")}
               >
                 {t("startOnboarding")}
               </Button>
@@ -207,7 +207,7 @@ export default function LoginPage() {
               <Button
                 variant="primary"
                 className="w-full h-11 text-sm font-medium"
-                onClick={() => router.push("/dashboard/onboarding")}
+                onClick={() => router.push("/dashboard/settings/security")}
               >
                 {t("configurePassword")}
               </Button>

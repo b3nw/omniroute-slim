@@ -22,7 +22,7 @@ const errorPages = [
   {
     path: "/408",
     heading: "Request Timeout",
-    primaryHref: "/dashboard/endpoint",
+    primaryHref: "/dashboard/api-endpoints",
     secondaryHref: "/status",
   },
   {

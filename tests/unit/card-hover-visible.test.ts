@@ -14,10 +14,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
-const CARD_FILES = [
-  "src/app/(dashboard)/dashboard/providers/components/ProviderCard.tsx",
-  "src/app/(dashboard)/dashboard/media-providers/[kind]/page.tsx",
-];
+const CARD_FILES = ["src/app/(dashboard)/dashboard/providers/components/ProviderCard.tsx"];
 
 for (const rel of CARD_FILES) {
   test(`${rel}: card hover is visible, not near-transparent`, () => {

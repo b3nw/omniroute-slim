@@ -1,6 +1,6 @@
 "use client";
 
-import ApiEndpointsTab from "../endpoint/ApiEndpointsTab";
+import ApiEndpointsTab from "./ApiEndpointsTab";
 
 export default function ApiEndpointsPage() {
   return <ApiEndpointsTab />;

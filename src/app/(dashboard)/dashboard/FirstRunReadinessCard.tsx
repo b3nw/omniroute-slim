@@ -38,12 +38,16 @@ function getServerSnapshot(): boolean {
 }
 
 /**
- * Soft entry path for first-run users. Replaces the hard redirect to
- * /dashboard/onboarding so returning users can dismiss and stay on Home.
+ * Soft entry path for first-run users: surfaces the setup checklist on Home and
+ * links straight to the providers page so returning users can dismiss and stay put.
  */
 export default function FirstRunReadinessCard({ setupComplete }: FirstRunReadinessCardProps) {
   const t = useTranslations("home");
-  const dismissed = useSyncExternalStore(subscribeReadiness, isReadinessDismissed, getServerSnapshot);
+  const dismissed = useSyncExternalStore(
+    subscribeReadiness,
+    isReadinessDismissed,
+    getServerSnapshot
+  );
 
   const dismiss = useCallback(() => {
     try {
@@ -92,7 +96,7 @@ export default function FirstRunReadinessCard({ setupComplete }: FirstRunReadine
           </ol>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <Link
-              href="/dashboard/onboarding"
+              href="/dashboard/providers"
               className="inline-flex items-center rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
             >
               {t("readinessContinue")}

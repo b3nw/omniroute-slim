@@ -83,7 +83,7 @@ export default function CloudSyncStatus({ collapsed = false }) {
 
   return (
     <button
-      onClick={() => router.push("/dashboard/endpoint")}
+      onClick={() => router.push("/dashboard/api-endpoints")}
       className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg hover:bg-white/5 transition-colors cursor-pointer w-full"
       title={
         lastSync

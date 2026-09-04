@@ -13,7 +13,6 @@ export default defineConfig({
     maxConcurrency: 20,
     include: [
       "src/app/**/dashboard/cache/__tests__/**/*.test.tsx",
-      "src/app/**/dashboard/endpoint/__tests__/**/*.test.tsx",
       "src/app/**/dashboard/providers/**/__tests__/**/*.test.tsx",
       "src/app/**/dashboard/webhooks/__tests__/**/*.test.tsx",
       "src/app/**/dashboard/discovery/__tests__/**/*.test.tsx",
@@ -63,13 +62,11 @@ export default defineConfig({
       "open-sse/services/autoCombo/__tests__/autoCombo.test.ts", // #8618 — pre-existing failure; remove this exclusion when fixed
       "tests/unit/ui/agent-card-risk-modal.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
       "tests/unit/ui/request-logger-autorefresh-visibility-3972.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
-      "tests/unit/ui/search-tools-compare-tab.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
       "tests/unit/ui/noauth-account-card.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
       "tests/unit/ui/playground-build-tab.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
       "tests/unit/ui/playground-studio.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
       "tests/unit/ui/playground-compare-tab.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
       "src/app/(dashboard)/dashboard/webhooks/__tests__/webhook-wizard.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
-      "tests/unit/ui/search-tools-scrape-result.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
       "tests/unit/ui/CliToolCard.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
       "tests/unit/ui/comboLiveStudio.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
       "src/app/(dashboard)/dashboard/cache/__tests__/CachePage.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
@@ -85,7 +82,6 @@ export default defineConfig({
       "tests/unit/ui/playground-structured-output-editor.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
       "tests/unit/ui/playground-tools-builder.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
       "tests/unit/ui/playground-improve-prompt-button.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
-      "src/app/(dashboard)/dashboard/endpoint/__tests__/ApiEndpointsTab.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
       "tests/unit/ui/compression-combos-routing-mode-6760.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
       "tests/unit/ui/use-local-storage-pool-migration.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
       "tests/unit/ui/waterfallInspector.test.tsx", // #8618 — pre-existing failure; remove this exclusion when fixed
