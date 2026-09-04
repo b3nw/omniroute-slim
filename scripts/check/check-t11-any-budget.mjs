@@ -17,7 +17,6 @@ const budget = [
   { file: "open-sse/translator/registry.ts", maxAny: 0 },
   // Freeze legacy hot spots to avoid any-regression while strict migration continues.
   { file: "src/lib/db/apiKeys.ts", maxAny: 0 },
-  { file: "src/lib/db/cliToolState.ts", maxAny: 0 },
   { file: "src/lib/db/encryption.ts", maxAny: 0 },
   { file: "src/lib/db/prompts.ts", maxAny: 0 },
   { file: "src/lib/db/providers.ts", maxAny: 0 },

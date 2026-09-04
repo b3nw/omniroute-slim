@@ -34,16 +34,4 @@ describe("cleanup DB module", () => {
     assert.ok(typeof result.deleted === "number");
     assert.ok(typeof result.errors === "number");
   });
-
-  it("cleanupMcpAudit returns result (may error if table missing)", async () => {
-    const result = await mod.cleanupMcpAudit();
-    assert.ok(typeof result.deleted === "number");
-    assert.ok(typeof result.errors === "number");
-  });
-
-  it("cleanupA2aEvents returns result (may error if table missing)", async () => {
-    const result = await mod.cleanupA2aEvents();
-    assert.ok(typeof result.deleted === "number");
-    assert.ok(typeof result.errors === "number");
-  });
 });
