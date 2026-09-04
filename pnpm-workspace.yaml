@@ -14,7 +14,6 @@ allowBuilds:
   keytar: true
   koffi: true
   libxmljs2: true
-  onnxruntime-node: true
   protobufjs: true
   sharp: true
   tls-client-node: true
@@ -28,7 +27,6 @@ onlyBuiltDependencies:
   - "keytar"
   - "koffi"
   - "libxmljs2"
-  - "onnxruntime-node"
   - "omniroute"
   - "protobufjs"
   - "sharp"

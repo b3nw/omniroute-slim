@@ -27,8 +27,6 @@
  * scripts/build/bootstrap-env.mjs -> outDir/build/bootstrap-  Y               -           -    SHARED (extra module)
  * scripts/dev/healthcheck.mjs -> outDir/healthcheck.mjs       Y               -           -    SHARED (extra module)
  * playwright-core -> outDir/node_modules/playwright-core      Y               -           -    SHARED (extra module)
- * sqlite-vec -> outDir/node_modules/sqlite-vec                Y               -           -    SHARED (extra module)
- * sqlite-vec-linux-x64/arm64/darwin-x64/arm64/win-x64 (same) Y               -           -    SHARED (extra module)
  * abs-path sanitization in server.js + required-server-files  -               Y           Y    SHARED (opt-in: sanitizePaths)
  * Turbopack hashed-chunk patch (.next/server/ *.js)           -               Y           -    SHARED (opt-in: patchTurbopackChunks)
  * --- npm-UNIQUE ---
@@ -281,24 +279,6 @@ const EXTRA_MODULE_ENTRIES = [
     src: ["node_modules", "sql.js"],
     dest: ["node_modules", "sql.js"],
   },
-  {
-    label: "sqlite-vec wrapper (vector memory - loaded at runtime via createRequire)",
-    src: ["node_modules", "sqlite-vec"],
-    dest: ["node_modules", "sqlite-vec"],
-  },
-  // sqlite-vec's native vec0.so lives in a platform-specific package resolved at
-  // runtime via require.resolve(). Next.js does NOT trace it into the standalone
-  // (the externalized wrapper is copied, but its optional platform dep is missed -
-  // Next.js #88844), so without this the bundled/Docker build silently degrades
-  // vector search to FTS5: the wrapper loads but getLoadablePath() throws
-  // MODULE_NOT_FOUND. Copy whichever platform package npm actually installed. See #3066.
-  ...[
-    "sqlite-vec-linux-x64",
-    "sqlite-vec-linux-arm64",
-    "sqlite-vec-darwin-x64",
-    "sqlite-vec-darwin-arm64",
-    "sqlite-vec-windows-x64",
-  ].map((pkg) => ({ label: pkg, src: ["node_modules", pkg], dest: ["node_modules", pkg] })),
 ];
 
 /**
@@ -557,9 +537,7 @@ function stampServiceWorkerBuildId(resolvedOutDir) {
   const swDest = path.join(resolvedOutDir, "public", "sw.js");
   if (!fsSync.existsSync(swDest)) return;
   const buildId =
-    process.env.OMNIROUTE_SW_BUILD_ID ||
-    process.env.SOURCE_VERSION ||
-    String(Date.now());
+    process.env.OMNIROUTE_SW_BUILD_ID || process.env.SOURCE_VERSION || String(Date.now());
   let sw = fsSync.readFileSync(swDest, "utf8");
   sw = sw.replace(
     /^const CACHE_NAME = "omniroute-pwa-v2";$/m,
@@ -610,7 +588,7 @@ function clearStaleDest(dest) {
 
 /**
  * Copy native assets (better-sqlite3 and TPROXY) and extra runtime modules/sidecars
- * (wreq-js, pino, migrations, MITM server, helper scripts, sqlite-vec platform packages, …)
+ * (wreq-js, pino, migrations, MITM server, helper scripts, …)
  * into the assembled bundle. Missing sources are skipped silently.
  *
  * @param {string} projectRoot

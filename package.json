@@ -337,12 +337,9 @@
   },
   "optionalDependencies": {
     "@atjsh/llmlingua-2": "3.0.0",
-    "@huggingface/transformers": "^4.2.0",
     "better-sqlite3": "^13.0.2",
     "js-tiktoken": "^1.0.20",
     "keytar": "^7.9.0",
-    "onnxruntime-node": "1.24.3",
-    "sqlite-vec": "^0.1.9",
     "tls-client-node": "^0.2.0",
     "wreq-js": "^3.1.0"
   },
@@ -432,7 +429,6 @@
     "unrs-resolver": true
   },
   "overrides": {
-    "onnxruntime-node": "1.24.3",
     "fast-xml-parser": "^5.10.1",
     "sharp": "^0.35.3",
     "postcss": "^8.5.18",
