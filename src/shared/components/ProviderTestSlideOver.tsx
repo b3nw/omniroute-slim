@@ -7,7 +7,7 @@ import { useTranslations } from "next-intl";
 import {
   LlmChatCard,
   type LlmChatControls,
-} from "@/app/(dashboard)/dashboard/media-providers/components/LlmChatCard";
+} from "@/app/(dashboard)/dashboard/providers/playground/LlmChatCard";
 import ProviderIcon from "@/shared/components/ProviderIcon";
 import { useApiKey } from "@/app/(dashboard)/dashboard/providers/hooks/useApiKey";
 import { useProviderModels } from "@/app/(dashboard)/dashboard/providers/hooks/useProviderModels";

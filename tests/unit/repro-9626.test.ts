@@ -4,8 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = join(import.meta.dirname, "../..");
-const llmChatCardPath =
-  "src/app/(dashboard)/dashboard/media-providers/components/LlmChatCard.tsx";
+const llmChatCardPath = "src/app/(dashboard)/dashboard/providers/playground/LlmChatCard.tsx";
 const src = readFileSync(join(root, llmChatCardPath), "utf8");
 
 const DISABLED_ON_LOADING = /disabled\s*=\s*\{\s*loading\s*\}/;
@@ -23,7 +22,10 @@ test("LlmChatCard destructures loading and error from useProviderModels (#9626)"
     destructured.includes("loading"),
     "loading state must be destructured from useProviderModels"
   );
-  assert.ok(destructured.includes("error"), "error state must be destructured from useProviderModels");
+  assert.ok(
+    destructured.includes("error"),
+    "error state must be destructured from useProviderModels"
+  );
 });
 
 test("LlmChatCard disables the model selector while models are loading (#9626)", () => {
@@ -48,10 +50,7 @@ test("LlmChatCard surfaces the provider model error in the UI (#9626)", () => {
 });
 
 test("LlmChatCard offers a retry action when the model request fails (#9626)", () => {
-  assert.ok(
-    RETRY_ACTION.test(src),
-    "A retry action must be offered next to the model error"
-  );
+  assert.ok(RETRY_ACTION.test(src), "A retry action must be offered next to the model error");
 });
 
 test("LlmChatCard keeps the empty-state message distinct from an error (#9626)", () => {

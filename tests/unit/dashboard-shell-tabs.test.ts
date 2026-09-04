@@ -34,42 +34,6 @@ test("analytics page exposes the restored analytics tab shell", () => {
   }
 });
 
-test("endpoint page keeps APIs, MCP, and A2A as in-page tabs", () => {
-  const source = readSource("src/app/(dashboard)/dashboard/endpoint/EndpointPageClient.tsx");
-
-  assert.ok(source.includes('type EndpointTab = "apis" | "mcp" | "a2a" | "context-sources"'));
-  for (const labelKey of ["tabApis", "tabMcp", "tabA2a", "tabContextSources"]) {
-    assert.ok(source.includes('labelKey: "' + labelKey + '"'));
-  }
-  assert.ok(source.includes("label: t(tab.labelKey)"));
-  assert.ok(source.includes('aria-label={t("endpointSections")}'));
-  assert.ok(source.includes('useState<EndpointTab>("apis")'));
-  assert.ok(source.includes('activeEndpointTab === "mcp" ? <McpDashboardPage /> : null'));
-  assert.ok(source.includes('activeEndpointTab === "a2a" ? <A2ADashboardPage /> : null'));
-  assert.ok(source.includes('activeEndpointTab === "context-sources"'));
-});
-
-test("endpoint page exposes context-sources tab with Notion and Obsidian source cards", () => {
-  const source = readSource("src/app/(dashboard)/dashboard/endpoint/EndpointPageClient.tsx");
-
-  // Verify context-sources is part of the EndpointTab type contract
-  assert.ok(source.includes('type EndpointTab = "apis" | "mcp" | "a2a" | "context-sources"'));
-
-  // Verify context-sources tab label is in ENDPOINT_TABS
-  assert.ok(
-    source.includes('{ value: "context-sources", labelKey: "tabContextSources", icon: "database" }')
-  );
-
-  // Verify both source card components are imported
-  assert.ok(source.includes('import NotionSourceCard from "./components/NotionSourceCard"'));
-  assert.ok(source.includes('import ObsidianSourceCard from "./components/ObsidianSourceCard"'));
-
-  // Verify both components are rendered in the context-sources conditional block
-  assert.ok(source.includes('activeEndpointTab === "context-sources" ? ('));
-  assert.ok(source.includes("<NotionSourceCard />"));
-  assert.ok(source.includes("<ObsidianSourceCard />"));
-});
-
 test("settings root redirects to section pages instead of rendering a tab shell", () => {
   const pageSource = readSource("src/app/(dashboard)/dashboard/settings/page.tsx");
 

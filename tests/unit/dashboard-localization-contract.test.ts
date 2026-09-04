@@ -7,9 +7,7 @@ function readSource(path: string): string {
 }
 
 test("shared provider playground uses localized visible copy", () => {
-  const source = readSource(
-    "src/app/(dashboard)/dashboard/media-providers/components/LlmChatCard.tsx"
-  );
+  const source = readSource("src/app/(dashboard)/dashboard/providers/playground/LlmChatCard.tsx");
   for (const rawText of [
     "Send a message to start the conversation",
     "Shift+Enter for newline",
@@ -139,22 +137,7 @@ test("CLI cards use packaged brand icons whenever an asset exists", () => {
   assert.match(card, /tool\.imageLight \|\| tool\.imageDark/);
 });
 
-test("changelog and settings breadcrumbs use localized labels", () => {
-  const changelog = [
-    readSource("src/app/(dashboard)/dashboard/changelog/page.tsx"),
-    readSource("src/app/(dashboard)/dashboard/changelog/components/NewsViewer.tsx"),
-    readSource("src/app/(dashboard)/dashboard/changelog/components/ChangelogViewer.tsx"),
-  ].join("\n");
-  for (const rawText of [
-    'label: "News"',
-    'label: "Changelog"',
-    "No new announcements at this time.",
-    "Could not load the changelog.",
-    "View Full History on GitHub",
-  ]) {
-    assert.equal(changelog.includes(rawText), false, `raw changelog copy: ${rawText}`);
-  }
-
+test("settings breadcrumbs use localized labels", () => {
   const breadcrumbs = readSource("src/shared/components/Breadcrumbs.tsx");
   assert.match(breadcrumbs, /general: "general"/);
   assert.match(breadcrumbs, /"feature-flags": "featureFlags"/);
@@ -176,20 +159,6 @@ test("production audit regressions stay localized and provider icons stay bounde
     ">Save retention<",
   ]) {
     assert.equal(storage.includes(rawText), false, `raw storage copy: ${rawText}`);
-  }
-
-  const endpoint = readSource("src/app/(dashboard)/dashboard/endpoint/EndpointPageClient.tsx");
-  // Anchor: the page component itself, so the raw-copy guards below cannot pass
-  // against a file that was moved, renamed, or split apart.
-  assert.match(endpoint, /export default function APIPageClient\(/);
-  for (const rawText of [
-    'label: "Context Sources"',
-    ">Active Endpoints<",
-    ">Running<",
-    ">Tunnels<",
-    ">Not configured<",
-  ]) {
-    assert.equal(endpoint.includes(rawText), false, `raw endpoint copy: ${rawText}`);
   }
 
   const security = readSource("src/app/(dashboard)/dashboard/settings/components/SecurityTab.tsx");

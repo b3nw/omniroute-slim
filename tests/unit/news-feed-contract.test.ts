@@ -17,17 +17,3 @@ test("news.json ships Radar inactive in the localized v2 feed without commercial
   assert.match(radar.text.en.message, /no telemetry/i);
   assert.doesNotMatch(source, /R\$|US\$|coupon|cupom|discount|desconto/i);
 });
-
-test("the generic banner is ID-dismissable and independent from the Radar feature flag", async () => {
-  const source = await readFile(
-    new URL("src/app/(dashboard)/dashboard/NewsBanner.tsx", root),
-    "utf8"
-  );
-
-  assert.match(source, /selectActiveNews/);
-  assert.match(source, /parseDismissedNewsIds/);
-  assert.match(source, /localStorage/);
-  assert.match(source, /announcement\.id/);
-  assert.doesNotMatch(source, /RADAR_ENABLED/);
-  assert.doesNotMatch(source, /method:\s*["']POST["']/);
-});

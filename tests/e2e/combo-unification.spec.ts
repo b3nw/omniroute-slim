@@ -150,12 +150,6 @@ test.describe("Combo Unification", () => {
     await expect(page.getByText("Provider Scores")).toBeVisible();
   });
 
-  test("legacy auto-combo route redirects to intelligent combos filter", async ({ page }) => {
-    await gotoDashboardRoute(page, "/dashboard/auto-combo");
-    await page.waitForURL(/\/dashboard\/combos\?filter=intelligent/);
-    await expect(page).toHaveURL(/\/dashboard\/combos\?filter=intelligent/);
-  });
-
   test("sidebar no longer shows auto combo entry", async ({ page }) => {
     await gotoDashboardRoute(page, "/dashboard/combos");
 

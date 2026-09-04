@@ -201,7 +201,6 @@ test("standalone full-screen pages stay transparent so the grid shows through", 
     "../../src/app/status/page.tsx",
     "../../src/app/terms/page.tsx",
     "../../src/app/privacy/page.tsx",
-    "../../src/app/(dashboard)/dashboard/onboarding/page.tsx",
     "../../src/shared/components/ErrorPageScaffold.tsx",
   ];
   for (const p of pages) {

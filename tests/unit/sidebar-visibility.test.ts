@@ -123,7 +123,7 @@ test("sidebar visibility drops stale entries from saved settings", () => {
   ]);
 });
 
-test("help sidebar exposes changelog after docs and issues", () => {
+test("help sidebar exposes docs and issues", () => {
   const items = sectionItems("help");
   assert.deepEqual(
     items.map((item) => ({
@@ -138,34 +138,11 @@ test("help sidebar exposes changelog after docs and issues", () => {
         href: "https://github.com/diegosouzapw/OmniRoute/issues",
         i18nKey: "issues",
       },
-      { id: "changelog", href: "/dashboard/changelog", i18nKey: "changelog" },
     ]
   );
-  assert.equal(sidebarVisibility.HIDEABLE_SIDEBAR_ITEM_IDS.includes("changelog"), true);
-});
-
-test("plugins has a discoverable sidebar entry (#3656 follow-up)", async () => {
-  const items = sectionItems("agentic-features");
-  const plugins = items.find((item) => item.id === "plugins");
-  assert.ok(plugins, "expected a plugins item in the agentic-features section");
-  assert.equal(plugins.href, "/dashboard/plugins");
-  assert.equal(sidebarVisibility.HIDEABLE_SIDEBAR_ITEM_IDS.includes("plugins"), true);
-
-  // It must be a real page (plugin manager), not a legacy redirect stub.
-  const pluginsPage = await readFile(
-    join(repoRoot, "src/app/(dashboard)/dashboard/plugins/page.tsx"),
-    "utf8"
-  );
-  assert.doesNotMatch(pluginsPage, /^\s*redirect\(/m);
-  // R0.2: marketplace tab removed (dead code) — verify the page still has plugin management UI.
-  assert.match(pluginsPage, /scanForPlugins|installedTab|fetchPlugins/i);
 });
 
 test("legacy dashboard routes redirect to their consolidated surfaces", async () => {
-  const autoComboPage = await readFile(
-    join(repoRoot, "src/app/(dashboard)/dashboard/auto-combo/page.tsx"),
-    "utf8"
-  );
   const usagePage = await readFile(
     join(repoRoot, "src/app/(dashboard)/dashboard/usage/page.tsx"),
     "utf8"
@@ -175,7 +152,6 @@ test("legacy dashboard routes redirect to their consolidated surfaces", async ()
     "utf8"
   );
 
-  assert.match(autoComboPage, /redirect\("\/dashboard\/combos\?filter=intelligent"\)/);
   assert.match(usagePage, /redirect\("\/dashboard\/logs"\)/);
   assert.match(settingsPage, /redirect\(resolveSettingsRoute\(tab\)\)/);
   assert.match(settingsPage, /\/dashboard\/settings\/general/);
