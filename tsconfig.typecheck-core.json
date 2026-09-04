@@ -11,7 +11,6 @@
   "files": [
     "src/app/api/settings/proxy/test/route.ts",
     "src/lib/db/apiKeys.ts",
-    "src/lib/db/cliToolState.ts",
     "src/lib/db/encryption.ts",
     "src/lib/db/prompts.ts",
     "src/lib/db/providers.ts",

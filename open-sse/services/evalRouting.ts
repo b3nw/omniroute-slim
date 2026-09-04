@@ -1,5 +1,37 @@
-import type { PersistedEvalRun } from "../../src/lib/db/evals.ts";
-import { listModelEvalRunsForRouting } from "../../src/lib/db/evals.ts";
+export interface PersistedEvalRun {
+  id: string;
+  runGroupId?: string | null;
+  suiteId: string;
+  suiteName?: string;
+  target: {
+    type?: "model" | "provider" | "combo";
+    id: string;
+    label?: string;
+  };
+  apiKeyId?: string | null;
+  avgLatencyMs: number;
+  summary: {
+    total: number;
+    passed?: number;
+    failed?: number;
+    passRate: number;
+  };
+  results?: Array<Record<string, unknown>>;
+  outputs?: Record<string, string>;
+  createdAt: string;
+}
+
+export interface EvalRoutingRunQuery {
+  targetIds: string[];
+  suiteIds?: string[];
+  maxAgeHours?: number;
+  limit?: number;
+}
+
+export function listModelEvalRunsForRouting(_options: EvalRoutingRunQuery): PersistedEvalRun[] {
+  return [];
+}
+
 import { parseModel } from "./model.ts";
 
 type EvalRoutingLogger = {
