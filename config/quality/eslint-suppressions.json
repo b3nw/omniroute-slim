@@ -853,16 +853,6 @@
       "count": 1
     }
   },
-  "src/app/(dashboard)/dashboard/mcp/page.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 2
-    }
-  },
-  "src/app/(dashboard)/dashboard/onboarding/page.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/app/(dashboard)/dashboard/providers/[id]/ProviderDetailPageClient.tsx": {
     "@typescript-eslint/no-unused-vars": {
       "count": 2
@@ -948,21 +938,6 @@
       "count": 1
     }
   },
-  "src/app/(dashboard)/dashboard/search-tools/components/SearchHistory.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/app/(dashboard)/dashboard/search-tools/components/tabs/CompareTab.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/app/(dashboard)/dashboard/search-tools/components/tabs/SearchTab.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/app/(dashboard)/dashboard/settings/components/AppearanceTab.tsx": {
     "@next/next/no-img-element": {
       "count": 4
@@ -985,11 +960,6 @@
   },
   "src/app/(dashboard)/dashboard/settings/components/CompressionSettingsTab.tsx": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/app/(dashboard)/dashboard/settings/components/MitmProxyTab.tsx": {
-    "@next/next/no-html-link-for-pages": {
       "count": 1
     }
   },
@@ -1906,11 +1876,6 @@
       "count": 1
     }
   },
-  "tests/e2e/search-tools-studio.spec.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "tests/e2e/skills-marketplace.spec.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -2283,11 +2248,6 @@
       "count": 3
     }
   },
-  "tests/unit/agent-bridge-mappings-sync-8656.test.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "tests/unit/agent-skills-page.test.tsx": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -2356,11 +2316,6 @@
   "tests/unit/api/v1/relay-completions-errors.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 3
-    }
-  },
-  "tests/unit/api/webhooks/webhook-url-ssrf-guard.test.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
     }
   },
   "tests/unit/apikey-connection-health-check.test.ts": {
@@ -3101,7 +3056,7 @@
   },
   "tests/unit/combo-routing-engine.test.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 267
+      "count": 253
     }
   },
   "tests/unit/combo-same-provider-cascade.test.ts": {
@@ -3329,21 +3284,6 @@
       "count": 1
     }
   },
-  "tests/unit/db-agent-bridge-bypass.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    }
-  },
-  "tests/unit/db-agent-bridge-mappings.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    }
-  },
-  "tests/unit/db-agent-bridge-state.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    }
-  },
   "tests/unit/db-backup-export-streaming-9045.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -3387,11 +3327,6 @@
       "count": 5
     }
   },
-  "tests/unit/db-gamification-federation-3500.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    }
-  },
   "tests/unit/db-health-check.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 29
@@ -3400,16 +3335,6 @@
   "tests/unit/db-health-route.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 7
-    }
-  },
-  "tests/unit/db-inspector-custom-hosts.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    }
-  },
-  "tests/unit/db-inspector-sessions.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
     }
   },
   "tests/unit/db-migration-runner.test.ts": {
@@ -3433,11 +3358,6 @@
   "tests/unit/db-models-extended.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 5
-    }
-  },
-  "tests/unit/db-playground-presets.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
     }
   },
   "tests/unit/db-provider-plans.test.ts": {
@@ -3704,16 +3624,6 @@
       "count": 1
     }
   },
-  "tests/unit/gamification/events.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    }
-  },
-  "tests/unit/gamification/leaderboard.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    }
-  },
   "tests/unit/gemini-business-provider.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -3805,11 +3715,6 @@
   "tests/unit/image-generation-route.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
-    }
-  },
-  "tests/unit/inspector-agent-bridge-hook.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
     }
   },
   "tests/unit/json-size-exactness.test.ts": {
@@ -4433,19 +4338,9 @@
       "count": 1
     }
   },
-  "tests/unit/radar-api-routes.test.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 2
-    }
-  },
   "tests/unit/radar-apply-feed.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
-    }
-  },
-  "tests/unit/radar-db.test.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 5
     }
   },
   "tests/unit/radar-referrals-sync.test.ts": {
@@ -5055,11 +4950,6 @@
       "count": 1
     }
   },
-  "tests/unit/ui/cheaperInferenceSponsorBanner.test.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "tests/unit/ui/cli-code-detail-page.test.tsx": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -5113,21 +5003,6 @@
   "tests/unit/ui/provider-quota-widget-auto-refresh-label-4611.test.tsx": {
     "@typescript-eslint/no-unused-vars": {
       "count": 2
-    }
-  },
-  "tests/unit/ui/search-tools-compare-tab.test.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "tests/unit/ui/search-tools-scrape-tab.test.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "tests/unit/ui/search-tools-search-tab.test.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
     }
   },
   "tests/unit/ui/use-stream-metrics.test.tsx": {
