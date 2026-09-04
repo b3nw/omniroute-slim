@@ -44,8 +44,6 @@ function seedSidecarSources(root: string) {
     "node_modules/sql.js/package.json",
     "node_modules/sql.js/dist/sql-wasm.js",
     "node_modules/sql.js/dist/sql-wasm.wasm",
-    "node_modules/sqlite-vec/index.js",
-    "node_modules/sqlite-vec-linux-x64/vec0.so",
     "src/lib/db/migrations/001_init.sql",
     "src/mitm/server.cjs",
     "scripts/dev/run-standalone.mjs",

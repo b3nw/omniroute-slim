@@ -3,7 +3,6 @@ import { createMDX } from "fumadocs-mdx/next";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { betterSqlite3AliasFor } from "./scripts/build/better-sqlite3-stub-flag.mjs";
-import { mitmManagerAliasFor } from "./scripts/build/mitm-stub-flag.mjs";
 import { normalizeBasePath } from "./scripts/build/normalizeBasePath.mjs";
 import {
   buildSecurityHeaderRules,
@@ -139,13 +138,6 @@ const nextConfig = {
   turbopack: {
     root: projectRoot,
     resolveAlias: {
-      // @/mitm/manager → stub ONLY where the runtime can't run the MITM stack
-      // (Docker sets OMNIROUTE_MITM_STUB=1 — #3390 graceful degradation). The
-      // alias used to be unconditional, which was fine while Docker was the
-      // only Turbopack consumer — but the v3.8.45 bundler-default flip shipped
-      // the stub to every npm/Electron/VPS artifact and broke Agent Bridge
-      // start for all non-Docker users (#6344). See scripts/build/mitm-stub-flag.mjs.
-      ...mitmManagerAliasFor(process.env),
       // better-sqlite3 → build-time stub ONLY where the build worker actually
       // aborts while tracing the native addon (SIGABRT at worker teardown,
       // #10060); opt in with OMNIROUTE_BETTER_SQLITE3_STUB=1. The alias used to
@@ -286,11 +278,6 @@ const nextConfig = {
     // analysis can't follow _require.resolve("sql.js/package.json") and spams
     // build warnings.  Externalizing silences them without changing behaviour.
     "sql.js",
-    // sqlite-vec ships a native vec0.so loaded at runtime via createRequire().
-    // Turbopack otherwise tries to bundle the .so and fails with "Unknown module
-    // type"; externalizing it keeps the require at runtime (like better-sqlite3).
-    // See issue #3066.
-    "sqlite-vec",
     "node-machine-id",
     "keytar",
     "wreq-js",
@@ -299,7 +286,6 @@ const nextConfig = {
     "koffi",
     "tough-cookie",
     "@ngrok/ngrok",
-    "@huggingface/transformers",
     // copilot-m365-web.ts imports 'ws' as a client-side WebSocket. When bundled,
     // ws cannot resolve its 'bufferutil' native addon (frame masking) and throws
     // TypeError: b.mask is not a function on the first outgoing frame, causing
