@@ -86,7 +86,6 @@ import {
   ensureOpenAIStoreSessionFallback,
   isOpenAIResponsesStoreEnabled,
 } from "@/lib/providers/requestDefaults";
-import { guardrailRegistry, resolveDisabledGuardrails } from "@/lib/guardrails";
 import {
   resolveModelOrError,
   checkPipelineGates,
@@ -103,7 +102,6 @@ import {
   withModalityBridgeHeader,
   withConversationId,
 } from "./chatHelpers";
-import { buildModalityBridgeHeader } from "@/lib/guardrails/modalityBridge/bridgeStats";
 import { resolveConversationId } from "@omniroute/open-sse/services/conversationTracker.ts";
 import {
   isAntigravityMissingProjectError,
@@ -704,50 +702,26 @@ async function handleChatImplementation(
     deferredClientRawBody.withClientBody((clientBody) => buildClientRawRequest(request, clientBody))
   );
 
-  // Guardrail pre-call pipeline — prompt injection, PII masking, and future custom rules.
+  // Pre-call validation phase. The guardrail subsystem (prompt-injection
+  // scanning, PII masking, Modality Bridge) is excised in Slim, so all that
+  // remains here is the body.model <-> modelStr glue that previously ran after
+  // the guardrail payload was applied.
   telemetry.startPhase("validate");
-  const preCallGuardrails = await guardrailRegistry.runPreCallHooks(body, {
-    apiKeyInfo: apiKeyInfo as any,
-    disabledGuardrails: resolveDisabledGuardrails({
-      apiKeyInfo: (apiKeyInfo ?? null) as any,
-      body,
-      headers: request.headers,
-    }),
-    endpoint: new URL(request.url).pathname,
-    headers: request.headers,
-    log,
-    method: request.method,
-    model: modelStr,
-    signal: request.signal,
-    stream: body?.stream === true,
-  });
-  if (preCallGuardrails.blocked) {
-    log.warn("GUARDRAIL", "Request blocked during pre-call guardrails", {
-      guardrail: preCallGuardrails.guardrail,
-      message: preCallGuardrails.message,
-    });
-    return errorResponse(
-      HTTP_STATUS.BAD_REQUEST,
-      preCallGuardrails.message || "Request rejected: suspicious content detected"
-    );
-  }
-  // Snapshot model BEFORE the guardrail payload (see reconcileGuardrailReroute).
-  const modelBeforeGuardrails =
+  const modelBeforeReconcile =
     typeof body?.model === "string" && body.model.length > 0 ? body.model : modelStr;
-  body = preCallGuardrails.payload;
   ({ body, modelStr } = await RoutingModelOps.reconcileGuardrailReroute({
     body,
-    modelBeforeGuardrails,
+    modelBeforeGuardrails: modelBeforeReconcile,
     modelStr,
     apiKey,
     apiKeyId: apiKeyInfo?.id,
     isModelAllowedForKey,
     log,
   }));
-  // Modality Bridge transparency (Task 9): non-null only when a pre-call bridge
-  // guardrail transformed the payload (describe path) — stamped on the main
-  // success exits below via withModalityBridgeHeader().
-  const modalityBridgeHeader = buildModalityBridgeHeader(preCallGuardrails.results);
+  // Nothing can transform the payload pre-call in Slim, so there is never a
+  // bridge header to stamp — the withModalityBridgeHeader() calls on the
+  // success exits below stay valid and become no-op passthroughs.
+  const modalityBridgeHeader: string | null = null;
   telemetry.endPhase();
 
   // Agentic conversation tracking (X-ConversationId): resolved once per

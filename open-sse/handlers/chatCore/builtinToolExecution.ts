@@ -163,7 +163,7 @@ async function runBuiltin(
       content,
       provider_options,
       strict_filters,
-    } = input as ExecuteWebSearchInput;
+    } = input as unknown as ExecuteWebSearchInput;
     if (!query) throw new Error("Missing required field: query");
     const search = await executeWebSearch({
       query,

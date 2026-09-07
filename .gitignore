@@ -75,7 +75,6 @@ yarn-error.log*
 gitleaks-local.json
 !.env.example
 !.env.homolog.example
-!.env.devin-bridge.example
 # Provider API keys (never commit)
 *.api-key
 .nvidia-api-key
@@ -104,6 +103,9 @@ open-sse/test/*
 
 # Ignore vscode AI rules
 .github/instructions/codacy.instructions.md
+
+# Editor-local workspace settings (machine-specific tuning, not project source)
+/.vscode/
 
 # Playwright
 .playwright-mcp/
@@ -211,6 +213,11 @@ http-client.private.env.json
 .agents/
 .antigravitycli/
 /.claude/
+# Root-level assistant instruction files: local-only in Slim (project rules live in AGENTS.md,
+# which IS tracked). Not ignored under tests/fixtures/ — the devin-bridge e2e fixture ships its
+# own CLAUDE.md/.claude/ tree that the test suite reads.
+/CLAUDE.md
+/GEMINI.md
 
 # PR Reviews and local feedback files
 pr_reviews*.json

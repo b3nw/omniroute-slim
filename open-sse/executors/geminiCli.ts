@@ -10,7 +10,6 @@ import { buildErrorBody, sanitizeErrorMessage } from "../utils/error.ts";
 import {
   mapModelToGeminiCliWire,
   translateChatRequestToGeminiCli,
-  type OpenAIChatRequest,
 } from "../translator/request/geminiCli.ts";
 import {
   translateGeminiCliChunkToOpenAI,
@@ -297,8 +296,8 @@ export class GeminiCliExecutor extends BaseExecutor {
   }
 
   override buildUrl(
-    model: string,
-    stream: boolean,
+    _model: string,
+    _stream: boolean,
     urlIndex = 0,
     credentials: ProviderCredentials | null = null
   ): string {
@@ -315,8 +314,8 @@ export class GeminiCliExecutor extends BaseExecutor {
 
   override buildHeaders(
     credentials: ProviderCredentials,
-    stream = true,
-    clientHeaders?: Record<string, string> | null,
+    _stream = true,
+    _clientHeaders?: Record<string, string> | null,
     model?: string
   ): Record<string, string> {
     const accessToken = credentials.accessToken || credentials.apiKey || "";
@@ -325,9 +324,9 @@ export class GeminiCliExecutor extends BaseExecutor {
   }
 
   override async transformRequest(
-    model: string,
+    _model: string,
     body: unknown,
-    stream: boolean,
+    _stream: boolean,
     credentials: ProviderCredentials
   ): Promise<unknown> {
     const projectId =
@@ -340,7 +339,7 @@ export class GeminiCliExecutor extends BaseExecutor {
       return body;
     }
 
-    const translated = translateChatRequestToGeminiCli(body as OpenAIChatRequest, {
+    const translated = translateChatRequestToGeminiCli(body as Record<string, unknown>, {
       projectId,
       tier,
     });
@@ -487,7 +486,7 @@ export class GeminiCliExecutor extends BaseExecutor {
         wireModel = mapModelToGeminiCliWire(requestPayload.model);
       }
     } else {
-      const translated = translateChatRequestToGeminiCli(rawBody as OpenAIChatRequest, {
+      const translated = translateChatRequestToGeminiCli(rawBody as Record<string, unknown>, {
         projectId,
         tier,
       });
