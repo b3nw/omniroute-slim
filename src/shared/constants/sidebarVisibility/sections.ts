@@ -411,22 +411,6 @@ const DEVTOOLS_ITEMS: readonly SidebarItemDefinition[] = [
   },
 ];
 
-const GAMIFICATION_GROUP: SidebarItemGroup = {
-  type: "group",
-  id: "gamification",
-  titleKey: "gamificationGroup",
-  titleFallback: "Gamification",
-  items: [
-    {
-      id: "tokens",
-      href: "/dashboard/tokens",
-      i18nKey: "tokens",
-      subtitleKey: "tokensSubtitle",
-      icon: "toll",
-    },
-  ],
-};
-
 const CONFIGURATION_ITEMS: readonly SidebarItemDefinition[] = [
   {
     id: "settings-general",
@@ -448,13 +432,6 @@ const CONFIGURATION_ITEMS: readonly SidebarItemDefinition[] = [
     i18nKey: "settingsAi",
     subtitleKey: "settingsAiSubtitle",
     icon: "auto_awesome",
-  },
-  {
-    id: "settings-modality-bridge",
-    href: "/dashboard/settings/modality-bridge",
-    i18nKey: "settingsModalityBridge",
-    subtitleKey: "settingsModalityBridgeSubtitle",
-    icon: "image_search",
   },
   {
     id: "settings-routing",
@@ -580,12 +557,6 @@ export const SIDEBAR_SECTIONS: readonly SidebarSectionDefinition[] = [
     titleFallback: "Dev Tools",
     children: DEVTOOLS_ITEMS,
     visibility: "debug",
-  },
-  {
-    id: "other-features",
-    titleKey: "otherFeaturesSection",
-    titleFallback: "Other Features",
-    children: [GAMIFICATION_GROUP],
   },
   {
     id: "configuration",

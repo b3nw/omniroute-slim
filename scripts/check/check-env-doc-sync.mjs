@@ -218,6 +218,28 @@ const IGNORE_FROM_CODE = new Set([
   // Test-only override: points setup-open-code.mjs at a fixture plugin dir without
   // requiring the real bundled plugin to be built.
   "OMNIROUTE_OPENCODE_PLUGIN_DIR",
+  // Gemini CLI upstream-handshake knobs: internal escape hatches for the
+  // emulated CLI client identity / transport headers sent by
+  // open-sse/executors/geminiCli.ts. Derived from the running process
+  // (platform, node version, discovered project) with working defaults —
+  // internal overrides, never user-facing product config.
+  "GEMINI_CLI_ACCEPT_ENCODING",
+  "GEMINI_CLI_GL_NODE_VERSION",
+  "GEMINI_CLI_NODE_CLIENT_VERSION",
+  "GEMINI_CLI_PLATFORM_ARCH",
+  "GEMINI_CLI_PROJECT_ID",
+  "GEMINI_CLI_UA_VERSION",
+  // Setup-recipe only: optional 5dive binary override read by the
+  // `omniroute setup-5dive` CLI recipe (bin/cli/commands/setup-5dive.mjs).
+  // Not a registered cliRuntime provider binary, so it has no .env entry.
+  "CLI_5DIVE_BIN",
+  // Provider-alias maps consumed at runtime by the catalog/alias resolver —
+  // dynamic JSON overrides for internal routing, not documented .env config.
+  "OMNIROUTE_PROVIDER_ALIASES",
+  "OMNIROUTE_PROVIDER_ALIAS_OVERRIDES",
+  // Install/startup escape hatch for the native-dependency preflight
+  // (better-sqlite3 et al.) — harness-only knob.
+  "OMNIROUTE_SKIP_NATIVE_DEP_CHECK",
 ]);
 
 // Vars documented in ENVIRONMENT.md but intentionally absent from .env.example.

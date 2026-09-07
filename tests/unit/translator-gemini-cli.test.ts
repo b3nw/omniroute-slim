@@ -1,10 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  CCPA_AI_MODEL_MAPPINGS,
-  GEMINI3_TOOL_PREFIX,
-  DEFAULT_GEMINI3_SYSTEM_INSTRUCTION,
-  DEFAULT_SAFETY_SETTINGS,
   mapModelToGeminiCliWire,
   isGemini3,
   needsThoughtSignature,
@@ -14,30 +10,19 @@ import {
   inlineSchemaRefs,
   cleanGeminiCliSchema,
   enforceStrictSchema,
-  formatTypeHint,
-  injectSignatureIntoDescription,
   transformToolSchemas,
-  parseContentParts,
   fixToolResponseGrouping,
   _fix_tool_response_grouping,
   handleReasoningParameters,
-  translateToolChoice,
-  transformMessages,
   translateChatRequestToGeminiCli,
-  type OpenAIChatRequest,
 } from "../../open-sse/translator/request/geminiCli.ts";
 import {
-  FINISH_REASON_MAP,
-  stripGemini3Prefix,
-  buildUsageBlock,
   translateGeminiCliChunkToOpenAI,
   translateGeminiCliResponseToOpenAI,
   reassembleGeminiCliChunks,
 } from "../../open-sse/translator/response/geminiCli.ts";
 import {
   storeGeminiThoughtSignature,
-  getGeminiThoughtSignature,
-  clearGeminiThoughtSignatures,
   clearGeminiThoughtSignatureMemoryForTests,
 } from "../../open-sse/services/geminiThoughtSignatureStore.ts";
 
@@ -102,7 +87,7 @@ test("Tier 1: Fingerprinting & Client Metadata Generation", () => {
 });
 
 test("Tier 1: Message & Multipart Translation into CCPA Contents Envelope", () => {
-  const req: OpenAIChatRequest = {
+  const req: Record<string, unknown> = {
     model: "gemini-3-flash",
     messages: [
       { role: "system", content: "You are an expert fullstack software architect." },
@@ -532,7 +517,7 @@ test("Tier 2: Thought Signature Caching & Single-Signature Cardinality", () => {
   clearGeminiThoughtSignatureMemoryForTests();
   storeGeminiThoughtSignature("call_primary", "sig_verified_primary_123");
 
-  const req: OpenAIChatRequest = {
+  const req: Record<string, unknown> = {
     model: "gemini-3-flash",
     messages: [
       { role: "user", content: "Execute batch operations" },
@@ -658,7 +643,7 @@ test("Tier 3: Combinatorial Matrix Across Models, Tools and Reasoning Configurat
   for (const model of models) {
     for (const effort of reasoningEfforts) {
       for (const tools of toolOptions) {
-        const req: OpenAIChatRequest = {
+        const req: Record<string, unknown> = {
           model,
           reasoning_effort: effort,
           messages: [{ role: "user", content: "Combinatorial test prompt" }],
