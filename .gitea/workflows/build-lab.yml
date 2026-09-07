@@ -1,0 +1,112 @@
+name: Build lab OmniRoute-Slim image
+
+on:
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: "Internal Gitea ref (branch/tag/sha)"
+        required: false
+        default: "main"
+      short_sha:
+        description: "Immutable short sha for lab-<sha> tag (leave empty to derive from git_ref HEAD)"
+        required: false
+        default: ""
+      also_lab_latest:
+        description: "Also push lab-latest (non-prod only)"
+        required: false
+        default: "true"
+      platforms:
+        description: "Build platforms (comma-separated). Default linux/amd64."
+        required: false
+        default: "linux/amd64"
+      tag_suffix:
+        description: "Optional tag suffix. Empty = lab-<sha> only"
+        required: false
+        default: ""
+      docker_target:
+        description: "Dockerfile target (runner-base | runner-web | runner-cli)"
+        required: false
+        default: "runner-base"
+      build_workers:
+        description: "Next.js build workers (CIRCLE_NODE_TOTAL, 3 = 2 page workers for 24GB runner)"
+        required: false
+        default: "3"
+      use_turbopack:
+        description: "Use Turbopack bundler (1 = Turbopack, 0 = Webpack)"
+        required: false
+        default: "0"
+
+env:
+  REGISTRY: gitea.ext.ben.io
+  IMAGE_PRIMARY: gitea.ext.ben.io/homelab/omniroute-slim
+  DOCKERFILE: Dockerfile
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: catthehacker/ubuntu:act-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ gitea.event.inputs.git_ref || 'main' }}
+
+      - name: Login to Gitea Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ gitea.actor }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Resolve Image Tags & Build Flags
+        run: |
+          set -eu
+          SHORT="${{ gitea.event.inputs.short_sha }}"
+          if [ -z "$SHORT" ]; then
+            SHORT=$(git rev-parse --short=8 HEAD)
+          fi
+          FULL=$(git rev-parse HEAD)
+          echo "SHORT_SHA=$SHORT" >> "$GITHUB_ENV"
+          echo "FULL_SHA=$FULL" >> "$GITHUB_ENV"
+          echo "PLATFORMS=${{ gitea.event.inputs.platforms || 'linux/amd64' }}" >> "$GITHUB_ENV"
+          echo "TAG_SUFFIX=${{ gitea.event.inputs.tag_suffix || '' }}" >> "$GITHUB_ENV"
+          echo "DOCKER_TARGET=${{ gitea.event.inputs.docker_target || 'runner-base' }}" >> "$GITHUB_ENV"
+          echo "BUILD_WORKERS=${{ gitea.event.inputs.build_workers || '3' }}" >> "$GITHUB_ENV"
+          echo "USE_TURBOPACK=${{ gitea.event.inputs.use_turbopack || '0' }}" >> "$GITHUB_ENV"
+
+      - name: Build and push image
+        id: push_image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ${{ env.DOCKERFILE }}
+          target: ${{ env.DOCKER_TARGET }}
+          push: true
+          provenance: false
+          sbom: false
+          platforms: ${{ env.PLATFORMS }}
+          build-args: |
+            OMNIROUTE_BUILD_WORKERS=${{ env.BUILD_WORKERS }}
+            OMNIROUTE_USE_TURBOPACK=${{ env.USE_TURBOPACK }}
+          tags: |
+            ${{ env.IMAGE_PRIMARY }}:lab-${{ env.SHORT_SHA }}${{ env.TAG_SUFFIX }}
+            ${{ env.IMAGE_PRIMARY }}:lab-${{ env.FULL_SHA }}${{ env.TAG_SUFFIX }}
+
+      - name: Optional lab-latest (non-prod)
+        if: (gitea.event.inputs.also_lab_latest || 'true') == 'true'
+        run: |
+          set -eu
+          BASE="${{ env.IMAGE_PRIMARY }}"
+          docker buildx imagetools create -t "${BASE}:lab-latest" "${BASE}:lab-${{ env.SHORT_SHA }}${{ env.TAG_SUFFIX }}"
+
+      - name: Emit digests / platforms
+        run: |
+          set -eu
+          BASE="${{ env.IMAGE_PRIMARY }}"
+          TAG="${BASE}:lab-${{ env.SHORT_SHA }}${{ env.TAG_SUFFIX }}"
+          echo "Inspecting $TAG"
+          docker buildx imagetools inspect "$TAG"
