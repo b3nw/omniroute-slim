@@ -28,9 +28,9 @@ on:
         required: false
         default: "runner-base"
       build_workers:
-        description: "Next.js build workers (CIRCLE_NODE_TOTAL, 3 = 2 page workers for 24GB runner)"
+        description: "Next.js build workers (CIRCLE_NODE_TOTAL, 1 = single worker, avoids OOM)"
         required: false
-        default: "3"
+        default: "1"
       use_turbopack:
         description: "Use Turbopack bundler (1 = Turbopack, 0 = Webpack)"
         required: false
@@ -75,7 +75,7 @@ jobs:
           echo "PLATFORMS=${{ gitea.event.inputs.platforms || 'linux/amd64' }}" >> "$GITHUB_ENV"
           echo "TAG_SUFFIX=${{ gitea.event.inputs.tag_suffix || '' }}" >> "$GITHUB_ENV"
           echo "DOCKER_TARGET=${{ gitea.event.inputs.docker_target || 'runner-base' }}" >> "$GITHUB_ENV"
-          echo "BUILD_WORKERS=${{ gitea.event.inputs.build_workers || '3' }}" >> "$GITHUB_ENV"
+          echo "BUILD_WORKERS=${{ gitea.event.inputs.build_workers || '1' }}" >> "$GITHUB_ENV"
           echo "USE_TURBOPACK=${{ gitea.event.inputs.use_turbopack || '0' }}" >> "$GITHUB_ENV"
 
       - name: Build and push image
