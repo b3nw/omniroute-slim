@@ -84,6 +84,54 @@ test("worker count × measured per-process RSS fits a 16 GB GitHub runner", () =
   );
 });
 
+test("the webpack compile phase (parent + webpackBuildWorker subprocess) fits the runner budget", () => {
+  const buildMemoryMb = readArgDefault("OMNIROUTE_BUILD_MEMORY_MB");
+
+  // On the webpack path (Dockerfile's effective default, OMNIROUTE_USE_TURBOPACK=0)
+  // `experimental.webpackBuildWorker` (next.config.mjs) runs the compile in a
+  // SUBPROCESS, and build-next-isolated.mjs → resolveNextBuildEnv propagates
+  // NODE_OPTIONS into it, so the compile phase holds TWO processes each capped at
+  // OMNIROUTE_BUILD_MEMORY_MB. OMNIROUTE_BUILD_WORKERS does not bound this worker —
+  // it only caps the page-data pool — so the test above cannot catch it. At 2 ×
+  // 7168 MB = 14.3 GB the 16 GB lab runner (shared with the act runner + buildkit)
+  // OOM-killed the compile worker: "Next.js build worker exited with code: null and
+  // signal: SIGKILL" during "Creating an optimized production build", then
+  // `ResourceExhausted: ... cannot allocate memory` (Gitea Actions run 1753, job
+  // 1802, commit b121150b2, 2026-09-08).
+  //
+  // Here the V8 ceiling — not MEASURED_PROCESS_RSS_MB (4500) — is the right
+  // per-process knob to pin: that figure was measured on the TURBOPACK path, where
+  // the compile is native/Rust and allocates outside the V8 heap, so RSS floats free
+  // of --max-old-space-size. Webpack compiles ON V8, so the heap ceiling is the
+  // dominant term in its RSS and scales with whatever we set here; budgeting it at a
+  // fixed 4500 MB would let a ceiling bump sail past this assertion.
+  //
+  // SCOPE — what this actually asserts: the configured HEAP-CEILING POLICY (2 ×
+  // ceiling must fit the 75% budget), NOT a guarantee that the compile fits the
+  // runner's RAM. --max-old-space-size bounds only V8's old space; a process's real
+  // RSS also carries the young generation, code space, native allocations, Buffers
+  // and allocator overhead, so RSS can run past the ceiling. Treat this as a
+  // necessary-but-not-sufficient guard: it catches a ceiling bump that is doomed on
+  // the arithmetic alone, but clearing it does not prove the build survives. The
+  // authoritative validation stays a real lab Docker build, whose failure mode names
+  // the bound that was hit — a kernel SIGKILL (OOM killer, as in run 1753 / job 1802)
+  // means real RSS outgrew the machine, whereas a V8 "JavaScript heap out of memory"
+  // abort means the ceiling itself is too low.
+  const processes = 2; // parent `next build` + webpackBuildWorker compile subprocess
+  const worstCaseMb = processes * buildMemoryMb;
+  const budgetMb = RUNNER_MEMORY_MB * HEADROOM_FRACTION;
+  assert.ok(
+    worstCaseMb <= budgetMb,
+    `heap-ceiling policy violated: ${processes} processes (1 parent + 1 ` +
+      `webpackBuildWorker) × ${buildMemoryMb} MB V8 ceiling = ${worstCaseMb} MB exceeds ` +
+      `the ${budgetMb} MB budget on a ${RUNNER_MEMORY_MB} MB runner. This bounds the ` +
+      `configured V8 old-space ceilings only — actual RSS adds non-V8 memory on top, so ` +
+      `clearing this budget is necessary but not sufficient; confirm with a real lab ` +
+      `Docker build (a SIGKILL, e.g. "Next.js build worker exited with code: null and ` +
+      `signal: SIGKILL" during the webpack compile, means RSS blew the machine, not the heap)`
+  );
+});
+
 test("the worker pool does not oversubscribe the runner's 4 vCPU", () => {
   const workers = readArgDefault("OMNIROUTE_BUILD_WORKERS") - 1;
   assert.ok(workers <= 4, `${workers} workers oversubscribe a 4 vCPU runner`);
