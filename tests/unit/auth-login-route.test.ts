@@ -14,6 +14,7 @@ const core = await import("../../src/lib/db/core.ts");
 const settingsDb = await import("../../src/lib/db/settings.ts");
 const loginRoute = await import("../../src/app/api/auth/login/route.ts");
 const managementPassword = await import("../../src/lib/auth/managementPassword.ts");
+const loginGuard = await import("../../src/server/auth/loginGuard.ts");
 
 const originalGetCookieStore = loginRoute.authRouteInternals.getCookieStore;
 
@@ -153,4 +154,84 @@ test("auth login route returns 403 when OIDC password login is disabled", async 
   assert.equal(response.status, 403);
   const body = (await response.json()) as { error?: string };
   assert.match(body.error || "", /Password login is disabled when OIDC is active/);
+});
+
+// Regression: the invalid-password path referenced an `auditContext` identifier
+// that was never imported or defined, so every wrong-password attempt threw a
+// ReferenceError and the catch-all turned the intended 401 into a 500. The
+// success path masked it — the trusted peer-IP short-circuit meant the other
+// reference was never evaluated when the password was correct.
+test("auth login route returns 401 Invalid password for a wrong password", async () => {
+  process.env.INITIAL_PASSWORD = "bootstrap-secret";
+  loginGuard.resetLoginGuardForTests();
+
+  const response = await loginRoute.POST(
+    new Request("http://localhost/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "definitely-not-the-password" }),
+    })
+  );
+
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { error: "Invalid password" });
+});
+
+// Exercises the header-derived client-IP fallback (no token-verified peer stamp
+// present), which is the branch that used to blow up before reaching the 401.
+test("auth login route returns 401 for a wrong password when only X-Forwarded-For is present", async () => {
+  process.env.INITIAL_PASSWORD = "bootstrap-secret";
+  delete process.env.OMNIROUTE_PEER_STAMP_TOKEN;
+  loginGuard.resetLoginGuardForTests();
+
+  const response = await loginRoute.POST(
+    new Request("http://localhost/api/auth/login", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-for": "203.0.113.77",
+      },
+      body: JSON.stringify({ password: "definitely-not-the-password" }),
+    })
+  );
+
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { error: "Invalid password" });
+});
+
+// The brute-force guard must still key off the derived IP and escalate to 429.
+test("auth login route escalates to 429 after repeated wrong passwords from one IP", async () => {
+  process.env.INITIAL_PASSWORD = "bootstrap-secret";
+  delete process.env.OMNIROUTE_PEER_STAMP_TOKEN;
+  loginGuard.resetLoginGuardForTests();
+  await settingsDb.updateSettings({ bruteForceProtection: true });
+
+  const attempt = () =>
+    loginRoute.POST(
+      new Request("http://localhost/api/auth/login", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-for": "203.0.113.88",
+        },
+        body: JSON.stringify({ password: "definitely-not-the-password" }),
+      })
+    );
+
+  const statuses: number[] = [];
+  for (let i = 0; i < loginGuard.LOGIN_GUARD_TUNABLES.FAILURE_THRESHOLD + 1; i++) {
+    statuses.push((await attempt()).status);
+  }
+
+  // Never a 500 — and the lockout eventually kicks in.
+  assert.equal(
+    statuses.some((s) => s === 500),
+    false,
+    `no attempt should 500, got ${statuses.join(",")}`
+  );
+  assert.equal(statuses[0], 401);
+  assert.ok(
+    statuses.includes(429),
+    `expected a 429 lockout within ${statuses.length} attempts, got ${statuses.join(",")}`
+  );
 });

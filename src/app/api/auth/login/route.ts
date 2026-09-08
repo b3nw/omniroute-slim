@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { classifyIpScope } from "@/lib/ipUtils";
+import { classifyIpScope, getClientIpFromRequest } from "@/lib/ipUtils";
 import { getCachedSettings } from "@/lib/db/settings";
 import { SignJWT } from "jose";
 import { cookies } from "next/headers";
@@ -68,7 +68,12 @@ export async function POST(request: NextRequest) {
     const trustedPeerIp = process.env.OMNIROUTE_PEER_STAMP_TOKEN
       ? request.headers.get(AUTHZ_HEADER_TRUSTED_PEER_IP)
       : null;
-    const clientIp = trustedPeerIp || auditContext.ipAddress || null;
+    // Fall back to the shared header-derived extraction (CF-Connecting-IP >
+    // X-Forwarded-For > X-Real-IP) when no token-verified peer stamp is present.
+    // It returns the "unknown" sentinel when nothing is derivable — normalize that
+    // to null so the guard buckets it as "no IP known" the same way it always has.
+    const requestIp = getClientIpFromRequest(request);
+    const clientIp = trustedPeerIp || (requestIp === "unknown" ? null : requestIp);
     const oidcDisabledPassword =
       settings.oidcEnabled === true &&
       (settings.oidcDisablePasswordLogin === true ||
@@ -143,7 +148,7 @@ export async function POST(request: NextRequest) {
     // #8336: tag the origin scope so the audit view can distinguish a mistyped
     // password from the host itself / the LAN (loopback / private) from a
     // genuinely external attempt, instead of every failure reading as intrusion.
-    const _sourceScope = classifyIpScope(auditContext.ipAddress);
+    const _sourceScope = classifyIpScope(clientIp);
 
     if (!failureDecision.allowed) {
       return NextResponse.json(
