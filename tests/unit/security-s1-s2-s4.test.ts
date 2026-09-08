@@ -177,7 +177,7 @@ describe("S4 — 429 Retry-After header", () => {
 // ── S1: login route uses trusted peer IP for rate-limit key ───────────
 // Integration test: sets up the real DB, management password, and settings,
 // then calls the login route POST function to verify the clientIp derivation.
-// The route uses: clientIp = request.headers.get("x-omniroute-trusted-peer-ip") || auditContext.ipAddress || null
+// The route uses: clientIp = trustedPeerIp || getClientIpFromRequest(request) (normalized "unknown"→null)
 
 describe("S1 — login rate-limit key uses anti-spoofed peer IP", () => {
   const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-security-s1-s2-s4-"));
@@ -283,7 +283,7 @@ describe("S1 — login rate-limit key uses anti-spoofed peer IP", () => {
 
     // OMNIROUTE_PEER_STAMP_TOKEN is already deleted in beforeEach.
     // The route should NOT trust the spoofed header and fall back to
-    // auditContext.ipAddress (derived from X-Forwarded-For).
+    // getClientIpFromRequest (derived from X-Forwarded-For).
     //
     // TDD: each iteration uses a DIFFERENT spoofed IP. With the bug
     // (unconditional trust), each request goes to a different rate-limit
@@ -322,11 +322,11 @@ describe("S1 — login rate-limit key uses anti-spoofed peer IP", () => {
     );
   });
 
-  it("falls back to auditContext.ipAddress when trusted peer IP header is absent", async () => {
+  it("falls back to getClientIpFromRequest when trusted peer IP header is absent", async () => {
     loginGuardModRef.resetLoginGuardForTests();
 
     // Without the trusted peer IP header, the rate-limit key falls back to
-    // auditContext.ipAddress which reads from X-Forwarded-For / X-Real-IP.
+    // getClientIpFromRequest which reads from X-Forwarded-For / X-Real-IP.
     // We set XFF to a specific IP and verify that requests with that IP get
     // rate-limited, while requests with a different IP do not.
 
