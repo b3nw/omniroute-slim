@@ -174,7 +174,21 @@ ENV OMNIROUTE_MITM_STUB=1
 # (OMNIROUTE_MEMORY_MB). Override: `--build-arg OMNIROUTE_BUILD_MEMORY_MB=6144`.
 # Default raised 4096 → 6144 (#10060): the Next 16 production pass on a codebase
 # this size intermittently OOMs a build worker at 4 GB on memory-tight hosts.
-ARG OMNIROUTE_BUILD_MEMORY_MB=7168
+#
+# Lowered 7168 → 5120: this ceiling is per PROCESS, and on the webpack path the
+# `experimental.webpackBuildWorker` experiment (next.config.mjs) runs the whole
+# compile in a SUBPROCESS that inherits the same NODE_OPTIONS, so the compile
+# phase holds parent + compile worker = 2 × ceiling. 2 × 7168 MB = 14.3 GB
+# exhausted the 16 GB lab runner (shared with the act runner + buildkit) and the
+# kernel SIGKILLed the compile worker during "Creating an optimized production
+# build" — "Next.js build worker exited with code: null and signal: SIGKILL",
+# then `ResourceExhausted: ... cannot allocate memory` (Gitea Actions run 1753,
+# 2026-09-08). OMNIROUTE_BUILD_WORKERS below does NOT bound this worker: it only
+# caps the page-data pool. The Slim webpack production pass measures ~3.9 GB peak
+# heap (build-next-isolated.mjs), so 5120 MB per process keeps real headroom
+# while 2 × 5120 = 10.2 GB fits the 12.3 GB (75% of 16 GB) budget enforced by
+# tests/unit/docker-build-memory-budget.test.ts.
+ARG OMNIROUTE_BUILD_MEMORY_MB=5120
 ENV NODE_OPTIONS="--max-old-space-size=${OMNIROUTE_BUILD_MEMORY_MB}"
 ARG OMNIROUTE_USE_TURBOPACK=0
 ENV OMNIROUTE_USE_TURBOPACK=${OMNIROUTE_USE_TURBOPACK}
