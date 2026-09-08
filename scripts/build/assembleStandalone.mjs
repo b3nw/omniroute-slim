@@ -886,7 +886,7 @@ export function assembleStandalone({
     colocateLlmlinguaOptionals({
       rootDir: projectRoot,
       targetNodeModulesDir: path.join(resolvedOutDir, "node_modules"),
-      seeds: [...SEED_PACKAGES, "@huggingface/transformers"],
+      seeds: [...SEED_PACKAGES],
       log: (message) => console.log(`[assembleStandalone] ${message.trim()}`),
     });
   }
