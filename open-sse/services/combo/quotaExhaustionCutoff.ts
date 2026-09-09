@@ -26,6 +26,9 @@ import {
 } from "../../../src/lib/resilience/settings";
 import { fetchResetAwareQuotaWithCache } from "./quotaStrategies.ts";
 import type { ResetWindowConfig } from "./quotaScoring.ts";
+import { quotaWindowThresholdLookupNames, type QuotaCutoffScope } from "../quotaCutoffScope.ts";
+import { buildQuotaCutoffScope } from "@/lib/quota/quotaGroupWindows";
+import { parseQuotaModelName } from "@/lib/quota/quotaModelNaming";
 
 function asThresholdMap(value: unknown): Record<string, number> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
@@ -46,6 +49,10 @@ function quotaWindowLookupNames(provider: string, windowName: string): string[] 
     if (lower.includes("weekly") || lower === "7d" || lower === "seven_day") names.push("weekly");
     if (lower.includes("monthly") || lower === "30d") names.push("monthly");
   }
+  // Antigravity family aggregates: a cutoff configured on the family bucket
+  // also governs that family's per-model windows (see quotaCutoffScope.ts).
+  // The exact window name stays first, so a per-window override still wins.
+  names.push(...quotaWindowThresholdLookupNames(provider, windowName));
   return [...new Set(names)];
 }
 
@@ -97,7 +104,8 @@ export async function resolveQuotaExhaustionCutoffForTarget(
   resilienceSettings: ResilienceSettings | null | undefined,
   resetWindowConfig: ResetWindowConfig,
   comboName: string,
-  log: { debug?: (...args: unknown[]) => void; warn?: (...args: unknown[]) => void }
+  log: { debug?: (...args: unknown[]) => void; warn?: (...args: unknown[]) => void },
+  targetModel?: string | null
 ): Promise<{ blocked: boolean; reason?: string }> {
   const quotaCutoffEnabled =
     (resilienceSettings ?? resolveResilienceSettings(null))?.quotaPreflight?.enabled === true;
@@ -114,6 +122,33 @@ export async function resolveQuotaExhaustionCutoffForTarget(
     connection = undefined;
   }
 
+  // Same group/family identity the direct chat path builds in
+  // `getProviderCredentialsWithQuotaPreflight`, so both gates evaluate the
+  // exact same aggregate windows.
+  //
+  // `targetModel` is the ACTUAL resolved target of this step
+  // (`ResolvedComboTarget.modelStr` — `<provider>/<model>`, or the
+  // `qtSd/<group>/<provider>/<model>` virtual model for a quota-share step) and
+  // is authoritative: classifying by the OUTER `comboName` would leave every
+  // ordinary named combo unscoped (family `null` → BOTH families' windows
+  // evaluated, so an exhausted Claude bucket blocks a Gemini target). The combo
+  // name is only a fallback, for quota-share combos — whose name IS the `qtSd/…`
+  // virtual model, so it still carries the group identity when the step itself
+  // only knows the bare model.
+  const targetQuotaModel = targetModel ? parseQuotaModelName(targetModel) : null;
+  const quotaCombo = parseQuotaModelName(comboName);
+  let scope: QuotaCutoffScope | undefined;
+  try {
+    scope = await buildQuotaCutoffScope(
+      provider,
+      targetQuotaModel?.model || targetModel || quotaCombo?.model || null,
+      connectionId,
+      targetQuotaModel?.groupSlug ?? quotaCombo?.groupSlug ?? null
+    );
+  } catch {
+    scope = undefined;
+  }
+
   try {
     const quota = await fetchResetAwareQuotaWithCache({
       provider,
@@ -126,7 +161,8 @@ export async function resolveQuotaExhaustionCutoffForTarget(
     });
     const cutoffDecision = evaluateQuotaCutoff(
       quota as QuotaInfo | null,
-      buildAutoQuotaThresholds(provider, connection, resilienceSettings)
+      buildAutoQuotaThresholds(provider, connection, resilienceSettings),
+      scope
     );
     if (!cutoffDecision.proceed) {
       return { blocked: true, reason: cutoffDecision.reason || "quota_exhausted" };
