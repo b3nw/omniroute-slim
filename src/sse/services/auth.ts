@@ -77,6 +77,11 @@ import {
   preflightQuota,
   isQuotaPreflightEnabled,
 } from "@omniroute/open-sse/services/quotaPreflight.ts";
+import {
+  quotaWindowThresholdLookupNames,
+  type QuotaCutoffScope,
+} from "@omniroute/open-sse/services/quotaCutoffScope.ts";
+import { buildQuotaCutoffScope } from "@/lib/quota/quotaGroupWindows";
 import { resolveResilienceSettings } from "@/lib/resilience/settings";
 import { resolveModelLockoutSettings } from "@/lib/resilience/modelLockoutSettings";
 import {
@@ -2343,12 +2348,15 @@ export async function getProviderCredentialsWithQuotaPreflight(
     // means the same thing as the percentage rendered on the bar.
     const resolveMinRemainingPercent = (windowName: string | null): number => {
       if (windowName !== null) {
+        // Antigravity-style family aggregates alias the family bucket's cutoff
+        // onto that family's per-model windows (quotaCutoffScope.ts) — the exact
+        // window name is always tried first, so a per-window override still wins.
         const lookupWindowNames =
           provider === "codex"
             ? uniqueWindows(
                 [windowName, toCodexBaseQuotaWindowName(windowName)].filter(Boolean) as string[]
               )
-            : [windowName];
+            : quotaWindowThresholdLookupNames(provider, windowName);
         for (const lookupWindowName of lookupWindowNames) {
           const override = perConnectionWindowOverrides[lookupWindowName];
           if (typeof override === "number") return override;
@@ -2362,6 +2370,16 @@ export async function getProviderCredentialsWithQuotaPreflight(
     const modelAwarePreflight = provider === "codex" || provider === "openrouter";
     const preflightCredentials =
       requestedModel && modelAwarePreflight ? { ...credentials, requestedModel } : credentials;
+    // Group/family identity of THIS request — a `qtSd/<group>/…` model or an
+    // Antigravity family makes the evaluator compare the aggregate window
+    // instead of the raw per-connection one. Never fatal: a resolution failure
+    // just falls back to the raw per-window comparison.
+    let quotaCutoffScope: QuotaCutoffScope | undefined;
+    try {
+      quotaCutoffScope = await buildQuotaCutoffScope(provider, requestedModel, connectionId);
+    } catch {
+      quotaCutoffScope = undefined;
+    }
     let preflight;
     try {
       preflight = await preflightQuota(
@@ -2371,7 +2389,8 @@ export async function getProviderCredentialsWithQuotaPreflight(
         {
           resolveMinRemainingPercent,
           resolveWarnRemainingPercent: () => warnThresholdPercent,
-        }
+        },
+        quotaCutoffScope
       );
     } catch (error) {
       selectedCredentials.releaseOAuthSession?.();

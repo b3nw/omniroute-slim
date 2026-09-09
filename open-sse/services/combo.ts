@@ -1344,7 +1344,14 @@ async function handleComboChatInner({
             resilienceSettings,
             quotaCutoffResetWindowConfig,
             combo.name,
-            log
+            log,
+            // #12161: the cutoff must classify/scope by the ACTUAL resolved
+            // target model, never the outer combo identifier. `modelStr` is
+            // passed whole (not `rawModel`): `parseModel` mangles a
+            // `qtSd/<group>/<provider>/<model>` step into
+            // `teamalpha/agy/<model>`, losing the group identity the scope
+            // builder reads.
+            modelStr
           );
           if (quotaCutoff.blocked) {
             log.info(
