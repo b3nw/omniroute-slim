@@ -21,6 +21,13 @@
 import { isCompatibleProviderConnectionId } from "@/shared/utils/compatibleProviderId";
 import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags";
 import { fetchNewApiAggregatorQuota } from "./newApiAggregatorQuotaFetcher.ts";
+import {
+  resolveQuotaCutoffWindows,
+  type QuotaCutoffScope,
+  type ResolvedQuotaCutoffWindows,
+} from "./quotaCutoffScope.ts";
+
+export type { QuotaCutoffScope };
 
 export interface PreflightQuotaResult {
   proceed: boolean;
@@ -222,17 +229,45 @@ function quotaPercentCutoffResult(
 }
 
 /**
+ * Should the fetcher's whole-connection `limitReached` summary be honored as-is?
+ *
+ * `limitReached` is a per-CONNECTION flag: on a family-scoped provider it flips
+ * as soon as ANY family bucket is exhausted, and on a quota group it describes
+ * the one member that was fetched. Honoring it before scope-aware window
+ * resolution therefore re-introduces the exact bug the scope resolver removes —
+ * an exhausted Claude bucket blocking a Gemini request. So when a family/group
+ * scope applies AND it left windows to compare, exhaustion is derived from
+ * those scoped windows instead. With no scope (or when scoping left nothing to
+ * compare) the flag keeps its original meaning and still blocks.
+ */
+function shouldHonorLimitReached(quota: QuotaInfo, resolved: ResolvedQuotaCutoffWindows): boolean {
+  if (quota.limitReached !== true) return false;
+  const hasScopedWindows = Object.keys(resolved.windows || {}).length > 0;
+  return !(resolved.scoped && hasScopedWindows);
+}
+
+/**
  * Pure cutoff evaluator used by routing paths that already fetched quota.
  * Mirrors preflightQuota threshold semantics without performing I/O or logging.
+ *
+ * `scope` carries the resolved provider/model/group identity of the request.
+ * When it maps to a DB quota group or a provider family aggregate, the windows
+ * compared here are the AGGREGATE ones (see quotaCutoffScope.ts); without a
+ * scope — or for a provider with neither layer — the raw per-window comparison
+ * is used unchanged.
  */
 export function evaluateQuotaCutoff(
   quota: QuotaInfo | null | undefined,
-  thresholds?: PreflightQuotaThresholds
+  thresholds?: PreflightQuotaThresholds,
+  scope?: QuotaCutoffScope | null
 ): PreflightQuotaResult {
   if (!quota) return { proceed: true };
-  if (quota.limitReached === true) return limitReachedResult(quota);
 
-  const windows = quota.windows;
+  // Scope FIRST, then derive exhaustion — never the other way around (#12161).
+  const resolved = resolveQuotaCutoffWindows(quota, scope);
+  if (shouldHonorLimitReached(quota, resolved)) return limitReachedResult(quota);
+
+  const windows = resolved.windows;
   if (windows && Object.keys(windows).length > 0) {
     return (
       quotaWindowCutoffResult(windows, thresholds) ?? {
@@ -272,7 +307,8 @@ export async function preflightQuota(
   provider: string,
   connectionId: string,
   connection: Record<string, unknown>,
-  thresholds?: PreflightQuotaThresholds
+  thresholds?: PreflightQuotaThresholds,
+  scope?: QuotaCutoffScope | null
 ): Promise<PreflightQuotaResult> {
   // No legacy enable-flag gate here — the caller decides when to invoke us
   // (see file-level docstring). When there's no fetcher we proceed silently.
@@ -297,18 +333,31 @@ export async function preflightQuota(
     return { proceed: true };
   }
 
-  if (quota.limitReached === true) {
-    return limitReachedResult(quota);
-  }
-
   // Per-window evaluation — only when the fetcher surfaces a windows map.
   // We block as soon as ANY single window's remaining quota drops to its
   // configured cutoff or below; warnings are logged independently per window.
-  if (quota.windows && Object.keys(quota.windows).length > 0) {
+  // The map is group/family-aware: when the request resolves to a quota group
+  // or an Antigravity family, the aggregate windows replace the raw ones (see
+  // quotaCutoffScope.ts). Non-group, non-family providers get `quota.windows`
+  // back unchanged.
+  //
+  // Resolution happens BEFORE the `limitReached` shortcut (#12161): that flag is
+  // a whole-connection summary, so honoring it first would block a Gemini
+  // request on an exhausted Claude bucket the family path is about to drop.
+  const resolvedWindows = resolveQuotaCutoffWindows(
+    quota,
+    scope ? { ...scope, provider: scope.provider ?? provider } : null
+  );
+  if (shouldHonorLimitReached(quota, resolvedWindows)) {
+    return limitReachedResult(quota);
+  }
+
+  const evaluatedWindows = resolvedWindows.windows;
+  if (evaluatedWindows && Object.keys(evaluatedWindows).length > 0) {
     let worstUsedPercent = 0;
     let worstWindow: string | null = null;
     let worstResetAt: string | null = null;
-    for (const [windowName, windowInfo] of Object.entries(quota.windows)) {
+    for (const [windowName, windowInfo] of Object.entries(evaluatedWindows)) {
       const minRemainingPercent = resolveOrDefault(
         thresholds?.resolveMinRemainingPercent,
         windowName,
