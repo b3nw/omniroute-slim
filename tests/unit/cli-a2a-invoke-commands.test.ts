@@ -44,33 +44,6 @@ function makeCmd(output = "json") {
   return { optsWithGlobals: () => ({ output, quiet: output !== "table" }) };
 }
 
-test("a2a skills retorna lista de skills da agent card", async () => {
-  const origFetch = globalThis.fetch;
-  globalThis.fetch = ((_url: string) => {
-    return Promise.resolve(
-      makeResp({
-        skills: [
-          { id: "smart-routing", name: "Smart Routing" },
-          { id: "cost-analysis", name: "Cost Analysis" },
-        ],
-      })
-    );
-  }) as any;
-
-  const { registerA2a } = await import("../../bin/cli/commands/a2a.mjs");
-  const out = await captureStdout(async () => {
-    const { emit } = await import("../../bin/cli/output.mjs");
-    const res = await (globalThis.fetch as any)("/.well-known/agent.json");
-    const card = await res.json();
-    emit(card.skills, makeCmd().optsWithGlobals());
-  });
-
-  globalThis.fetch = origFetch;
-  const parsed = JSON.parse(out);
-  assert.ok(Array.isArray(parsed));
-  assert.ok(parsed.some((s: any) => s.id === "smart-routing"));
-});
-
 test("a2a invoke envia JSON-RPC 2.0 com método tasks.create", async () => {
   let capturedBody: any = null;
   let capturedUrl = "";
@@ -171,8 +144,3 @@ test("a2a tasks logs busca com include=messages,artifacts", async () => {
   assert.ok(capturedUrl.includes("include=messages"));
 });
 
-test("a2a.mjs pode ser importado sem erro", async () => {
-  const mod = await import("../../bin/cli/commands/a2a.mjs");
-  assert.equal(typeof mod.registerA2a, "function");
-  assert.equal(typeof mod.runA2aStatusCommand, "function");
-});

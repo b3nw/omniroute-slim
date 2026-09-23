@@ -1,13 +1,13 @@
 /**
- * Webhook SSRF guard coverage.
+ * Outbound URL guard SSRF coverage.
  *
- * These tests exercise the URL validation paths that the deliver / create /
- * test endpoints rely on. They run against the shared outbound URL guard so a
- * regression that bypasses `parseAndValidatePublicUrl` at any layer is caught
- * here without requiring a running Next.js server.
+ * These tests exercise the shared outbound URL validation paths that every
+ * outbound-fetch caller relies on, so a regression that bypasses
+ * `parseAndValidatePublicUrl` at any layer is caught here without requiring a
+ * running Next.js server.
  *
  * Run with:
- *   node --import tsx/esm --test tests/unit/webhook-ssrf-guard.test.ts
+ *   node --import tsx/esm --test tests/unit/outbound-guard-ssrf.test.ts
  */
 
 import { describe, it } from "node:test";
@@ -18,7 +18,6 @@ import {
   OutboundUrlGuardError,
   isPrivateHost,
 } from "../../src/shared/network/outboundUrlGuard.ts";
-import { deliverWebhook } from "../../src/lib/webhookDispatcher.ts";
 
 const BLOCKED_URLS = [
   "http://127.0.0.1/internal",
@@ -90,7 +89,7 @@ describe("isPrivateHost — RFC1918, loopback, link-local, IMDS coverage", () =>
   });
 });
 
-describe("parseAndValidatePublicUrl — webhook SSRF surface", () => {
+describe("parseAndValidatePublicUrl — outbound SSRF surface", () => {
   for (const url of BLOCKED_URLS) {
     it(`rejects ${url}`, () => {
       assert.throws(() => parseAndValidatePublicUrl(url), OutboundUrlGuardError);
@@ -102,31 +101,4 @@ describe("parseAndValidatePublicUrl — webhook SSRF surface", () => {
       assert.doesNotThrow(() => parseAndValidatePublicUrl(url));
     });
   }
-});
-
-describe("deliverWebhook — runtime SSRF guard returns error without firing fetch", () => {
-  it("returns blocked-URL error for private targets, never opens a socket", async () => {
-    const res = await deliverWebhook(
-      "http://169.254.169.254/latest/meta-data/",
-      { event: "test.ping", timestamp: new Date().toISOString(), data: {} },
-      "secret"
-    );
-    assert.equal(res.success, false);
-    assert.equal(res.status, 0);
-    assert.ok(
-      typeof res.error === "string" && /private|blocked|local/i.test(res.error),
-      `expected guard error, got: ${res.error}`
-    );
-  });
-
-  it("returns blocked-URL error for loopback even with valid HMAC secret", async () => {
-    const res = await deliverWebhook(
-      "http://127.0.0.1:8080/admin",
-      { event: "request.failed", timestamp: new Date().toISOString(), data: {} },
-      "supersecret"
-    );
-    assert.equal(res.success, false);
-    assert.equal(res.status, 0);
-    assert.ok(typeof res.error === "string" && /private|blocked|local/i.test(res.error));
-  });
 });

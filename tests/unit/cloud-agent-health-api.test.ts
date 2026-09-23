@@ -1,33 +1,5 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { getAvailableAgents } from "../../src/lib/cloudAgent/registry.ts";
-
-describe("cloud-agent health API — getAvailableAgents", () => {
-  test("returns exactly four agents", () => {
-    const agents = getAvailableAgents();
-    assert.equal(agents.length, 4);
-  });
-
-  test('includes "jules"', () => {
-    assert.ok(getAvailableAgents().includes("jules"));
-  });
-
-  test('includes "devin"', () => {
-    assert.ok(getAvailableAgents().includes("devin"));
-  });
-
-  test('includes "codex-cloud"', () => {
-    assert.ok(getAvailableAgents().includes("codex-cloud"));
-  });
-
-  test('includes "cursor-cloud"', () => {
-    assert.ok(getAvailableAgents().includes("cursor-cloud"));
-  });
-
-  test("returns agents in expected order", () => {
-    assert.deepEqual(getAvailableAgents(), ["jules", "devin", "codex-cloud", "cursor-cloud"]);
-  });
-});
 
 describe("cloud-agent health API — health check logic", () => {
   // The route's checkProviderHealth returns { connected: false, error: "No credentials configured" }

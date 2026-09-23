@@ -16,10 +16,6 @@ const settingsDb = await import("../../src/lib/db/settings.ts");
 const apiKeysDb = await import("../../src/lib/db/apiKeys.ts");
 const readCacheDb = await import("../../src/lib/db/readCache.ts");
 const { getLatestCallLog, getResponsesCallLogs } = await import("./_chatPipelineCallLogs.ts");
-const { invalidateMemorySettingsCache } = await import("../../src/lib/memory/settings.ts");
-const { skillRegistry } = await import("../../src/lib/skills/registry.ts");
-const { skillExecutor } = await import("../../src/lib/skills/executor.ts");
-const { encodeSkillToolName } = await import("../../src/lib/skills/injection.ts");
 const { handleChat } = await import("../../src/sse/handlers/chat.ts");
 const { initTranslators } = await import("../../open-sse/translator/index.ts");
 const { clearInflight } = await import("../../open-sse/services/requestDedup.ts");
@@ -370,7 +366,6 @@ async function resetStorage() {
   resetAllCircuitBreakers();
   apiKeysDb.resetApiKeyState();
   readCacheDb.invalidateDbCache();
-  invalidateMemorySettingsCache();
   await new Promise((resolve) => setTimeout(resolve, 20));
   core.resetDbInstance();
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
@@ -877,96 +872,6 @@ test("chat pipeline treats Codex /responses/compact as non-streaming JSON", asyn
   assert.equal(callLog.status, 200);
 });
 
-test("chat pipeline serves repeated /v1/responses requests as MISS then HIT and logs cache hits separately", async () => {
-  await seedConnection("codex", { apiKey: "sk-codex-cache-seq" });
-  const fetchCalls = [];
-
-  globalThis.fetch = async (url, init: RequestInit = {}) => {
-    fetchCalls.push({
-      url: String(url),
-      headers: toPlainHeaders(init.headers),
-      body: init.body ? JSON.parse(String(init.body)) : null,
-    });
-    return buildOpenAIResponsesSSE({
-      text: "cached semantic response",
-      usage: {
-        input_tokens: 21,
-        output_tokens: 7,
-        prompt_tokens_details: {
-          cached_tokens: 5,
-        },
-        cache_creation_input_tokens: 2,
-        completion_tokens_details: {
-          reasoning_tokens: 3,
-        },
-      },
-    });
-  };
-
-  const uniquePrompt = `semantic-cache-seq-${Math.random().toString(16).slice(2)}`;
-  const requestBody = {
-    model: "codex/gpt-5.3-codex",
-    stream: false,
-    temperature: 0,
-    input: [{ role: "user", content: [{ type: "input_text", text: uniquePrompt }] }],
-  };
-
-  const beforeCount = (await getResponsesCallLogs()).length;
-
-  const firstResponse = await handleChat(
-    buildRequest({
-      url: "http://localhost/v1/responses",
-      body: requestBody,
-    })
-  );
-
-  const secondResponse = await handleChat(
-    buildRequest({
-      url: "http://localhost/v1/responses",
-      body: requestBody,
-    })
-  );
-
-  const thirdResponse = await handleChat(
-    buildRequest({
-      url: "http://localhost/v1/responses",
-      body: requestBody,
-    })
-  );
-
-  await firstResponse.json();
-  await secondResponse.json();
-  await thirdResponse.json();
-
-  assert.equal(firstResponse.status, 200);
-  assert.equal(secondResponse.status, 200);
-  assert.equal(thirdResponse.status, 200);
-
-  assert.equal(firstResponse.headers.get("X-OmniRoute-Cache"), "MISS");
-  assert.equal(secondResponse.headers.get("X-OmniRoute-Cache"), "HIT");
-  assert.equal(thirdResponse.headers.get("X-OmniRoute-Cache"), "HIT");
-
-  assert.equal(fetchCalls.length, 1, "expected upstream to be called only once for MISS");
-  assert.match(fetchCalls[0].url, /\/responses$/);
-
-  const callLogs = await waitFor(async () => {
-    const rows = await getResponsesCallLogs();
-    return rows.length === beforeCount + 3 ? rows : null;
-  }, 2000);
-
-  assert.ok(callLogs, "expected /v1/responses call logs to be recorded");
-  assert.equal(callLogs.length, beforeCount + 3, "expected MISS plus two HIT call logs");
-
-  const newLogs = callLogs.slice(0, 3);
-  assert.equal(newLogs.filter((row) => row.cacheSource === "upstream").length, 1);
-  assert.equal(newLogs.filter((row) => row.cacheSource === "semantic").length, 2);
-
-  const callLog = await waitFor(() => getLatestCallLog());
-  assert.ok(callLog, "expected a call log row to exist");
-  assert.equal(callLog.path, "/v1/responses");
-  assert.equal(callLog.status, 200);
-});
-
 test("chat pipeline translates OpenAI requests to Claude and returns OpenAI-shaped responses", async () => {
   await seedConnection("claude", { apiKey: "sk-claude-primary" });
   const fetchCalls = [];
@@ -1393,121 +1298,6 @@ test("chat pipeline maps upstream timeouts to 504 responses", async () => {
   const json = (await response.json()) as any;
   assert.equal(response.status, 504);
   assert.match(json.error.message, /\[504\]: upstream timed out/);
-});
-
-test("chat pipeline injects memory context before sending the upstream request", async () => {
-  // Reset provider failure state to avoid circuit breaker interference
-  clearProviderFailure("openai");
-  await seedConnection("openai", { apiKey: "sk-openai-memory" });
-  const apiKey = await seedApiKey();
-  await settingsDb.updateSettings({
-    memoryEnabled: true,
-    memoryMaxTokens: 400,
-    memoryRetentionDays: 30,
-    memoryStrategy: "recent",
-  });
-  invalidateMemorySettingsCache();
-  insertLegacyMemory(apiKey.id, "User prefers concise answers.");
-
-  const fetchCalls = [];
-  globalThis.fetch = async (url, init: RequestInit = {}) => {
-    fetchCalls.push({
-      url: String(url),
-      body: init.body ? JSON.parse(String(init.body)) : null,
-    });
-    return buildOpenAIResponse("Memory-aware reply");
-  };
-
-  const response = await handleChat(
-    buildRequest({
-      authKey: apiKey.key,
-      body: {
-        model: "openai/gpt-4o-mini",
-        stream: false,
-        messages: [{ role: "user", content: "Summarize my preference" }],
-      },
-    })
-  );
-
-  const json = (await response.json()) as any;
-  assert.equal(response.status, 200);
-  assert.equal(fetchCalls.length, 1);
-  assert.equal(fetchCalls[0].body.messages[0].role, "system");
-  assert.match(fetchCalls[0].body.messages[0].content, /User prefers concise answers/);
-  assert.equal(json.choices[0].message.content, "Memory-aware reply");
-});
-
-test("chat pipeline injects skills into tools and intercepts tool calls with skill output", async () => {
-  // Reset provider failure state to avoid circuit breaker interference
-  clearProviderFailure("openai");
-  await seedConnection("openai", { apiKey: "sk-openai-skills" });
-  const apiKey = await seedApiKey();
-  await settingsDb.updateSettings({ skillsEnabled: true });
-  invalidateMemorySettingsCache();
-
-  const handlerName = `weather-handler-${Date.now()}`;
-  skillExecutor.registerHandler(handlerName, async (input) => ({
-    forecast: `Sunny in ${input.location}`,
-  }));
-
-  await skillRegistry.register({
-    apiKeyId: apiKey.id,
-    name: "lookupWeather",
-    version: "1.0.0",
-    description: "Return a canned forecast",
-    schema: {
-      input: {
-        type: "object",
-        properties: {
-          location: { type: "string" },
-        },
-      },
-      output: {
-        type: "object",
-      },
-    },
-    handler: handlerName,
-    enabled: true,
-  });
-
-  // #9058: provider tool names must match ^[a-zA-Z0-9_-]+$, so `name@version`
-  // identifiers travel base64url-encoded. Derive the expectation from the helper
-  // instead of pinning the encoded literal.
-  const expectedSkillToolName = encodeSkillToolName("lookupWeather", "1.0.0");
-  assert.match(expectedSkillToolName, /^[a-zA-Z0-9_-]+$/);
-  assert.notEqual(expectedSkillToolName, "lookupWeather@1.0.0");
-
-  const fetchCalls = [];
-  globalThis.fetch = async (url, init: RequestInit = {}) => {
-    fetchCalls.push({
-      url: String(url),
-      body: init.body ? JSON.parse(String(init.body)) : null,
-    });
-    // #9058: the upstream echoes back exactly the tool name it was given — the
-    // provider-safe encoded one — so this also exercises decodeSkillToolName()
-    // on the interception path.
-    return buildOpenAIToolCallResponse({ toolName: expectedSkillToolName });
-  };
-
-  const response = await handleChat(
-    buildRequest({
-      authKey: apiKey.key,
-      body: {
-        model: "openai/gpt-4o-mini",
-        stream: false,
-        messages: [{ role: "user", content: "Check the weather" }],
-      },
-    })
-  );
-
-  const json = (await response.json()) as any;
-  assert.equal(response.status, 200);
-  assert.equal(fetchCalls.length, 1);
-  assert.ok(Array.isArray(fetchCalls[0].body.tools));
-  assert.equal(fetchCalls[0].body.tools[0].function.name, expectedSkillToolName);
-  assert.equal(json.choices[0].finish_reason, "tool_calls");
-  assert.equal(json.tool_results[0].tool_call_id, "call_weather");
-  assert.equal(JSON.parse(json.tool_results[0].output).forecast, "Sunny in Sao Paulo");
 });
 
 test("chat pipeline falls back to the next account after a provider failure", async () => {

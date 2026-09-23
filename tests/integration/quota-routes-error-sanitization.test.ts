@@ -25,7 +25,6 @@ process.env.QUOTA_STORE_DRIVER = "sqlite";
 process.env.QUOTA_STORE_REDIS_URL = "redis://secret-host:9999/0";
 
 const core = await import("../../src/lib/db/core.ts");
-const compliance = await import("../../src/lib/compliance/index.ts");
 const { resetQuotaStoreSingleton } = await import("../../src/lib/quota/QuotaStore.ts");
 
 // Import all routes
@@ -79,7 +78,6 @@ async function assertNoStackTraceAndNoSecretUrl(res: Response, label: string) {
 
 test.beforeEach(() => {
   resetDb();
-  compliance.initAuditLog();
 });
 
 test.after(() => {

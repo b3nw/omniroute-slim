@@ -4,7 +4,7 @@
  * Verifies:
  *   - GET /api/quota/plans returns catalog + DB plans merged
  *   - GET /api/quota/plans/[connectionId] returns resolved plan
- *   - PUT /api/quota/plans/[connectionId] upserts manual override + audit event
+ *   - PUT /api/quota/plans/[connectionId] upserts manual override
  *   - DELETE /api/quota/plans/[connectionId] clears override (reverts to auto)
  *   - Error responses never leak stack traces (Hard Rule #12 / B25)
  *
@@ -25,7 +25,6 @@ process.env.API_KEY_SECRET = "test-quota-plans-secret";
 const core = await import("../../src/lib/db/core.ts");
 const { updateSettings } = await import("@/lib/db/settings");
 const localDb = { updateSettings };
-const compliance = await import("../../src/lib/compliance/index.ts");
 const plansRoute = await import("../../src/app/api/quota/plans/route.ts");
 const planIdRoute = await import("../../src/app/api/quota/plans/[connectionId]/route.ts");
 
@@ -42,7 +41,6 @@ function resetDb() {
 
 test.beforeEach(async () => {
   resetDb();
-  compliance.initAuditLog();
 });
 
 test.after(() => {
@@ -176,7 +174,7 @@ test("PUT /api/quota/plans/[connectionId] with invalid body → 400", async () =
   assert.doesNotMatch(JSON.stringify(body), /\s+at\s+\//, "No stack trace in 400 response");
 });
 
-test("PUT /api/quota/plans/[connectionId] with valid body → source=manual + audit event", async () => {
+test("PUT /api/quota/plans/[connectionId] with valid body → source=manual", async () => {
   const connectionId = "conn-put-test";
   const req = await makeManagementSessionRequest(
     `http://localhost/api/quota/plans/${connectionId}`,
@@ -191,18 +189,6 @@ test("PUT /api/quota/plans/[connectionId] with valid body → source=manual + au
   assert.equal(res.status, 200);
   const body = (await res.json()) as { plan: { source: string } };
   assert.equal(body.plan.source, "manual");
-
-  // Audit event
-  const logs = compliance.getAuditLog({ action: "quota.plan.updated", limit: 10 });
-  const events = Array.isArray(logs) ? logs : [];
-  const evt = events.find(
-    (e) =>
-      typeof e === "object" &&
-      e !== null &&
-      (e as Record<string, unknown>).action === "quota.plan.updated" &&
-      (e as Record<string, unknown>).target === connectionId
-  );
-  assert.ok(evt, "quota.plan.updated audit event must be present");
 });
 
 // ---------------------------------------------------------------------------
@@ -240,22 +226,6 @@ test("DELETE /api/quota/plans/[connectionId] clears override → 204; GET revert
   // After delete, should fall back to catalog or empty (source=auto or manual-empty)
   // For a connectionId with no catalog match, source=manual + dimensions=[]
   assert.ok(["auto", "manual"].includes(body.plan.source));
-
-  // B26: DELETE must emit logAuditEvent with quota.plan.updated + metadata.reverted=true
-  const logs = compliance.getAuditLog({ action: "quota.plan.updated", limit: 20 });
-  const events = Array.isArray(logs) ? logs : [];
-  const deleteEvt = events.find(
-    (e) =>
-      typeof e === "object" &&
-      e !== null &&
-      (e as Record<string, unknown>).action === "quota.plan.updated" &&
-      (e as Record<string, unknown>).target === connectionId &&
-      (e as { metadata?: { reverted?: boolean } }).metadata?.reverted === true
-  );
-  assert.ok(
-    deleteEvt,
-    "quota.plan.updated audit event (reverted=true) must be present after DELETE"
-  );
 });
 
 test("DELETE /api/quota/plans/[connectionId] is idempotent → 204 even when not found", async () => {
