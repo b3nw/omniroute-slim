@@ -9,15 +9,14 @@ lastUpdated: 2027-07-27
 > **Status:** Generally available.
 > **Audience:** Operators wiring OpenCode to an OmniRoute deployment.
 > **Source of truth (config schema):** `src/shared/services/opencodeConfig.ts`
-> **Source of truth (npm package):** `@omniroute/opencode-provider/` (publishable workspace)
 
 [OpenCode](https://opencode.ai) is an agentic CLI/desktop AI client. It reads its provider catalog from `~/.config/opencode/opencode.json` (or `opencode.jsonc`) and follows the schema at `https://opencode.ai/config.json`. OmniRoute exposes itself to OpenCode as one of those providers — every request flows through OmniRoute's standard OpenAI-compatible `/v1` surface, so OpenCode automatically benefits from Auto-Combo routing, circuit breakers, key policies, observability, etc.
 
-There are **two supported integration paths**. Pick one — they generate the same config.
+The CLI generator below is the supported integration path.
 
 ---
 
-## Path 1 — CLI generator (no npm install)
+## CLI generator
 
 Recommended for end users. Ships with OmniRoute. Writes `opencode.json` in place.
 
@@ -54,40 +53,9 @@ Resulting file (default model catalog):
 }
 ```
 
----
-
-## Path 2 — npm package `@omniroute/opencode-provider`
-
-Recommended when you're scripting the config from Node/TS (CI pipelines, monorepos, custom installer flows).
-
-```bash
-npm install --save-dev @omniroute/opencode-provider
-```
-
-```ts
-import { writeFileSync } from "node:fs";
-import { buildOmniRouteOpenCodeConfig } from "@omniroute/opencode-provider";
-
-const config = buildOmniRouteOpenCodeConfig({
-  baseURL: "http://localhost:20128",
-  apiKey: process.env.OMNIROUTE_API_KEY ?? "sk_omniroute",
-  // Optional: override the model catalog exposed to OpenCode
-  models: ["auto", "claude-opus-4-7", "gpt-5.5"],
-  modelLabels: { auto: "Auto-Combo" },
-});
-
-writeFileSync("opencode.json", JSON.stringify(config, null, 2));
-```
-
-For a non-destructive merge against an existing file, replicate `mergeOpenCodeConfigText()` from `opencodeConfig.ts` or call the CLI generator.
-
-See the [package README](../../@omniroute/opencode-provider/README.md) for the full API.
-
----
-
 ## What the runtime actually does
 
-Both paths produce the same `provider.omniroute.npm: "@ai-sdk/openai-compatible"`. At runtime, OpenCode loads `@ai-sdk/openai-compatible` (already a transitive dependency of OpenCode) and configures it with `baseURL` + `apiKey`. From there:
+The generated config sets `provider.omniroute.npm: "@ai-sdk/openai-compatible"`. At runtime, OpenCode loads `@ai-sdk/openai-compatible` (already a transitive dependency of OpenCode) and configures it with `baseURL` + `apiKey`. From there:
 
 ```
 OpenCode UI/agent
@@ -161,5 +129,4 @@ For Anthropic-style clients that send `x-api-key` + `anthropic-version`, OmniRou
 
 - [API reference](../reference/API_REFERENCE.md) — full OmniRoute REST surface
 - [Auto-Combo](../routing/AUTO-COMBO.md) — what `model: "auto"` means
-- [`@omniroute/opencode-provider` README](../../@omniroute/opencode-provider/README.md)
-- Source: `src/shared/services/opencodeConfig.ts`, `src/lib/cli-helper/config-generator/opencode.ts`, `@omniroute/opencode-provider/src/index.ts`
+- Source: `src/shared/services/opencodeConfig.ts`, `src/lib/cli-helper/config-generator/opencode.ts`

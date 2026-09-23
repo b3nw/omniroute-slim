@@ -227,7 +227,6 @@ their own REST surface (`/api/v1/agents/*`) and are **not** part of the MCP tool
 
 - Implementation: `src/lib/cloudAgent/` (`registry.ts`, `agents/codex-cloud.ts`, `agents/devin.ts`, `agents/jules.ts`).
 - Lifecycle: `createTask`, `getStatus`, `approvePlan`, `sendMessage`, `listSources`.
-- Documentation: [docs/frameworks/CLOUD_AGENT.md](./CLOUD_AGENT.md).
 
 ### Guardrails
 

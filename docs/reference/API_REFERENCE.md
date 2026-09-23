@@ -374,8 +374,7 @@ GET /v1/models?prefix=canonical    # only the full provider-id prefix
 A `dual`-mode mirror can also be recognised without the query parameter: it carries a `parent`
 field pointing at the primary id.
 
-Clients that render a model picker should request `?prefix=alias` — this is what the
-[OmniCopilot VS Code extension](../guides/VSCODE-COPILOT.md) does.
+Clients that render a model picker should request `?prefix=alias`.
 
 ### No-thinking model variants
 
@@ -1460,8 +1459,6 @@ registration.
 **Auth:** Requires management session (dashboard `auth_token` cookie) or a
 management-scoped API key.
 
-See [ACP Framework](../frameworks/ACP.md) for full details.
-
 ---
 
 ## Analytics & Observability
@@ -1663,8 +1660,6 @@ Manage webhook subscriptions for events.
 
 **Auth:** Requires management session.
 
-See [Webhooks Framework](../frameworks/WEBHOOKS.md) for full event types.
-
 ---
 
 ## Skills Framework
@@ -1681,8 +1676,6 @@ Manage Skills (the agentic extensions framework).
 | GET    | `/api/skills/executions` | List execution history for all skills (filter by `?apiKeyId=`)                          |
 
 **Auth:** Requires management session or management-scoped API key.
-
-See [Skills Framework](../frameworks/SKILLS.md) for full details.
 
 ---
 

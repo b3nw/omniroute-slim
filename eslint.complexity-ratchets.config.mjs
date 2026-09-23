@@ -33,8 +33,6 @@ const SHARED_IGNORES = {
     "**/__tests__/**",
     "**/*.d.ts",
     "node_modules/**",
-    "electron/node_modules/**",
-    "electron/dist-electron/**",
     ".next/**",
     ".build/**",
     "dist/**",
@@ -48,7 +46,6 @@ const config = [
     files: [
       "src/**/*.{ts,tsx}",
       "open-sse/**/*.{ts,tsx}",
-      "electron/**/*.{ts,tsx}",
       "bin/**/*.{ts,tsx}",
     ],
     languageOptions: SHARED_LANGUAGE,

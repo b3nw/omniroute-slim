@@ -35,17 +35,12 @@ Simple guides for using OmniRoute — no technical background needed.
 - [COST_TRACKING.md](guides/COST_TRACKING.md) — cost and spend tracking.
 - [FREE_PROVIDER_RANKINGS.md](guides/FREE_PROVIDER_RANKINGS.md) — free provider rankings (Arena ELO).
 - [DOCKER_GUIDE.md](guides/DOCKER_GUIDE.md) — running OmniRoute under Docker, including runtime RAM for coding agents.
-- [ELECTRON_GUIDE.md](guides/ELECTRON_GUIDE.md) — desktop (Electron) builds.
-- [TERMUX_GUIDE.md](guides/TERMUX_GUIDE.md) — running on Android via Termux.
-- [PWA_GUIDE.md](guides/PWA_GUIDE.md) — installing the dashboard as a PWA.
 - [REMOTE-MODE.md](guides/REMOTE-MODE.md) — exposing OmniRoute remotely + scoped tokens.
-- [CLI-INTEGRATIONS.md](guides/CLI-INTEGRATIONS.md) — master table of `setup-*` CLI integrations.
 - [CLAUDE-CODE-CONFIGURATION.md](guides/CLAUDE-CODE-CONFIGURATION.md) — Claude Code CLI with OmniRoute.
 - [CODEX-CLI-CONFIGURATION.md](guides/CODEX-CLI-CONFIGURATION.md) — Codex CLI with OmniRoute.
 - [KIRO_SETUP.md](guides/KIRO_SETUP.md) — Kiro setup.
 - [ANTIGRAVITY-ONBOARDING.md](guides/ANTIGRAVITY-ONBOARDING.md) — Antigravity (Google One AI) onboarding.
 - [MANAGEMENT-AUTH.md](guides/MANAGEMENT-AUTH.md) — management authentication.
-- [I18N.md](guides/I18N.md) — translation and locale workflow.
 - [TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md) — detailed troubleshooting reference.
 - [UNINSTALL.md](guides/UNINSTALL.md) — clean removal steps.
 
@@ -93,30 +88,14 @@ Lookup material — API surface, environment variables, CLI flags, provider cata
 Pluggable subsystems exposed to clients, agents, and operators.
 
 - [MCP-SERVER.md](frameworks/MCP-SERVER.md) — Model Context Protocol server.
-- [A2A-SERVER.md](frameworks/A2A-SERVER.md) — Agent-to-Agent (A2A) JSON-RPC server.
-- [ACP.md](frameworks/ACP.md) — Agent Client Protocol.
-- [AGENT_PROTOCOLS_GUIDE.md](frameworks/AGENT_PROTOCOLS_GUIDE.md) — A2A / ACP / Cloud agent overview.
-- [AGENTBRIDGE.md](frameworks/AGENTBRIDGE.md) — IDE agent bridge.
-- [AGENT-SKILLS.md](frameworks/AGENT-SKILLS.md) — agent skills catalog.
-- [CLOUD_AGENT.md](frameworks/CLOUD_AGENT.md) — cloud agent runtime and providers.
-- [SKILLS.md](frameworks/SKILLS.md) — Skills framework (sandboxed extension).
-- [MEMORY.md](frameworks/MEMORY.md) — persistent memory (FTS5 + Qdrant).
-- [WEBHOOKS.md](frameworks/WEBHOOKS.md) — webhook events and dispatch.
-- [EVALS.md](frameworks/EVALS.md) — eval suites.
-- [GAMIFICATION.md](frameworks/GAMIFICATION.md) — gamification & leaderboard system.
 - [EMBEDDED-SERVICES.md](frameworks/EMBEDDED-SERVICES.md) — embedded sidecar services (9Router, CLIProxyAPI).
-- [NOTION_CONTEXT.md](frameworks/NOTION_CONTEXT.md) — Notion context source.
-- [OBSIDIAN_CONTEXT.md](frameworks/OBSIDIAN_CONTEXT.md) — Obsidian context source.
-- [LOCAL_CORPUS_CONTEXT.md](frameworks/LOCAL_CORPUS_CONTEXT.md) — local corpus context source (approved directory exposed to MCP).
 - [OPENCODE.md](frameworks/OPENCODE.md) — OpenCode integration.
 - [OPEN_SSE_ARCHITECTURE.md](frameworks/OPEN_SSE_ARCHITECTURE.md) — open-sse streaming engine internals.
 - [PLAYGROUND_STUDIO.md](frameworks/PLAYGROUND_STUDIO.md) — Playground Studio UI.
 - [SEARCH_TOOLS_STUDIO.md](frameworks/SEARCH_TOOLS_STUDIO.md) — Search Tools Studio UI.
-- [TRAFFIC_INSPECTOR.md](frameworks/TRAFFIC_INSPECTOR.md) — traffic inspector (MITM).
 - [PLUGINS.md](frameworks/PLUGINS.md) — CLI plugin system overview.
 - [PLUGIN_SDK.md](frameworks/PLUGIN_SDK.md) — plugin SDK reference.
 - [PLUGIN_MARKETPLACE.md](frameworks/PLUGIN_MARKETPLACE.md) — plugin marketplace.
-- [RADAR.md](frameworks/RADAR.md) — Radar free-model catalog overlay (optional, off by default).
 
 ## routing/
 
@@ -191,7 +170,6 @@ Release, deployment, proxies, tunnels, coverage, database, monitoring.
 - [FLY_IO_DEPLOYMENT_GUIDE.md](ops/FLY_IO_DEPLOYMENT_GUIDE.md) — Fly.io deployment.
 - [VM_DEPLOYMENT_GUIDE.md](ops/VM_DEPLOYMENT_GUIDE.md) — generic VM deployment.
 - [PROXY_GUIDE.md](ops/PROXY_GUIDE.md) — upstream proxy configuration.
-- [TUNNELS_GUIDE.md](ops/TUNNELS_GUIDE.md) — Cloudflare tunnel and friends.
 
 ## diagrams/
 

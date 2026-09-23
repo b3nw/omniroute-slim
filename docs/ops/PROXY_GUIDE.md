@@ -479,7 +479,7 @@ curl -X PUT "http://localhost:20128/api/upstream-proxy/openai" \
 
 ### Tunnels API
 
-For exposing your OmniRoute instance to the public internet (Cloudflare/ngrok/Tailscale) instead of routing outbound through a proxy, see [TUNNELS_GUIDE.md](./TUNNELS_GUIDE.md). The tunnel REST API lives under `/api/tunnels/{cloudflared,ngrok,tailscale}/*` and is orthogonal to the outbound proxy chain documented above.
+For exposing your OmniRoute instance to the public internet (Cloudflare/ngrok/Tailscale) instead of routing outbound through a proxy, the tunnel REST API lives under `/api/tunnels/{cloudflared,ngrok,tailscale}/*` and is orthogonal to the outbound proxy chain documented above.
 
 ### 1proxy API
 

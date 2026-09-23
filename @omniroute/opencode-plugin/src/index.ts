@@ -38,7 +38,7 @@
  *
  * Then `opencode connect <providerId>` to provision the API key per instance.
  *
- * Companion library: `@omniroute/opencode-provider` (build-time config generator)
+ * Build-time config generation is handled by the OmniRoute CLI (`omniroute setup opencode`).
  * remains supported for users who can't run plugins (CI, scripted scaffolding).
  *
  * @see https://opencode.ai/docs/plugins for the OpenCode plugin contract.

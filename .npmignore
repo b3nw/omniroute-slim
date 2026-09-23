@@ -82,7 +82,6 @@ bun.lock
 *.AppImage
 *.deb
 *.rpm
-electron/
 
 # Subprojects
 clipr/

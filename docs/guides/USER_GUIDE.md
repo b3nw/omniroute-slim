@@ -1142,7 +1142,7 @@ Use the SSE URL `http://localhost:20128/api/mcp/sse` and a Bearer API key genera
 
 ### Scopes
 
-MCP currently defines 32 named scopes. Each Bearer key can be limited to specific scopes — see [MCP-SERVER.md](../frameworks/MCP-SERVER.md) for the authoritative scope and tool inventory and [A2A-SERVER.md](../frameworks/A2A-SERVER.md) for the JSON-RPC schema.
+MCP currently defines 32 named scopes. Each Bearer key can be limited to specific scopes — see [MCP-SERVER.md](../frameworks/MCP-SERVER.md) for the authoritative scope and tool inventory.
 
 ---
 
@@ -1153,8 +1153,6 @@ OmniRoute exposes an extensible **skill framework** (`src/lib/skills/`) so agent
 - **Marketplace UI** — Browse and install skills from **Dashboard → Skills**
 - **Per-key scopes** — Restrict which API keys can invoke which skills
 - **Custom skills** — Drop a TypeScript file in `src/lib/a2a/skills/`, register it, and it becomes immediately invocable over A2A
-
-Full reference: [SKILLS.md](../frameworks/SKILLS.md).
 
 ---
 
@@ -1167,7 +1165,7 @@ OmniRoute persists **long-term conversational memory** with hybrid retrieval:
 - **Automatic fact extraction** — entities, preferences, and decisions are summarized after each session and stored in the `memory_facts` table
 - Memories are scoped per API key and per session
 
-Manage memories in **Dashboard → Memory** (search, edit, export, purge). The HTTP surface (`/api/memory/*`) lets agents push and query facts programmatically — see [MEMORY.md](../frameworks/MEMORY.md).
+Manage memories in **Dashboard → Memory** (search, edit, export, purge). The HTTP surface (`/api/memory/*`) lets agents push and query facts programmatically.
 
 ---
 
@@ -1180,8 +1178,6 @@ Subscribe to OmniRoute events for real-time monitoring and automation.
 - Every payload includes `X-OmniRoute-Signature` (HMAC-SHA256) for verification
 - Retries: 3 attempts with exponential backoff, then dead-letter queue
 
-Full schema in [WEBHOOKS.md](../frameworks/WEBHOOKS.md).
-
 ---
 
 ## ☁️ Cloud Agents
@@ -1191,8 +1187,6 @@ OmniRoute integrates with cloud coding agents (**OpenAI Codex Cloud**, **Devin**
 - Create tasks in **Dashboard → Cloud Agents** or via `POST /api/v1/agents/tasks`
 - Track status, logs, and artifacts per task
 - Bring-your-own API key per provider — credentials never leave the OmniRoute instance
-
-Full reference: [CLOUD_AGENT.md](../frameworks/CLOUD_AGENT.md).
 
 ---
 
@@ -1307,5 +1301,3 @@ Output → `electron/dist-electron/`
 | --------------------- | ------- | -------------------------------- |
 | `OMNIROUTE_PORT`      | `20128` | Server port                      |
 | `OMNIROUTE_MEMORY_MB` | `512`   | Node.js heap limit (64–16384 MB) |
-
-📖 Full documentation: [`electron/README.md`](../../electron/README.md)
