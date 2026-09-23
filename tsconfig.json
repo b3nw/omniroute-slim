@@ -19,8 +19,7 @@
     "paths": {
       "@/*": ["./src/*"],
       "@omniroute/open-sse": ["./open-sse"],
-      "@omniroute/open-sse/*": ["./open-sse/*"],
-      "@omniroute/browser-pool": ["./packages/browser-pool/src"]
+      "@omniroute/open-sse/*": ["./open-sse/*"]
     },
     "plugins": [
       {
@@ -45,8 +44,6 @@
   ],
   "exclude": [
     "node_modules",
-    "electron/node_modules",
-    "electron/dist-electron",
     ".build",
     "open-sse",
     "dist",

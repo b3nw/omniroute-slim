@@ -17,7 +17,6 @@ lastUpdated: 2026-06-28
 OmniRoute/
 ├── src/                  # Next.js 16 application (UI + API routes + libs + domain + server)
 ├── open-sse/             # Streaming engine workspace (handlers, executors, translator, MCP server)
-├── electron/             # Desktop wrapper (Electron 41 + electron-builder 26.10)
 ├── bin/                  # CLI entry point and command handlers
 ├── scripts/              # Build, check, sync, and one-off scripts
 ├── docs/                 # Public documentation (you are here)
@@ -25,8 +24,7 @@ OmniRoute/
 ├── public/               # Next.js static assets, PWA manifest, service worker, icons
 ├── config/               # Static config + quality-gate state (i18n, payloadRules, quality/)
 ├── images/               # Marketing / README image assets
-├── @omniroute/           # Publishable companion packages (opencode-plugin, opencode-provider)
-├── skills/               # CLI/agent skill packs (cli-* + omni-* + config-codex-cli)
+├── @omniroute/           # Publishable companion packages (opencode-plugin)
 ├── examples/             # Sample plugins + omniroute-cmd-hello starter
 ├── contrib/              # Community contributions (podman/)
 ├── .source/              # Fumadocs source config (source.config.mjs + server/browser/dynamic)
@@ -257,89 +255,6 @@ src/
 | `utils/fetchTimeout.ts`          | Timeout/abort wrappers for upstream fetch                              |
 | `utils/releaseNotes.ts`          | Closed v2/legacy announcement parser, localization and ID dismissal    |
 
----
-
-## `open-sse/` — Streaming Engine Workspace
-
-Separate npm workspace (`@omniroute/open-sse`). Handles request processing + provider execution.
-
-```
-open-sse/
-├── handlers/            # 16 files (12 handlers + 4 helpers): chatCore, responsesHandler, embeddings, audio, image, video, music, rerank, moderations, search, etc.
-├── executors/           # 67 provider-specific executors (extend BaseExecutor)
-├── translator/          # Format converters (9 request, 9 response, 9 helpers)
-├── transformer/         # Responses API ↔ Chat Completions (TransformStream)
-├── services/            # ~80+ service modules (combo, accountFallback, autoCombo, reasoningCache, claude code/chatgpt stealth, modelDeprecation, taskAwareRouter, workflowFSM, etc.)
-├── mcp-server/          # MCP server (109 tools, 3 transports, 33 scopes)
-├── config/              # Provider/model registries, header config, model aliases
-├── utils/               # TLS client, proxy fetch/dispatcher, network helpers
-├── index.ts             # Workspace entry
-├── package.json         # Workspace manifest
-├── tsconfig.json        # Workspace TS config
-└── types.d.ts           # Workspace type declarations
-```
-
-### `open-sse/mcp-server/`
-
-| Path                        | Purpose                                                                        |
-| --------------------------- | ------------------------------------------------------------------------------ |
-| `server.ts`                 | MCP server lifecycle (stdio + HTTP transports)                                 |
-| `httpTransport.ts`          | HTTP Streamable + SSE transports (`/api/mcp/sse`, `/api/mcp/stream`)           |
-| `audit.ts`                  | Audit logging to `mcp_tool_audit` table                                        |
-| `scopeEnforcement.ts`       | Per-tool scope validation                                                      |
-| `runtimeHeartbeat.ts`       | Health heartbeat to `DATA_DIR/runtime/mcp-heartbeat.json`                      |
-| `descriptionCompressor.ts`  | Compress tool description metadata to save context                             |
-| `schemas/tools.ts`          | 36 base tool definitions + scopes                                              |
-| `tools/advancedTools.ts`    | Advanced tool implementations                                                  |
-| `tools/memoryTools.ts`      | 3 memory tools (search/add/clear)                                              |
-| `tools/skillTools.ts`       | 4 skill tools (list/enable/execute/executions)                                 |
-| `tools/compressionTools.ts` | 5 compression tools                                                            |
-| `README.md`                 | Internal MCP server README (cross-linked from `docs/frameworks/MCP-SERVER.md`) |
-
----
-
-## `electron/` — Desktop Wrapper
-
-| File             | Purpose                                                                           |
-| ---------------- | --------------------------------------------------------------------------------- |
-| `main.js`        | Electron main process (BrowserWindow, embedded Next.js server, tray, auto-update) |
-| `preload.js`     | IPC bridge (contextBridge → `window.omniroute`)                                   |
-| `package.json`   | electron-builder config + Electron 41 + electron-builder 26.10 deps               |
-| `assets/`        | App icons (Windows .ico, macOS .icns, Linux .png)                                 |
-| `dist-electron/` | Build output (gitignored)                                                         |
-| `types.d.ts`     | Type declarations for renderer bridge                                             |
-| `README.md`      | Internal Electron README (see also `docs/guides/ELECTRON_GUIDE.md`)               |
-
----
-
-## `bin/` — CLI
-
-| File                                                                                                        | Purpose                                                                                                                    |
-| ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `omniroute.mjs`                                                                                             | Main CLI entry — `omniroute serve`, `omniroute setup`, `omniroute doctor`, `omniroute providers`, `omniroute combos`, etc. |
-| `reset-password.mjs`                                                                                        | Standalone password reset CLI                                                                                              |
-| `cli/commands/setup.mjs`                                                                                    | Interactive + non-interactive setup wizard                                                                                 |
-| `cli/commands/doctor.mjs`                                                                                   | System health diagnostics (8+ checks)                                                                                      |
-| `cli/commands/providers.mjs`                                                                                | Provider list/test/validate                                                                                                |
-| `cli/{args,data-dir,encryption,io,provider-catalog,provider-store,provider-test,settings-store,sqlite}.mjs` | CLI helper modules                                                                                                         |
-| `cli/tray/tray.ts`                                                                                          | System tray integration (cross-platform: NotifyIcon on Windows, systray2 on macOS/Linux)                                   |
-| `cli/tray/tray.ps1`                                                                                         | PowerShell NotifyIcon backend (Windows, zero new binaries)                                                                 |
-| `cli/tray/autostart.ts`                                                                                     | Cross-platform autostart (LaunchAgent / .desktop / registry)                                                               |
-| `cli/runtime/sqliteRuntime.mjs`                                                                             | 5-step SQLite driver resolution chain (bundled → runtime → lazy-install → node:sqlite → sql.js)                            |
-| `cli/runtime/magicBytes.mjs`                                                                                | Binary magic-byte validation (ELF / Mach-O / Mach-O fat / PE)                                                              |
-| `cli/runtime/index.mjs`                                                                                     | `warmUpRuntimes()` — pre-resolves drivers at postinstall / first startup                                                   |
-| `nodeRuntimeSupport.mjs`                                                                                    | Validate supported Node.js version on install                                                                              |
-
----
-
-## `skills/` — Public Agent Skills
-
-| File                         | Purpose                                                                            |
-| ---------------------------- | ---------------------------------------------------------------------------------- |
-| `skills/omniroute*/SKILL.md` | 10 skill manifests for external AI agents (Claude Desktop, ChatGPT, Cursor, Cline) |
-
----
-
 ## `scripts/` — Build & Check Scripts
 
 | Script                              | Purpose                                                                    |
@@ -367,8 +282,7 @@ open-sse/
 | `run-protocol-clients-tests.mjs`    | MCP/A2A E2E runner                                                         |
 | `run-ecosystem-tests.mjs`           | Ecosystem (provider integration) tests                                     |
 | `test-report-summary.mjs`           | Generate coverage summary markdown                                         |
-| `smoke-electron-packaged.mjs`       | Smoke-test packaged Electron build                                         |
-| `native-binary-compat.mjs`          | Validate native deps (`better-sqlite3`) match Electron's Node              |
+| `native-binary-compat.mjs`          | Validate native deps (`better-sqlite3`) match the Node runtime             |
 | `validate-pack-artifact.ts`         | Validate npm pack output                                                   |
 | `responses-ws-proxy.mjs`            | WebSocket bridge for Codex Responses API                                   |
 | `v1-ws-bridge.mjs`                  | WebSocket bridge for `/api/v1/ws` endpoint                                 |

@@ -93,27 +93,27 @@ test("findUnexpectedArtifactPaths flags app pack files outside the allowlist", (
 });
 
 test("findUnexpectedArtifactPaths flags node_modules even inside an allowed prefix", () => {
-  // Regression guard: the allowlist grants the whole `@omniroute/opencode-provider/`
+  // Regression guard: the allowlist grants the whole `@omniroute/opencode-plugin/`
   // prefix, which used to authorize a nested node_modules inside it — 79 MB of
   // devDependencies (80% of the tarball) whenever the publish ran from a machine
   // that had installed inside that subpackage. package.json `files[]` excludes it
   // at the source; this asserts the gate FAILS instead of allowing a regression.
   const unexpectedPaths = findUnexpectedArtifactPaths(
     [
-      "@omniroute/opencode-provider/node_modules/tsup/package.json",
-      "@omniroute/opencode-provider/node_modules/esbuild/lib/main.js",
-      "@omniroute/opencode-provider/dist/index.js",
-      "@omniroute/opencode-provider/package.json",
+      "@omniroute/opencode-plugin/node_modules/tsup/package.json",
+      "@omniroute/opencode-plugin/node_modules/esbuild/lib/main.js",
+      "@omniroute/opencode-plugin/dist/index.js",
+      "@omniroute/opencode-plugin/package.json",
     ],
     {
       exactPaths: [],
-      prefixPaths: ["@omniroute/opencode-provider/"],
+      prefixPaths: ["@omniroute/opencode-plugin/"],
     }
   );
 
   assert.deepEqual(unexpectedPaths, [
-    "@omniroute/opencode-provider/node_modules/esbuild/lib/main.js",
-    "@omniroute/opencode-provider/node_modules/tsup/package.json",
+    "@omniroute/opencode-plugin/node_modules/esbuild/lib/main.js",
+    "@omniroute/opencode-plugin/node_modules/tsup/package.json",
   ]);
 });
 

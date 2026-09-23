@@ -7,7 +7,7 @@ lastUpdated: 2026-06-28
 # MITM TPROXY Transparent Decrypt
 
 TPROXY transparent decrypt is OmniRoute's **5th capture mode** for the
-[Traffic Inspector](../frameworks/TRAFFIC_INSPECTOR.md) / [AgentBridge](../frameworks/AGENTBRIDGE.md)
+Traffic Inspector / AgentBridge
 MITM stack. It intercepts and **decrypts** local outbound HTTPS traffic on Linux
 using kernel TPROXY + policy routing — **without** spoofing `/etc/hosts` and
 **without** mutating OS-wide system-proxy settings. It is headless-friendly
@@ -26,8 +26,6 @@ exchange, and re-encrypts the request to the original destination.
 **Source:** `src/mitm/tproxy/`
 **API route:** `GET / POST / DELETE /api/tools/agent-bridge/tproxy`
 **Dashboard toggle:** Traffic Inspector → capture-modes toolbar → **"TPROXY Decrypt"** ⚠
-**See also:** [`docs/frameworks/TRAFFIC_INSPECTOR.md`](../frameworks/TRAFFIC_INSPECTOR.md),
-[`docs/frameworks/AGENTBRIDGE.md`](../frameworks/AGENTBRIDGE.md)
 
 ---
 
@@ -360,8 +358,7 @@ returns `available: false` when the addon is missing.
 - Confirm the process trusts the dynamic CA. The CA is installed under
   `omniroute-tproxy-ca.crt`; apps with their own trust store (Firefox/Chrome NSS)
   may need the cert added there too.
-- Run the AgentBridge **Diagnose** self-test (see
-  [`AGENTBRIDGE.md`](../frameworks/AGENTBRIDGE.md)) for cert-trusted / server
+- Run the AgentBridge **Diagnose** self-test for cert-trusted / server
   health checks.
 
 ### Stale firewall rules after a crash

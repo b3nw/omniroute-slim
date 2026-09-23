@@ -206,7 +206,6 @@ const eslintConfig = [
       "_references/**",
       "_mono_repo/**",
       // Electron app
-      "electron/**",
       // Docs
       "docs/**",
       // Open-SSE compiled/bundled output

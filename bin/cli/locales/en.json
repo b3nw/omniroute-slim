@@ -212,16 +212,6 @@
     "api_key_filter": "Filter by a specific API key",
     "limit": "Maximum number of rows to show (default: 100)"
   },
-  "simulate": {
-    "description": "Dry-run routing simulation — show which providers would be selected without calling upstream",
-    "file": "Load full request body from JSON file",
-    "model": "Model ID (default: auto)",
-    "combo": "Force a specific combo by name",
-    "reasoning": "Reasoning effort level (low|medium|high)",
-    "thinking": "Extended thinking token budget",
-    "explain": "Print fallback tree and cost range to stderr",
-    "noCombo": "No matching combo found. Configure one with: omniroute combo create"
-  },
   "chat": {
     "description": "Send a one-shot chat prompt to OmniRoute",
     "file": "Read prompt from file",
@@ -617,47 +607,6 @@
       "featured": {
         "description": "Show featured marketplace packages"
       }
-    }
-  },
-  "memory": {
-    "description": "Manage OmniRoute conversational memory (FTS5 + vector)",
-    "search": {
-      "description": "Search memory entries by semantic query",
-      "type": "Filter by memory type (user|feedback|project|reference)",
-      "limit": "Maximum results (default: 20)",
-      "api_key": "Filter by API key",
-      "token_budget": "Limit total tokens in results"
-    },
-    "add": {
-      "description": "Add a new memory entry",
-      "content": "Memory text content",
-      "file": "Read content from file",
-      "type": "Memory type (default: user)",
-      "metadata": "JSON metadata object",
-      "api_key": "Associate with API key"
-    },
-    "clear": {
-      "description": "Delete memory entries matching filters",
-      "type": "Filter by type",
-      "older": "Delete entries older than duration (30d, 6m, 1y)",
-      "api_key": "Filter by API key",
-      "yes": "Skip confirmation prompt"
-    },
-    "list": {
-      "description": "List memory entries without search ranking",
-      "type": "Filter by type",
-      "limit": "Maximum results (default: 100)",
-      "api_key": "Filter by API key"
-    },
-    "get": {
-      "description": "Get a single memory entry by ID"
-    },
-    "delete": {
-      "description": "Delete a memory entry by ID",
-      "yes": "Skip confirmation prompt"
-    },
-    "health": {
-      "description": "Show memory subsystem health (FTS5 + Qdrant)"
     }
   },
   "oauth": {
@@ -1243,19 +1192,6 @@
     "stopped": "Log stream stopped.",
     "streamError": "Log stream error: {message}"
   },
-  "tray": {
-    "description": "Control the system tray icon",
-    "show": "Show the tray icon (if server is running with --tray)",
-    "hide": "Hide the tray icon",
-    "quit": "Quit OmniRoute via tray"
-  },
-  "autostart": {
-    "description": "Manage OmniRoute autostart at boot (Linux: systemd user service)",
-    "enable": "Enable autostart at boot",
-    "disable": "Disable autostart at boot",
-    "toggle": "Toggle autostart at boot",
-    "status": "Show autostart status"
-  },
   "runtime": {
     "description": "Manage native runtime dependencies",
     "check": "Check status of native deps in runtime directory",
@@ -1307,23 +1243,5 @@
   },
   "setupCodex": {
     "description": "Generate ~/.codex profile files from OmniRoute live model catalog"
-  },
-  "packs": {
-    "description": "Manage optional runtime packs (ML / browser automation)",
-    "listDescription": "List optional packs and their install state",
-    "installDescription": "Install an optional pack into DATA_DIR",
-    "verifyDescription": "Verify installed packs against the shipped checksum index",
-    "removeDescription": "Remove an installed optional pack",
-    "sourceOpt": "Directory holding pack payloads and the pack index",
-    "warnNoIndex": "optional-packs.index.json not found — install/verify are unavailable in this checkout (desktop bundles ship it)",
-    "errUnknown": "unknown pack: {name}",
-    "errNoIndex": "pack index not found; pass --source <dir> holding the pack payload (desktop bundles ship it next to the app)",
-    "installed": "pack \"{name}\" installed and verified at {dir}",
-    "restartHint": "restart the OmniRoute server (or desktop app) so the runtime picks the pack up",
-    "removed": "pack \"{name}\" removed",
-    "notInstalled": "pack \"{name}\" was not installed",
-    "verifyOk": "all installed packs verified",
-    "verifyFailed": "{count} pack(s) failed verification",
-    "noneInstalled": "no optional packs installed"
   }
 }

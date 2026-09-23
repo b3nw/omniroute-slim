@@ -19,7 +19,6 @@ import { registerTelemetry } from "./telemetry.mjs";
 import { registerOpen } from "./open.mjs";
 import { registerChat } from "./chat.mjs";
 import { registerStream } from "./stream.mjs";
-import { registerSimulate } from "./simulate.mjs";
 import { registerCost } from "./cost.mjs";
 import { registerUsage } from "./usage.mjs";
 import { registerServe } from "./serve.mjs";
@@ -46,8 +45,6 @@ import { registerEnv } from "./env.mjs";
 import { registerTestProvider } from "./test-provider.mjs";
 import { registerCompletion } from "./completion.mjs";
 import { registerRuntime } from "./runtime.mjs";
-import { registerTray } from "./tray.mjs";
-import { registerAutostart } from "./autostart.mjs";
 import { registerRepl } from "./repl.mjs";
 import { registerLaunch } from "./launch.mjs";
 import { registerLaunchCodex } from "./launch-codex.mjs";
@@ -57,9 +54,6 @@ import { registerSetupClaude } from "./setup-claude.mjs";
 import { registerSetupCline } from "./setup-cline.mjs";
 import { registerSetupKilo } from "./setup-kilo.mjs";
 import { registerSetupContinue } from "./setup-continue.mjs";
-import { registerSetupCursor } from "./setup-cursor.mjs";
-import { registerSetupRoo } from "./setup-roo.mjs";
-import { registerSetupCrush } from "./setup-crush.mjs";
 import { registerSetupGoose } from "./setup-goose.mjs";
 import { registerSetupAider } from "./setup-aider.mjs";
 import { registerSetupQwen } from "./setup-qwen.mjs";
@@ -69,7 +63,6 @@ import { registerTokens } from "./tokens.mjs";
 import { registerConfigure } from "./configure.mjs";
 import { registerApiCommands } from "../api-commands/registry.mjs";
 import { registerPlugin } from "./plugin.mjs";
-import { registerPacks } from "./packs.mjs";
 
 export function registerCommands(program) {
   registerAudit(program);
@@ -93,7 +86,6 @@ export function registerCommands(program) {
   registerOpen(program);
   registerChat(program);
   registerStream(program);
-  registerSimulate(program);
   registerCost(program);
   registerUsage(program);
   registerServe(program);
@@ -121,8 +113,6 @@ export function registerCommands(program) {
   registerTestProvider(program);
   registerCompletion(program);
   registerRuntime(program);
-  registerTray(program);
-  registerAutostart(program);
   registerRepl(program);
   registerLaunch(program);
   registerLaunchCodex(program);
@@ -132,9 +122,6 @@ export function registerCommands(program) {
   registerSetupCline(program);
   registerSetupKilo(program);
   registerSetupContinue(program);
-  registerSetupCursor(program);
-  registerSetupRoo(program);
-  registerSetupCrush(program);
   registerSetupGoose(program);
   registerSetupAider(program);
   registerSetupQwen(program);
@@ -144,5 +131,4 @@ export function registerCommands(program) {
   registerConfigure(program);
   registerApiCommands(program);
   registerPlugin(program);
-  registerPacks(program);
 }

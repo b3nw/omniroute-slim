@@ -340,9 +340,7 @@ A per-plugin config page lives at `/dashboard/plugins/[name]/config`
 
 - [`docs/security/ROUTE_GUARD_TIERS.md`](../security/ROUTE_GUARD_TIERS.md) —
   why `/api/plugins` is loopback-only (Tier 1)
-- [`docs/frameworks/SKILLS.md`](./SKILLS.md) — the related skills framework
   (`src/lib/skills/`); plugins may declare skills in their manifest
-- [`docs/frameworks/WEBHOOKS.md`](./WEBHOOKS.md) — event-driven outbound
   integrations
 - [`docs/security/ERROR_SANITIZATION.md`](../security/ERROR_SANITIZATION.md) —
   the `buildErrorBody()` pattern every plugin route uses for error responses

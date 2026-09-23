@@ -322,11 +322,9 @@ Services are **focused, single-purpose modules** that handlers compose. The big 
 
 ### Skills
 
-- (covered in [SKILLS.md](./SKILLS.md))
 
 ### Memory
 
-- (covered in [MEMORY.md](./MEMORY.md))
 
 ---
 
@@ -572,5 +570,4 @@ The routing engine has strict performance budgets:
 - [REPOSITORY_MAP.md](../architecture/REPOSITORY_MAP.md) — directory-by-directory
 - [AUTO-COMBO.md](../routing/AUTO-COMBO.md) — 9-factor scoring
 - [MCP-SERVER.md](./MCP-SERVER.md) — MCP server
-- [A2A-SERVER.md](./A2A-SERVER.md) — A2A server
 - Source: `open-sse/` (400+ files, ~143K LOC)

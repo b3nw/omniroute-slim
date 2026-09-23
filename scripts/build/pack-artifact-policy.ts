@@ -9,7 +9,6 @@
 const STAGING_FORBIDDEN_DIRECTORIES = [
   "app.__qa_backup",
   "coverage",
-  "electron",
   "logs",
   "scripts/scratch",
   "tests",
@@ -163,7 +162,6 @@ export const PACK_ARTIFACT_ROOT_ALLOWED_EXACT_PATHS: string[] = [
 
 export const PACK_ARTIFACT_ROOT_ALLOWED_PATH_PREFIXES: string[] = [
   "@omniroute/opencode-plugin/",
-  "@omniroute/opencode-provider/",
   "bin/cli/",
   // Broad open-sse + src source dirs added to package.json "files" in v3.8.21
   // to allow TypeScript-first imports from the published package.
@@ -304,7 +302,7 @@ export function parseJsonArrayOutput(
  * Paths that are NEVER publishable, whatever the allowlist says.
  *
  * Existence reason: the allowlist grants whole prefixes (e.g.
- * `@omniroute/opencode-provider/`), so a nested `node_modules` inside an allowed
+ * `@omniroute/opencode-plugin/`), so a nested `node_modules` inside an allowed
  * prefix used to be authorized by it. That shipped 79 MB of devDependencies
  * (tsup/esbuild/typescript) — 80% of the tarball — whenever the publish ran from
  * a machine where someone had installed inside that subpackage. `files[]` in
