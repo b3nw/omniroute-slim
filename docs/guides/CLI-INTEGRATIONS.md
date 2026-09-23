@@ -187,23 +187,23 @@ catalog is fetched from the remote; the config is written on your local machine.
 
 ```bash
 # OpenCode against a remote VPS, keep only glm/kimi models
-omniroute setup-opencode --remote http://192.168.0.15:20128 --api-key oma_live_xxx \
+omniroute setup-opencode --remote http://203.0.113.10:20128 --api-key oma_live_xxx \
   --only glm,kimi
 opencode -m omniroute/glm/glm-5.2 "..."   # export OMNIROUTE_API_KEY first
 
 # Codex profiles from a remote catalog
-omniroute setup-codex --remote http://192.168.0.15:20128 --api-key oma_live_xxx
+omniroute setup-codex --remote http://203.0.113.10:20128 --api-key oma_live_xxx
 
 # Launch a CLI straight against the remote
-omniroute launch       --remote http://192.168.0.15:20128 --api-key oma_live_xxx
-omniroute launch-codex --remote http://192.168.0.15:20128 --api-key oma_live_xxx
+omniroute launch       --remote http://203.0.113.10:20128 --api-key oma_live_xxx
+omniroute launch-codex --remote http://203.0.113.10:20128 --api-key oma_live_xxx
 ```
 
 Instead of passing `--remote`/`--api-key` every time, log in once and let the
 **active context** supply them automatically:
 
 ```bash
-omniroute connect 192.168.0.15        # mints a scoped token, stores the context
+omniroute connect 203.0.113.10        # mints a scoped token, stores the context
 omniroute setup-codex                 # ← now uses the remote catalog
 omniroute setup-opencode              # ← same
 omniroute launch                      # ← Claude Code against the remote

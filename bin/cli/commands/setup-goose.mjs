@@ -151,7 +151,7 @@ export function registerSetupGoose(program) {
       "Configure Goose for OmniRoute: write ~/.config/goose/config.yaml + print the env recipe"
     )
     .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "20128")
-    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.0.15:20128")
+    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://<your-server-ip>:20128")
     .option("--api-key <key>", "OmniRoute API key (defaults to OMNIROUTE_API_KEY env var)")
     .option("--model <id>", "Model id for Goose (required unless picked interactively)")
     .option("--config-path <path>", "config.yaml path (default: ~/.config/goose/config.yaml)")

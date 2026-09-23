@@ -85,7 +85,7 @@ jobs:
     # stays meaningful), and with USE_VPS_RUNNER=true it produced NO signal at all here.
     # Measured 2026-08-14 over the last 25
     # quality.yml runs: not one Build (advisory) reached a conclusion. Every sample was either
-    # queued on the self-hosted pool (2 runners, `omniroute-113-6/7`, both permanently busy — one
+    # queued on the self-hosted pool (2 runners, generic self-hosted labels, both permanently busy — one
     # job sat queued 2h+ and was still unclaimed) or, when it did land, killed mid-build by this
     # workflow's own `cancel-in-progress` concurrency. 6/6 sampled "failures" are exit 143 /
     # "The runner has received a shutdown signal" at ~3.5 min into `npm run build` — zero OOM,
@@ -93,7 +93,7 @@ jobs:
     # reporting a permanent red on every PR.
     #
     # Gap 19 left USE_VPS_RUNNER governing build-like jobs on the premise that "the build needs
-    # the .113's RAM". That premise no longer holds: `Fast Production Build` (build.yml) runs
+    # the self-hosted box's RAM". That premise no longer holds: `Fast Production Build` (build.yml) runs
     # `build:release` — a SUPERSET of this job's `npm run build`, plus the CLI bundle — on plain
     # ubuntu-latest and passed 24/25 of its last runs in ~15 min. What it has and this job did
     # not is memory PROVISIONING: a 10 GB swapfile plus a 12 GB V8 heap. That matters because
@@ -167,11 +167,11 @@ jobs:
     # PINNED to hosted (gap 19). This job carried the USE_VPS_RUNNER expression, and that
     # expression was DEAD CONFIGURATION: across 160 quality.yml runs the job never once landed on
     # a self-hosted runner — every non-skipped sample is `GitHub Actions NNNN`. The classifier is
-    # not at fault: in the same window ci.yml's Build demonstrably ran on omniroute-113-7 and
-    # omniroute-113-6, so self-hosted runs are visible when they happen.
+    # not at fault: in the same window ci.yml's Build demonstrably ran on the self-hosted
+    # runners, so self-hosted runs are visible when they happen.
     #
     # And if it ever HAD fired it would have inherited the measured penalty, because this job's
-    # first two steps are exactly the bottleneck: actions/setup-node + npm ci took 20m06s on .113
+    # first two steps are exactly the bottleneck: actions/setup-node + npm ci took 20m06s self-hosted
     # with 4 concurrent runners versus 16s hosted (npm cache restore saturating the link). Median
     # here is 5.6 min hosted across 72 successful runs.
     #
@@ -428,8 +428,8 @@ jobs:
     # Dynamic runner — see fast-gates (own-origin + flag; fork/unset → ubuntu-latest).
     # PINNED to hosted, deliberately not on the USE_VPS_RUNNER switch (gap 19). One variable
     # governed the build and the test jobs, which want OPPOSITE machines: the build needs the
-    # .113's RAM, the tests need the hosted runner's link. Measured on 2026-07-29 —
-    # actions/setup-node took 20m06s on .113 with 4 concurrent runners versus 16s hosted (npm
+    # the self-hosted box's RAM, the tests need the hosted runner's link. Measured on 2026-07-29 —
+    # actions/setup-node took 20m06s on the self-hosted box with 4 concurrent runners versus 16s hosted (npm
     # cache restore saturating the link), while the tests themselves tied, 2m54 vs 2m31. So
     # self-hosted is strictly worse here and there is nothing to configure.
     runs-on: ubuntu-latest
@@ -470,8 +470,8 @@ jobs:
     # this matrix and the TEST_SHARD env below encode the shard count.
     # PINNED to hosted, deliberately not on the USE_VPS_RUNNER switch (gap 19). One variable
     # governed the build and the test jobs, which want OPPOSITE machines: the build needs the
-    # .113's RAM, the tests need the hosted runner's link. Measured on 2026-07-29 —
-    # actions/setup-node took 20m06s on .113 with 4 concurrent runners versus 16s hosted (npm
+    # the self-hosted box's RAM, the tests need the hosted runner's link. Measured on 2026-07-29 —
+    # actions/setup-node took 20m06s on the self-hosted box with 4 concurrent runners versus 16s hosted (npm
     # cache restore saturating the link), while the tests themselves tied, 2m54 vs 2m31. So
     # self-hosted is strictly worse here and there is nothing to configure.
     runs-on: ubuntu-latest

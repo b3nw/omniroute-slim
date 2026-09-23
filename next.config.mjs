@@ -304,7 +304,9 @@ const nextConfig = {
     "process",
   ],
   transpilePackages: ["@omniroute/open-sse", "@lobehub/icons", "fumadocs-ui", "fumadocs-core"],
-  allowedDevOrigins: ["localhost", "127.0.0.1", "192.168.0.250"],
+  allowedDevOrigins: process.env.OMNIROUTE_DEV_ORIGINS
+    ? process.env.OMNIROUTE_DEV_ORIGINS.split(",")
+    : ["localhost", "127.0.0.1"],
   typescript: {
     // TODO: Re-enable after fixing all sub-component useTranslations scope issues
     ignoreBuildErrors: true,

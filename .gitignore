@@ -74,7 +74,6 @@ yarn-error.log*
 # Local gitleaks artifacts (do not commit)
 gitleaks-local.json
 !.env.example
-!.env.homolog.example
 # Provider API keys (never commit)
 *.api-key
 .nvidia-api-key
@@ -214,8 +213,7 @@ http-client.private.env.json
 .antigravitycli/
 /.claude/
 # Root-level assistant instruction files: local-only in Slim (project rules live in AGENTS.md,
-# which IS tracked). Not ignored under tests/fixtures/ — the devin-bridge e2e fixture ships its
-# own CLAUDE.md/.claude/ tree that the test suite reads.
+# which IS tracked). Only the repo root is ignored, not nested fixture trees.
 /CLAUDE.md
 /GEMINI.md
 
@@ -252,15 +250,8 @@ config/quality/quality-metrics.json
 /LICENSE.electron.txt
 /LICENSES.chromium.html
 
-# Runtime logs (diretório local, nunca versionado)
+# Runtime logs (local directory, never versioned)
 /logs/
--home-diegosouzapw-dev-automações-bots-yt-downloader-20260504 .txt
--home-diegosouzapw-dev-automações-bots-yt-downloader-20260410 .txt
-docs/prompts/AGENT-OWNERSHIP-PROTOCOL.omniroute.md
-docs/prompts/AGENT-OWNERSHIP-PROTOCOL.md
-docs/prompts/AGENT-OWNERSHIP-PROTOCOL.omniroute-mim.md
-docs/prompts/AGENT-OWNERSHIP-PROTOCOL.omniroute-mid.md
-omniroute.md
 
 # mise configuration
 mise.toml
@@ -278,11 +269,6 @@ _artifacts/          # release-green artifacts
 /perf-audit*.md
 /quality-ratchet/
 
-# Homologation E2E suite (npm run homolog) — real-environment credentials + report output
-.env.homolog
-tests/homolog/.auth/
-tests/homolog/ui/.auth/
-homolog-report/
 docker-compose.yml.bak
 
 # _tasks e um repo git SEPARADO (ver AGENTS.md). A linha _tasks/ (com barra) NAO

@@ -33,7 +33,7 @@ MCP servers and custom instructions all keep working, just running on the model 
 Nothing to configure when OmniRoute runs on the default port. For a remote instance, open the
 **OmniRoute icon in the Activity Bar** (or run `OmniRoute: Manage Connection`) and set:
 
-- **Server URL** — the server root, e.g. `http://192.168.0.15:20128`. The `/v1` suffix is
+- **Server URL** — the server root, e.g. `http://203.0.113.10:20128`. The `/v1` suffix is
   appended by the extension; do not include it.
 - **API key** — only when the server sets `REQUIRE_API_KEY`. Stored in the OS keychain via VS
   Code SecretStorage, never in `settings.json`.

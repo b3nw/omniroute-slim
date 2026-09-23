@@ -111,14 +111,7 @@ enabling the flag cannot silently alter proxied traffic (`open-sse/utils/proxyFe
 
 ---
 
-## 4. Testing Policy & Homelab Verification
-
-- **Mandatory Testing Model:** All automated tests, live verification probes, and homolog checks must strictly target **`inferx/*`** models (e.g. `inferx/deepseek-v4-flash-0731`, `inferx/glm-5.3-flash`).
-- **OAuth Testing Prohibition:** Never test against Anthropic or OpenAI/Codex OAuth tokens.
-
----
-
-## 5. Operational Commands
+## 4. Operational Commands
 
 ```bash
 # Install dependencies

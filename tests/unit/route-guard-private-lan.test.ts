@@ -43,7 +43,7 @@ test("isPrivateLanHost: accepts IPv6 ULA / link-local", () => {
 test("isPrivateLanHost: rejects public IPs, loopback and junk", () => {
   for (const h of [
     "8.8.8.8",
-    "69.164.221.35", // public VPS
+    "203.0.113.10", // public host
     "100.63.255.255", // just outside Tailscale 100.64/10
     "100.128.0.1", // just outside Tailscale 100.64/10
     "172.32.0.1", // just outside 172.16/12
@@ -76,7 +76,7 @@ test("classifyHostLocality: loopback / lan / remote, with fail-closed null", () 
   assert.equal(classifyHostLocality("192.168.0.15"), "lan");
   assert.equal(classifyHostLocality("::ffff:192.168.1.20"), "lan");
   assert.equal(classifyHostLocality("8.8.8.8"), "remote");
-  assert.equal(classifyHostLocality("69.164.221.35"), "remote");
+  assert.equal(classifyHostLocality("203.0.113.10"), "remote");
   assert.equal(classifyHostLocality(null), "remote", "unknown peer must fail closed");
 });
 

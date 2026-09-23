@@ -28,7 +28,7 @@ test("isRemoteBaseUrl: loopback hosts are local, everything else is remote", () 
   assert.equal(isRemoteBaseUrl("http://localhost:20128"), false);
   assert.equal(isRemoteBaseUrl("http://127.0.0.1:20128"), false);
   assert.equal(isRemoteBaseUrl("http://[::1]:20128"), false);
-  assert.equal(isRemoteBaseUrl("http://192.168.0.15:20128"), true);
+  assert.equal(isRemoteBaseUrl("http://192.168.1.50:20128"), true);
   assert.equal(isRemoteBaseUrl("https://omni.example.com"), true);
   // Unparseable / absent → treated as local, so we never auto-push into the unknown.
   assert.equal(isRemoteBaseUrl(""), false);
@@ -70,7 +70,7 @@ test("pushCredentialBlob surfaces a server rejection instead of pretending succe
 
 test("pushCredentialBlob turns a transport failure into a result, never a throw", async () => {
   const fetchImpl = async () => {
-    throw new Error("ECONNREFUSED 192.168.0.15:20128");
+    throw new Error("ECONNREFUSED 192.168.1.50:20128");
   };
 
   const result = await pushCredentialBlob("antigravity", "blob", { fetchImpl });
@@ -106,7 +106,7 @@ test("a remote context auto-pushes and does NOT print the blob", async () => {
     {},
     loginDeps({
       print: (s: string) => printed.push(s),
-      resolveContext: () => ({ baseUrl: "http://192.168.0.15:20128", accessToken: "oma_live_x" }),
+      resolveContext: () => ({ baseUrl: "http://192.168.1.50:20128", accessToken: "oma_live_x" }),
       push: async (provider: string, blob: string) => {
         pushed = { provider, blob };
         return { ok: true, connectionId: "c1" };
@@ -132,7 +132,7 @@ test("a FAILED push falls back to printing the blob — the firewall case still 
     {},
     loginDeps({
       print: (s: string) => printed.push(s),
-      resolveContext: () => ({ baseUrl: "http://192.168.0.15:20128", accessToken: "oma_live_x" }),
+      resolveContext: () => ({ baseUrl: "http://192.168.1.50:20128", accessToken: "oma_live_x" }),
       push: async () => ({ ok: false, error: "ECONNREFUSED" }),
     })
   );
@@ -172,7 +172,7 @@ test("--no-push forces print-only even against a remote context", async () => {
     { push: false },
     loginDeps({
       print: (s: string) => printed.push(s),
-      resolveContext: () => ({ baseUrl: "http://192.168.0.15:20128", accessToken: "oma_live_x" }),
+      resolveContext: () => ({ baseUrl: "http://192.168.1.50:20128", accessToken: "oma_live_x" }),
       push: async () => {
         pushCalls++;
         return { ok: true };
@@ -209,7 +209,7 @@ test("a context without a token still pushes — auth may be disabled server-sid
   await runAntigravityLogin(
     {},
     loginDeps({
-      resolveContext: () => ({ baseUrl: "http://192.168.0.15:20128" }),
+      resolveContext: () => ({ baseUrl: "http://192.168.1.50:20128" }),
       push: async () => {
         pushCalls++;
         return { ok: true };

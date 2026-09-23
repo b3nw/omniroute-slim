@@ -16,7 +16,7 @@ plus scoped **access tokens**.
 
 ```bash
 npm install -g omniroute                 # the normal CLI
-omniroute connect 192.168.0.15           # log in (password → scoped token)
+omniroute connect 203.0.113.10           # log in (password → scoped token)
 omniroute models list                    # ← now lists the REMOTE server's models
 omniroute configure codex                # ← writes a local Codex profile from the remote catalog
 ```
@@ -51,16 +51,16 @@ your laptop                              remote OmniRoute (VPS)
 ### With the management password (bootstrap)
 
 ```bash
-omniroute connect 192.168.0.15
-# Management password for http://192.168.0.15:20128: ********
-# ✔ Connected to http://192.168.0.15:20128 — context '192.168.0.15' (scope: admin)
+omniroute connect 203.0.113.10
+# Management password for http://203.0.113.10:20128: ********
+# ✔ Connected to http://203.0.113.10:20128 — context '203.0.113.10' (scope: admin)
 ```
 
 The password flow mints an **admin** token by default (you hold the password, so
 you already have full control). Downscope with `--scope`:
 
 ```bash
-omniroute connect 192.168.0.15 --scope write
+omniroute connect 203.0.113.10 --scope write
 ```
 
 Options: `--port <p>` (when the host has none), `--name <ctx>` (context name),
@@ -73,7 +73,7 @@ Generate a scoped token in the dashboard (or with `omniroute tokens create`) and
 paste it — no password needed:
 
 ```bash
-omniroute connect 192.168.0.15 --key oma_live_xxxxxxxx
+omniroute connect 203.0.113.10 --key oma_live_xxxxxxxx
 ```
 
 The CLI validates it via `GET /api/cli/whoami` and saves it as the active context.
@@ -130,12 +130,12 @@ copy — the helper delivers the credential to that install for you:
 
 ```bash
 # On your LOCAL machine (needs Node.js + a browser):
-omniroute connect 192.168.0.15        # once — mints an admin-scoped context token
+omniroute connect 203.0.113.10        # once — mints an admin-scoped context token
 npx omniroute login antigravity
 #   ↳ opens the Google consent, captures the callback on a local loopback port,
 #     exchanges it, and POSTs the credential to the active context:
 #
-#   Antigravity connected on http://192.168.0.15:20128 (connection abc123).
+#   Antigravity connected on http://203.0.113.10:20128 (connection abc123).
 #   Nothing to paste — you can close this terminal.
 ```
 
@@ -207,7 +207,7 @@ provider always sends the browser back to the same hardcoded address:
 
 `localhost` there means **the machine running the browser**, while OmniRoute's PKCE
 callback server listens on the **server's** loopback. Open the dashboard at a LAN
-address like `http://192.168.0.15:20128` and the two never meet: the authorization
+address like `http://203.0.113.10:20128` and the two never meet: the authorization
 code is delivered to your own laptop's `localhost:1455`, where nothing is listening,
 and the provider fails the sign-in without surfacing an error.
 
@@ -218,7 +218,7 @@ instead of letting the login fail silently (#8046).
 
 ```bash
 # On the machine running the BROWSER:
-ssh -L 20128:127.0.0.1:20128 -L 1455:127.0.0.1:1455 <user>@192.168.0.15
+ssh -L 20128:127.0.0.1:20128 -L 1455:127.0.0.1:1455 <user>@203.0.113.10
 # then browse to http://localhost:20128 and connect Codex from there
 ```
 
@@ -292,7 +292,7 @@ base Codex setup (the `[model_providers.omniroute]` block), see
 and the context credential are injected into the spawned process only.
 
 ```bash
-omniroute connect 192.168.0.15
+omniroute connect 203.0.113.10
 omniroute run claude   --model openai/gpt-5.4          # Claude Code → remote
 omniroute run gemini   --model glm/glm-5.2 -- --skip-trust -p "hello"
 omniroute run opencode --model glm/glm-5.2 -- run "reply OK"
@@ -328,7 +328,7 @@ context, or `--remote <url> --api-key <key>`):
 
 ```bash
 # OpenCode (openai-compatible provider, all catalog models, remote VPS)
-omniroute setup-opencode --remote http://192.168.0.15:20128 --api-key oma_live_xxx
+omniroute setup-opencode --remote http://203.0.113.10:20128 --api-key oma_live_xxx
 omniroute setup-opencode --only glm,kimi        # keep only matching models
 opencode -m omniroute/glm/glm-5.2 "..."          # export OMNIROUTE_API_KEY first
 ```
@@ -408,12 +408,12 @@ that fallback (and any legacy config before migration) as secret material.
 
 A copy-paste lifecycle to verify a remote setup from scratch — connect, mint a
 scoped token, route a command, switch back, and tear down. Replace
-`192.168.0.15` with your server's host/IP (Tailscale, LAN, or a public
+`203.0.113.10` with your server's host/IP (Tailscale, LAN, or a public
 `https://…` URL).
 
 ```bash
 # 1. Connect (password → admin token, saved as a context that becomes active)
-omniroute connect 192.168.0.15                 # or: --key oma_live_xxxx  (no password)
+omniroute connect 203.0.113.10                 # or: --key oma_live_xxxx  (no password)
 omniroute contexts current                     # shows the remote server + scope
 
 # 2. Use it — management commands now run against the remote

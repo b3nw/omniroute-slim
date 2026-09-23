@@ -7,7 +7,7 @@
 # prints the evidence block that authorizes `gh pr merge --squash --admin` for each
 # train member (merge-gates.md §7 — owner-approved policy extension of §4, 2026-07-09).
 #
-# Designed for the 32-core runner box (192.168.0.113) or any checkout with
+# Designed for any many-core build host or checkout with
 # node_modules. It only READS from origin — it never pushes, never merges PRs, never
 # touches other worktrees, and never uses `git stash` (Hard Rule #22a).
 #

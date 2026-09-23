@@ -22,7 +22,7 @@
 1. **Worktree-First Development**:
    - All feature work, refactoring, and bug fixes must happen in dedicated topic branches in git worktrees under `OmniRoute-Slim/worktrees/<short-name>`.
 2. **Local Documentation**:
-   - Local scratchpads, PR notes, checklists, and design docs must live in `/home/b3nw/projects/core/llm-proxy/local-ops/docs/`.
+   - Local scratchpads, PR notes, checklists, and design docs must live in `local-ops/docs/`.
    - Never commit temporary files or draft notes to source control.
 3. **Remote Operations & Deployments**:
    - Never push directly to remote git repositories without explicit user confirmation.

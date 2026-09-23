@@ -121,24 +121,15 @@ const IGNORE_FROM_CODE = new Set([
   "PR_BODY",
   // CLI machine-id token opt-out (server-side flag; not user-configurable via .env).
   "OMNIROUTE_DISABLE_CLI_TOKEN",
-  // Gated combo live-smoke harness (scripts/test/_vpsClient.mjs) — override the VPS HTTP
-  // smoke target host/key. Test/CI-only signals with safe defaults
-  // ("http://192.168.0.15:20128" / null), never OmniRoute runtime config (#5151).
+  // Gated combo live-smoke harness (tests/integration/combo-live/) — override the HTTP
+  // smoke target host/key. Test/CI-only signals, never OmniRoute runtime config (#5151).
   "COMBO_LIVE_BASE_URL",
   "COMBO_LIVE_API_KEY",
+  "COMBO_LIVE_SSH_HOST",
   // Ad-hoc mesh/coverage scripts under scripts/ad-hoc/*.mjs (mesh-send, mesh-run,
   // verify-coverage). Operator-supplied script secrets, not OmniRoute runtime config.
   "BOT_TOKEN",
   "BOT_URL",
-  // Homologation E2E suite (npm run homolog) vars — configured via the dedicated
-  // .env.homolog file (template: .env.homolog.example), never in the runtime .env.
-  // Test/ops-only signals against the homologation VPS, same class as COMBO_LIVE_*.
-  // See docs/ops/HOMOLOGATION.md.
-  "HOMOLOG_BASE_URL",
-  "HOMOLOG_ADMIN_PASSWORD",
-  "HOMOLOG_API_KEY",
-  "HOMOLOG_CRITICAL_PROVIDERS",
-  "HOMOLOG_EXPECT_VERSION",
   // update-notifier opt-out for the CLI binary.
   "OMNIROUTE_NO_UPDATE_NOTIFIER",
   // Headless CLI execution flag for Electron.

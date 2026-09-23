@@ -155,7 +155,7 @@ export function registerSetupCrush(program) {
     .command("setup-crush")
     .description("Generate the OmniRoute openai-compat provider in ~/.config/crush/crush.json")
     .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "20128")
-    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.0.15:20128")
+    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://<your-server-ip>:20128")
     .option("--api-key <key>", "OmniRoute API key (defaults to OMNIROUTE_API_KEY env var)")
     .option("--only <patterns>", "Comma-separated substrings — keep only matching model IDs")
     .option("--config-path <path>", "crush.json path (default: ~/.config/crush/crush.json)")
