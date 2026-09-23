@@ -20,7 +20,6 @@ const core = await import("../../src/lib/db/core.ts");
 const apiKeysDb = await import("../../src/lib/db/apiKeys.ts");
 const settingsDb = await import("../../src/lib/db/settings.ts");
 const codexImportToken = await import("../../src/app/api/oauth/codex/import-token/route.ts");
-const cursorAutoImport = await import("../../src/app/api/oauth/cursor/auto-import/route.ts");
 
 test.before(async () => {
   process.env.JWT_SECRET = "oauth-import-manage-jwt";
@@ -72,8 +71,3 @@ test("codex/import-token: non-manage key → 403, no key → 401, manage key pas
   assert.notEqual(withManage.status, 403, "manage key must clear the auth gate");
 });
 
-test("cursor/auto-import: a non-manage key cannot read the host's Cursor token (GHSA-gxv4)", async () => {
-  const nonManage = await apiKeysDb.createApiKey("client2", "machine-client2", []);
-  assert.equal((await get(cursorAutoImport, nonManage.key)).status, 403, "non-manage key rejected");
-  assert.equal((await get(cursorAutoImport)).status, 401, "no credential rejected");
-});

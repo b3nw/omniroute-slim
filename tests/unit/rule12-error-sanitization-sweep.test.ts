@@ -29,7 +29,6 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 
 const core = await import("../../src/lib/db/core.ts");
 const compressionRoute = await import("../../src/app/api/settings/compression/route.ts");
-const cacheEntriesRoute = await import("../../src/app/api/cache/entries/route.ts");
 const dbHealthRoute = await import("../../src/app/api/db/health/route.ts");
 const { sanitizeErrorMessage } = await import("../../open-sse/utils/error.ts");
 
@@ -117,19 +116,6 @@ test("GET /api/settings/compression → 500 body is sanitized (shape { error })"
     const body = (await res.json()) as { error: string };
     assert.equal(typeof body.error, "string");
     assertSanitized(body.error, "compression GET");
-  } finally {
-    restore();
-  }
-});
-
-test("GET /api/cache/entries → 500 body is sanitized (shape { error })", async () => {
-  const restore = patchPrepareToThrow("semantic_cache");
-  try {
-    const res = await cacheEntriesRoute.GET(makeRequest("http://localhost/api/cache/entries"));
-    assert.equal(res.status, 500);
-    const body = (await res.json()) as { error: string };
-    assert.equal(typeof body.error, "string");
-    assertSanitized(body.error, "cache/entries GET");
   } finally {
     restore();
   }

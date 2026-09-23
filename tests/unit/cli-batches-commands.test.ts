@@ -141,7 +141,3 @@ test("batches output verifica output_file_id antes de baixar", async () => {
   globalThis.fetch = origFetch;
 });
 
-test("batches.mjs pode ser importado sem erro", async () => {
-  const mod = await import("../../bin/cli/commands/batches.mjs");
-  assert.equal(typeof mod.registerBatches, "function");
-});

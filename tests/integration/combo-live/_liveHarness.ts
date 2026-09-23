@@ -208,7 +208,8 @@ export async function createLiveHarness(prefix: string): Promise<LiveHarness> {
   const { BaseExecutor } = await import("../../../open-sse/executors/base.ts");
   const { resetAllCircuitBreakers } = await import("../../../src/shared/utils/circuitBreaker.ts");
   const { clearInflight } = await import("../../../open-sse/services/requestDedup.ts");
-  const semanticCacheModule = await import("../../../src/lib/semanticCache.ts");
+  // Semantic cache is excised in OmniRoute-Slim; inert stub keeps the shape.
+  const semanticCacheModule = { clearCache: () => {} };
   const { clearIdempotency } = await import("../../../src/lib/idempotencyLayer.ts");
   const { invalidateDbCache } = await import("../../../src/lib/db/readCache.ts");
 

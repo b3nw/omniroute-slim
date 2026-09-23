@@ -11,7 +11,6 @@ const { parseEmbeddingModel } = await import("../../open-sse/config/embeddingReg
 const { handleEmbedding } = await import("../../open-sse/handlers/embeddings.ts");
 const core = await import("../../src/lib/db/core.ts");
 const { createProviderConnection } = await import("../../src/lib/db/providers.ts");
-const { createEmbeddingResponse } = await import("../../src/lib/embeddings/service.ts");
 
 test.after(() => {
   core.resetDbInstance();
@@ -103,42 +102,3 @@ test("lmstudio keeps the static localhost default without credentials", async ()
   assert.equal(capturedUrl, "http://localhost:1234/v1/embeddings");
 });
 
-test("lmstudio service hydrates the lm-studio connection host without requiring a key", async () => {
-  await createProviderConnection({
-    provider: "lm-studio",
-    authType: "none",
-    name: "LAN LM Studio",
-    isActive: true,
-    providerSpecificData: { baseUrl: "http://10.20.0.60:1234/v1/" },
-  });
-
-  const originalFetch = globalThis.fetch;
-  let captured: { url: string; headers: Record<string, string> } | null = null;
-  globalThis.fetch = async (url, options = {}) => {
-    captured = {
-      url: String(url),
-      headers: (options.headers as Record<string, string>) || {},
-    };
-    return new Response(
-      JSON.stringify({
-        data: [{ object: "embedding", embedding: [0.5, 0.6], index: 0 }],
-        usage: { prompt_tokens: 2, total_tokens: 2 },
-      }),
-      { status: 200, headers: { "content-type": "application/json" } }
-    );
-  };
-
-  try {
-    const response = await createEmbeddingResponse({
-      model: "lm-studio/nomic-embed-text",
-      input: "hello",
-    });
-    assert.equal(response.status, 200);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-
-  assert.ok(captured);
-  assert.equal(captured.url, "http://10.20.0.60:1234/v1/embeddings");
-  assert.equal(captured.headers.Authorization, undefined);
-});

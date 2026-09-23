@@ -11,8 +11,6 @@ const core = await import("../../src/lib/db/core.ts");
 const providersDb = await import("../../src/lib/db/providers.ts");
 const settingsDb = await import("../../src/lib/db/settings.ts");
 const chatRoute = await import("../../src/app/api/v1/chat/completions/route.ts");
-const { generateSignature, invalidateBySignature, setCachedResponse } =
-  await import("../../src/lib/semanticCache.ts");
 const { getCircuitBreaker, resetAllCircuitBreakers, STATE } =
   await import("../../src/shared/utils/circuitBreaker.ts");
 
@@ -180,70 +178,6 @@ test("combo live test bypasses connection cooldown and breaker state to perform 
 
   const updated = await providersDb.getProviderConnectionById((created as any).id);
   assert.equal(updated.testStatus, "active");
-});
-
-test("combo live test bypasses semantic cache and forces a fresh upstream request", async () => {
-  await seedHealthyConnection();
-
-  const signature = generateSignature(
-    "gpt-4.1",
-    [{ role: "user", content: "Reply with OK only." }],
-    0,
-    1
-  );
-
-  setCachedResponse(signature, "gpt-4.1", {
-    id: "chatcmpl-cached",
-    choices: [
-      {
-        message: {
-          role: "assistant",
-          content: "CACHED",
-        },
-      },
-    ],
-  });
-
-  const fetchCalls = [];
-  globalThis.fetch = async (url, init = {}) => {
-    fetchCalls.push({ url: String(url), init });
-    return Response.json({
-      id: "chatcmpl-live",
-      choices: [
-        {
-          message: {
-            role: "assistant",
-            content: "LIVE",
-          },
-        },
-      ],
-    });
-  };
-
-  try {
-    const cachedResponse = await chatRoute.POST(makeRequest());
-    const cachedBody = (await cachedResponse.json()) as any;
-
-    assert.equal(cachedResponse.status, 200);
-    assert.equal(fetchCalls.length, 0);
-    assert.equal(cachedBody.choices[0].message.content, "CACHED");
-
-    const liveResponse = await chatRoute.POST(
-      makeRequest({
-        "X-Internal-Test": "combo-health-check",
-        "X-OmniRoute-No-Cache": "true",
-        "X-Request-Id": "combo-test-cache-bypass",
-      })
-    );
-    const liveBody = (await liveResponse.json()) as any;
-
-    assert.equal(liveResponse.status, 200);
-    assert.equal(fetchCalls.length, 1);
-    assert.match(fetchCalls[0].url, /\/chat\/completions$/);
-    assert.equal(liveBody.choices[0].message.content, "LIVE");
-  } finally {
-    invalidateBySignature(signature);
-  }
 });
 
 test("chat completions route emits early keepalive while waiting for stream readiness", async () => {

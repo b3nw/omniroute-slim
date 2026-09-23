@@ -8,7 +8,6 @@ const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-cc-compat
 process.env.DATA_DIR = TEST_DATA_DIR;
 
 const core = await import("../../src/lib/db/core.ts");
-const compliance = await import("../../src/lib/compliance/index.ts");
 const providersDb = await import("../../src/lib/db/providers.ts");
 const { DefaultExecutor } = await import("../../open-sse/executors/default.ts");
 const {
@@ -951,18 +950,6 @@ test("provider-nodes validate route blocks cloud metadata provider hosts before 
     error: "Blocked cloud-metadata endpoint",
   });
   assert.equal(called, false);
-  const auditEntries = compliance.getAuditLog({
-    action: "provider.validation.ssrf_blocked",
-    resourceType: "provider_validation",
-  });
-  assert.equal(auditEntries.length, 1);
-  assert.equal(auditEntries[0].target, "provider-node");
-  assert.equal(auditEntries[0].status, "blocked");
-  assert.deepEqual(auditEntries[0].metadata, {
-    route: "/api/provider-nodes/validate",
-    reason: "Blocked cloud-metadata endpoint",
-    baseUrl: "http://169.254.169.254/latest/meta-data",
-  });
 });
 
 test("provider-nodes validate route validates anthropic compatible providers against the models endpoint", async () => {

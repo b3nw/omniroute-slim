@@ -13,7 +13,6 @@ const settingsDb = await import("../../src/lib/db/settings.ts");
 const { invalidateDbCache } = await import("../../src/lib/db/readCache.ts");
 const { invalidateCacheControlSettingsCache } =
   await import("../../src/lib/cacheControlSettings.ts");
-const { clearCache } = await import("../../src/lib/semanticCache.ts");
 const { clearIdempotency } = await import("../../src/lib/idempotencyLayer.ts");
 const { getPendingRequests, clearPendingRequests } =
   await import("../../src/lib/usage/usageHistory.ts");
@@ -52,7 +51,6 @@ async function getLatestCallLog() {
 async function resetStorage() {
   resetPayloadRulesConfigForTests();
   invalidateCacheControlSettingsCache();
-  clearCache();
   clearIdempotency();
   clearInflight();
   clearModelLock();

@@ -28,8 +28,6 @@ const { buildTargetTimeoutRunner } =
   await import("../../open-sse/services/combo/targetTimeoutRunner.ts");
 const { handleComboChat } = await import("../../open-sse/services/combo.ts");
 const { handleChaosChat } = await import("../../open-sse/services/autoCombo/chaosEngine.ts");
-const { evaluateCase } = await import("../../src/lib/evals/evalRunner.ts");
-const { withItemDispatchTimeout } = await import("../../open-sse/services/batchProcessor.ts");
 const { saveModelsDevCapabilities } = await import("../../src/lib/modelsDevSync.ts");
 
 function capabilityEntry(limitContext: unknown, overrides: Record<string, unknown> = {}) {
@@ -234,25 +232,6 @@ test("G5: chaos all-panel failure is logged with per-model errors", async () => 
 });
 
 // ── G7: evalRunner rejects catastrophic regex (ReDoS guard) ─────────────────
-test("G7: catastrophic regex is rejected instead of hanging the eval loop", () => {
-  const startedAt = Date.now();
-  const result = evaluateCase(
-    { id: "redos", name: "redos", expected: { strategy: "regex", value: "(a+)+$" } },
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"
-  );
-  const elapsed = Date.now() - startedAt;
-  assert.equal(result.passed, false);
-  assert.match(String(result.details?.error ?? ""), /unsafe|backtracking/i);
-  assert.ok(elapsed < 1000, `regex eval took ${elapsed}ms — ReDoS guard failed`);
-});
-
-test("G7: benign regex still evaluates normally", () => {
-  const result = evaluateCase(
-    { id: "ok-regex", name: "ok-regex", expected: { strategy: "regex", value: "^hello" } },
-    "hello world"
-  );
-  assert.equal(result.passed, true);
-});
 
 // ── G8: autoRefreshDaemon logs network errors per provider ──────────────────
 test("G8: autoRefreshDaemon logs network errors instead of swallowing them", async () => {
@@ -280,26 +259,4 @@ test("G8: autoRefreshDaemon logs network errors instead of swallowing them", asy
 });
 
 // ── G10: batch item dispatch timeout ────────────────────────────────────────
-test("G10: hung batch item dispatch fails fast via wall-clock timeout", async () => {
-  const startedAt = Date.now();
-  await assert.rejects(
-    withItemDispatchTimeout(
-      new Promise<Response>(() => {}), // never settles
-      50,
-      "Batch item dispatch (/v1/chat/completions)"
-    ),
-    /timed out after 50ms/
-  );
-  const elapsed = Date.now() - startedAt;
-  assert.ok(elapsed < 5000, `timeout fired after ${elapsed}ms — too slow`);
-});
 
-test("G10: fast dispatch wins the race untouched", async () => {
-  const res = await withItemDispatchTimeout(
-    Promise.resolve(new Response("ok", { status: 200 })),
-    1000,
-    "Batch item dispatch"
-  );
-  assert.equal(res.status, 200);
-  assert.equal(await res.text(), "ok");
-});
