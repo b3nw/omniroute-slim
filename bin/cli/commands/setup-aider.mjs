@@ -147,7 +147,7 @@ export function registerSetupAider(program) {
     .command("setup-aider")
     .description("Configure Aider for OmniRoute: write ~/.aider.conf.yml + print the env recipe")
     .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "20128")
-    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.1.100:20128")
+    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://<your-server-ip>:20128")
     .option("--api-key <key>", "OmniRoute API key (defaults to OMNIROUTE_API_KEY env var)")
     .option("--model <id>", "Model id (the openai/ prefix is added automatically)")
     .option("--config-path <path>", ".aider.conf.yml path (default: ~/.aider.conf.yml)")

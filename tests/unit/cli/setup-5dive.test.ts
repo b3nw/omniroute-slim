@@ -51,7 +51,7 @@ test("base URL check mirrors 5dive: https anywhere, http only on loopback", () =
   assert.equal(validateFivediveBaseUrl("http://localhost:20128").ok, true);
   assert.equal(validateFivediveBaseUrl("http://[::1]:20128").ok, true);
 
-  const lan = validateFivediveBaseUrl("http://192.168.1.100:20128");
+  const lan = validateFivediveBaseUrl("http://192.168.1.50:20128");
   assert.equal(lan.ok, false);
   // A private LAN is still off-box: the refusal has to say why, not just "no".
   assert.match(lan.reason, /plaintext/);

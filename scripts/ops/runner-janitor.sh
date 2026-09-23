@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# runner-janitor — self-hosted runner box hygiene for the .113 pool.
+# runner-janitor — self-hosted runner box hygiene.
 #
-# Runs from cron every 30 min (see docs/ops/RUNNER_BOX.md). It ACTS on what it
+# Runs from cron every 30 min on the runner host. It ACTS on what it
 # can prove is safe and ALERTS on what needs an operator decision. Reads of
 # "is this in use?" and the removal happen in the same command, never in two
 # passes: a check-then-delete with a gap is how a live Build job lost its _work

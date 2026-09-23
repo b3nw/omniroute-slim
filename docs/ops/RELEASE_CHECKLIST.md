@@ -30,8 +30,8 @@ npm run test:e2e           # optional but recommended
 # 4. Generate release (skill)
 /generate-release-cc
 
-# 5. Deploy (skill)
-/deploy-vps-both-cc        # or akamai-cc / local-cc
+# 5. Deploy
+npm run build:release      # then rsync dist/ to each target host
 
 # 6. Capture release evidences (skill)
 /capture-release-evidences-cc
@@ -149,8 +149,7 @@ matrix automatically, without any label.
 - [ ] `npm run test:coverage` — gate 60/60/60/60 satisfied (statements/lines/functions/branches)
 - [ ] `npm run test:integration` — pass (if changes touch DB / handlers)
 - [ ] `npm run test:combo:matrix` — pass (combo strategy matrix: proves all 19 public routing strategies' selection decisions deterministically; run when touching combo routing, strategy resolution, or fallback logic)
-- [ ] `RUN_COMBO_LIVE=1 npm run test:combo:live` — **optional/manual** (gated real-upstream smoke; sources a read-only DB snapshot from VPS `root@192.168.1.100`; hits real providers, costs credits; never runs in CI; skips cleanly without the gate)
-- [ ] `npm run test:combo:live:vps` — **optional/manual** (Phase-3 VPS live smoke: 7 HTTP scenarios against the live `.15` server via plain Node ESM; requires `ssh root@192.168.1.100`; creates/deletes only `__live_test__*` combos; hits real providers; never runs in CI)
+- [ ] `RUN_COMBO_LIVE=1 npm run test:combo:live` — **optional/manual** (gated real-upstream smoke; sources a read-only DB snapshot over SSH from your own deployment; hits real providers, costs credits; never runs in CI; skips cleanly without the gate)
 - [ ] `npm run test:e2e` — pass (UI changes)
 - [ ] `npm run test:protocols:e2e` — pass (MCP/A2A changes)
 - [ ] `npm run test:ecosystem` — pass
@@ -279,10 +278,7 @@ Do NOT run `npm run build` followed by a separate `npm run build:cli` for deploy
 
 Deploy skills use the light rsync flow — no `npm pack`, no `npm i -g`:
 
-- [ ] Use deploy skill that matches target:
-  - `/deploy-vps-local-cc` — local VPS (192.168.1.100)
-  - `/deploy-vps-akamai-cc` — Akamai VPS (69.164.221.35)
-  - `/deploy-vps-both-cc` — both
+- [ ] Deploy to each target host you maintain (rsync `dist/` to the remote `app/` directory)
 - [ ] Before deploying, confirm `dist/BUILD_SHA` == `git rev-parse --short HEAD`
 - [ ] Build must run where `node_modules` is real (main checkout or `npm ci`'d worktree — NOT a symlinked worktree)
 - [ ] Smoke test deployed instance:

@@ -542,8 +542,8 @@ jobs:
   build:
     name: Build
     # Dynamic runner: when the release captain flips the USE_VPS_RUNNER repo var to
-    # 'true' (scripts/vps/release-runner-up.sh does it after the self-hosted VM is
-    # online), the heavy jobs run on the dedicated 32-core VPS runners (label
+    # 'true' after the self-hosted VM is online, the heavy jobs run on the
+    # dedicated 32-core self-hosted runners (label
     # omni-build) instead of queueing on the 20-concurrent-job hosted pool.
     # Safety: fork PRs NEVER reach the self-hosted runner — the expression falls
     # back to ubuntu-latest unless the PR head repo is this repository (push /
@@ -551,7 +551,7 @@ jobs:
     # var unset/false) also falls back to ubuntu-latest.
     runs-on: ${{ (vars.USE_VPS_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","omni-build"]') || 'ubuntu-latest' }}
     needs: changes
-    # The .113 pool runs ONE next-build with room to spare and two at the edge: the
+    # The self-hosted pool runs ONE next-build with room to spare and two at the edge: the
     # box has 31 GB and a single next-build peaks at 14–16 GB RSS. On 2026-08-28
     # 13:50Z the kernel OOM-killed main's build while a PR build ran beside it
     # (five Build jobs had been queued by a burst of PRs). Two lanes: main keeps
@@ -756,8 +756,8 @@ jobs:
     # Same dynamic-runner rule as Build (own-origin only; fallback ubuntu-latest).
     # PINNED to hosted, deliberately not on the USE_VPS_RUNNER switch (gap 19). One variable
     # governed the build and the test jobs, which want OPPOSITE machines: the build needs the
-    # .113's RAM, the tests need the hosted runner's link. Measured on 2026-07-29 —
-    # actions/setup-node took 20m06s on .113 with 4 concurrent runners versus 16s hosted (npm
+    # the self-hosted box's RAM, the tests need the hosted runner's link. Measured on 2026-07-29 —
+    # actions/setup-node took 20m06s on the self-hosted box with 4 concurrent runners versus 16s hosted (npm
     # cache restore saturating the link), while the tests themselves tied, 2m54 vs 2m31. So
     # self-hosted is strictly worse here and there is nothing to configure.
     runs-on: ubuntu-latest
@@ -862,8 +862,8 @@ jobs:
     # Same dynamic-runner rule as Build (own-origin only; fallback ubuntu-latest).
     # PINNED to hosted, deliberately not on the USE_VPS_RUNNER switch (gap 19). One variable
     # governed the build and the test jobs, which want OPPOSITE machines: the build needs the
-    # .113's RAM, the tests need the hosted runner's link. Measured on 2026-07-29 —
-    # actions/setup-node took 20m06s on .113 with 4 concurrent runners versus 16s hosted (npm
+    # the self-hosted box's RAM, the tests need the hosted runner's link. Measured on 2026-07-29 —
+    # actions/setup-node took 20m06s on the self-hosted box with 4 concurrent runners versus 16s hosted (npm
     # cache restore saturating the link), while the tests themselves tied, 2m54 vs 2m31. So
     # self-hosted is strictly worse here and there is nothing to configure.
     runs-on: ubuntu-latest

@@ -221,7 +221,7 @@ export function registerSetupClaude(program) {
         "~/.claude/profiles/<name>/ Claude Code profiles (CLAUDE_CONFIG_DIR) for each model"
     )
     .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "20128")
-    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.1.100:20128")
+    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://<your-server-ip>:20128")
     .option("--api-key <key>", "OmniRoute API key (defaults to OMNIROUTE_API_KEY env var)")
     .option("--claude-home <dir>", "Claude home dir (default: ~/.claude)")
     .option(
