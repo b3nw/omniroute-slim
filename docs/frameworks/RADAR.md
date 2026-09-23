@@ -442,13 +442,6 @@ The guided UI lives at `/dashboard/radar/combos`. It reads only the local
 `GET /api/radar/catalog` and `GET /api/combos/builder/options` endpoints. It never triggers Radar sync,
 reads provider credentials, or writes directly to the combo database.
 
-MCP clients can read the same local projection with `omniroute_radar_catalog` (`read:radar`). The
-optional `provider`, `familyId`, and `enabledOnly` filters are evaluated after one local
-`GET /api/radar/catalog` read. Its closed output includes catalog metadata plus provider/model,
-display name, `familyId`, quota, capabilities, enabled state, origin, and `disabledBy`; setup URLs,
-steps, connections, e-mail addresses, keys, and referral data are never returned. This tool is
-read-only and never invokes `/api/radar/sync`.
-
 ### Provenance markers
 
 Every merged entry carries an `origin` field the UI renders as a badge:
