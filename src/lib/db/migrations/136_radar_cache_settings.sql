@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 -- 136_radar_cache_settings.sql
 -- Radar client local cache and settings tables.
 --

@@ -28,7 +28,6 @@ import { SELF_ACCOUNT_QUOTA_SCOPE, SELF_USAGE_SCOPE } from "@/shared/constants/s
 import { extractApiErrorMessage } from "@/shared/http/apiErrorMessage";
 import { hasProviderQuotaBypassScope } from "@/shared/constants/apiKeyPolicyScopes";
 import { UsageLimitSettings } from "./components/UsageLimitSettings";
-import { ChaosModeAccessToggle } from "./components/ChaosModeAccessToggle";
 import { BypassProviderQuotaToggle } from "./components/BypassProviderQuotaToggle";
 import { ApiKeyCompressionToggle } from "./components/ApiKeyCompressionToggle";
 import ProviderModelPermissionList from "./components/ProviderModelPermissionList";
@@ -1811,7 +1810,10 @@ const PermissionsModal = memo(function PermissionsModal({
   const [usageCommandEnabled, setUsageCommandEnabled] = useState(
     apiKey?.allowUsageCommand === true
   );
-  const [chaosModeEnabled, setChaosModeEnabled] = useState(apiKey?.chaosModeEnabled === true);
+  // Chaos Mode had a per-key permission toggle gating `POST /api/chaos/run` and
+  // `POST /api/skills/collect/chaos`. Both routes are gone, so the toggle was removed;
+  // the stored permission is still round-tripped so saving a key never silently clears it.
+  const chaosModeEnabled = apiKey?.chaosModeEnabled === true;
   const [usageLimitEnabled, setUsageLimitEnabled] = useState(apiKey?.usageLimitEnabled === true);
   const [dailyUsageLimitUsd, setDailyUsageLimitUsd] = useState(
     typeof apiKey?.dailyUsageLimitUsd === "number" && apiKey.dailyUsageLimitUsd > 0
@@ -2656,12 +2658,6 @@ const PermissionsModal = memo(function PermissionsModal({
             onWeeklyLimitUsdChange={setWeeklyUsageLimitUsd}
           />
         </div>
-
-        {/* Chaos Mode Access Toggle */}
-        <ChaosModeAccessToggle
-          enabled={chaosModeEnabled}
-          onToggle={() => setChaosModeEnabled((prev) => !prev)}
-        />
 
         {/* Advanced Provider Quota Policy Override */}
         <BypassProviderQuotaToggle

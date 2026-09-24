@@ -12,7 +12,7 @@ export interface FeatureFlagDefinition {
 }
 
 export const FEATURE_FLAG_DEFINITIONS: FeatureFlagDefinition[] = [
-  // ──────────────── Security (10) ────────────────
+  // ──────────────── Security (6) ────────────────
   {
     key: "REQUIRE_API_KEY",
     label: "Require API Key",
@@ -84,7 +84,7 @@ export const FEATURE_FLAG_DEFINITIONS: FeatureFlagDefinition[] = [
     requiresRestart: false,
     warningLevel: "info",
   },
-  // ──────────────── Network (7) ────────────────
+  // ──────────────── Network (10) ────────────────
   {
     key: "ENABLE_TLS_FINGERPRINT",
     label: "TLS Fingerprint",
@@ -201,7 +201,7 @@ export const FEATURE_FLAG_DEFINITIONS: FeatureFlagDefinition[] = [
     warningLevel: "info",
   },
 
-  // ──────────────── Policies (5) ────────────────
+  // ──────────────── Policies (4) ────────────────
   {
     key: "TOOL_POLICY_MODE",
     label: "Tool Policy Mode",
@@ -249,20 +249,8 @@ export const FEATURE_FLAG_DEFINITIONS: FeatureFlagDefinition[] = [
     requiresRestart: false,
     warningLevel: "caution",
   },
-  {
-    key: "RADAR_ENABLED",
-    label: "Radar",
-    description:
-      "Enable the OmniRoute Radar module (catalog feed screens and sync). Off by default; enabling only unlocks the UI — data sync remains a separate opt-in.",
-    descriptionI18nKey: "featureFlagRadarEnabledDescription",
-    category: "policies",
-    defaultValue: "false",
-    type: "boolean",
-    requiresRestart: false,
-    warningLevel: "info",
-  },
 
-  // ──────────────── Runtime (16) ────────────────
+  // ──────────────── Runtime (22) ────────────────
   {
     key: "RESPONSES_PASSTHROUGH_DROP_COMMENTARY",
     label: "Drop Responses Commentary",
@@ -583,7 +571,7 @@ export const FEATURE_FLAG_DEFINITIONS: FeatureFlagDefinition[] = [
     warningLevel: "caution",
   },
 
-  // ──────────────── Health (3) ────────────────
+  // ──────────────── Health (2) ────────────────
   {
     key: "OMNIROUTE_DISABLE_LOCAL_HEALTHCHECK",
     label: "Disable Local Health Check",
@@ -605,16 +593,5 @@ export const FEATURE_FLAG_DEFINITIONS: FeatureFlagDefinition[] = [
     type: "boolean",
     requiresRestart: false,
     warningLevel: "info",
-  },
-  {
-    key: "SKILLS_SANDBOX_NETWORK_ENABLED",
-    label: "Skills Sandbox Network",
-    description: "Enable network access in the skills sandbox environment",
-    descriptionI18nKey: "featureFlagSkillsSandboxNetworkEnabledDescription",
-    category: "health",
-    defaultValue: "false",
-    type: "boolean",
-    requiresRestart: false,
-    warningLevel: "caution",
   },
 ];

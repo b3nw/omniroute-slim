@@ -1,5 +1,5 @@
 {
-  "_comment": "Catraca de test-discovery (check-test-discovery.mjs). Cada entrada e um arquivo de teste que NENHUM runner coleta (ele nunca roda) — divida congelada na auditoria 6A.1 (2026-06-09; 195 originais, 135 religados no node runner em 6A.1c). So pode DIMINUIR: religue o teste (ajustando o glob do runner ou movendo o arquivo) e remova a entrada via --update. NAO adicione novos orfaos — corrija o runner.",
+  "_comment": "Test-discovery ratchet (check-test-discovery.mjs). Each entry is a test file that NO runner collects (it never runs) — debt frozen during audit 6A.1 (2026-06-09; 195 originally, 135 reconnected to the node runner in 6A.1c). It may only DECREASE: reconnect the test (by adjusting the runner glob or moving the file) and remove the entry via --update. Do NOT add new orphans — fix the runner instead.",
   "_remaining_13": "13 orfaos restantes: 2 testes de API em settings + 1 snapshot de quota do DB; 4 golden-set + 1 benchmark + 1 teste live + 1 stress (deliberadamente manuais — decidir runner/gating); 3 integration/services (gated RUN_SERVICES_INT=1, sem runner CI).",
   "orphans": [
     "src/app/api/settings/__tests__/settings.test.ts",

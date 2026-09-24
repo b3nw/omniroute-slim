@@ -27,7 +27,7 @@ import {
   SIDEBAR_SECTIONS,
   getSectionItems,
   type SidebarItemDefinition,
-  type HideableSidebarItemId,
+  type SidebarItemId,
 } from "@/shared/constants/sidebarVisibility";
 import { useIsElectron } from "@/shared/hooks/useElectron";
 
@@ -35,7 +35,7 @@ const isE2EMode = process.env.NEXT_PUBLIC_OMNIROUTE_E2E_MODE === "1";
 
 // Map sidebar item id → header description i18n key
 // "omni-skills" is an extended key for the /dashboard/omni-skills route (graceful fallback during deploy)
-const HEADER_DESCRIPTIONS: Partial<Record<HideableSidebarItemId | "omni-skills", string>> = {
+const HEADER_DESCRIPTIONS: Partial<Record<SidebarItemId, string>> = {
   home: "homeDescription",
   endpoints: "endpointDescription",
   "api-manager": "apiManagerDescription",
@@ -50,13 +50,7 @@ const HEADER_DESCRIPTIONS: Partial<Record<HideableSidebarItemId | "omni-skills",
   media: "mediaDescription",
   "cli-code": "cliToolsDescription",
   "cli-agents": "agentsDescription",
-  "acp-agents": "agentsDescription",
   "cloud-agents": "cloudAgentsDescription",
-  memory: "memoryDescription",
-  skills: "skillsDescription",
-  "agent-skills": "agentSkillsDescription",
-  "omni-skills": "omniSkillsDescription",
-  settings: "settingsDescription",
   "context-caveman": "contextCavemanDescription",
   "context-rtk": "contextRtkDescription",
   "context-combos": "contextCombosDescription",
@@ -71,12 +65,10 @@ const HEADER_DESCRIPTIONS: Partial<Record<HideableSidebarItemId | "omni-skills",
   changelog: "changelogDescription",
   // Protocols
   mcp: "mcpDescription",
-  a2a: "a2aDescription",
   "api-endpoints": "apiEndpointsDescription",
   // Agents & AI sub-pages
   "batch-files": "batchFilesDescription",
   // Analytics sub-pages
-  "analytics-evals": "analyticsEvalsDescription",
   "analytics-search": "analyticsSearchDescription",
   "analytics-utilization": "analyticsUtilizationDescription",
   "analytics-combo-health": "analyticsComboHealthDescription",

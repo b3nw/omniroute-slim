@@ -1,23 +1,23 @@
 #!/usr/bin/env node
 // scripts/check/check-model-lifecycle.mjs
-// Gate anti-drift (#11503): as duas tabelas mantidas à mão que decidem roteamento —
-// FITNESS_TABLE (open-sse/services/autoCombo/taskFitness.ts, camada 4 do task fitness) e
-// BUILT_IN_ALIASES (open-sse/services/modelDeprecation.ts, reescreve `body.model` em toda
-// request) — apodrecem em silêncio quando o fornecedor aposenta um modelo. Em
-// release/v3.8.51 o resultado foi uma inversão de ranking (modelo morto 0.98 vs flagship
-// vivo 0.50) e aliases que garantiam 404. Este gate compara as duas contra o snapshot de
-// ciclo de vida em config/quality/model-lifecycle.json (sem rede; regenerar com
+// Anti-drift gate (#11503): the two hand-maintained tables that decide routing —
+// FITNESS_TABLE (open-sse/services/autoCombo/taskFitness.ts, layer 4 of task fitness) and
+// BUILT_IN_ALIASES (open-sse/services/modelDeprecation.ts, rewrites `body.model` on every
+// request) — rot silently when a vendor retires a model. In release/v3.8.51 the result was
+// a ranking inversion (dead model 0.98 vs live flagship 0.50) and aliases that guaranteed a
+// 404. This gate compares both against the lifecycle snapshot in
+// config/quality/model-lifecycle.json (no network; regenerate with
 // `npm run quality:refresh-model-lifecycle`).
 //
-// Três checagens, todas somadas antes do exit — nenhuma aborta as outras:
-//   (a) nenhum padrão do FITNESS_TABLE pontua um id aposentado que o catálogo roteia;
-//   (b) nenhum alvo de BUILT_IN_ALIASES está aposentado ou ausente do catálogo;
-//   (c) todo id aposentado ainda presente no REGISTRY tem encaminhamento em
-//       BUILT_IN_ALIASES ou consta em `allowedRetiredInCatalog` (a catraca a queimar).
+// Three checks, all summed before exiting — none aborts the others:
+//   (a) no FITNESS_TABLE pattern scores a retired id that the catalog routes;
+//   (b) no BUILT_IN_ALIASES target is retired or missing from the catalog;
+//   (c) every retired id still present in the REGISTRY has a forward in
+//       BUILT_IN_ALIASES or is listed in `allowedRetiredInCatalog` (the ratchet to burn down).
 //
-// (a) é deliberadamente restrita aos ids ROTEÁVEIS: linhas versionadas legítimas como
-// `gpt-4o` também casam com ids aposentados que o catálogo nunca serviu
-// (`gpt-4o-audio-preview`), e esses não podem inverter decisão de roteamento nenhuma.
+// (a) is deliberately restricted to ROUTABLE ids: legitimate versioned lines such as
+// `gpt-4o` also match retired ids the catalog never served (`gpt-4o-audio-preview`), and
+// those cannot invert any routing decision.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -27,7 +27,7 @@ const ROOT = process.cwd();
 const SNAPSHOT_PATH = path.join(ROOT, "config/quality/model-lifecycle.json");
 const TASK_TYPES = ["coding", "review", "planning", "analysis", "debugging", "documentation"];
 
-/** Ids de modelo que o catálogo consegue rotear (id + aliases de cada modelo). */
+/** Model ids the catalog can route (id + aliases of each model). */
 export function collectCatalogIds(registry) {
   const ids = new Set();
   for (const entry of Object.values(registry ?? {})) {
@@ -41,7 +41,7 @@ export function collectCatalogIds(registry) {
   return [...ids];
 }
 
-/** Um id do catálogo está aposentado quando sua forma nua (sem prefixo `vendor/`) está. */
+/** A catalog id is retired when its bare form (without the `vendor/` prefix) is. */
 export function isRetiredId(id, retiredIds) {
   const lower = String(id).toLowerCase();
   if (retiredIds.has(lower)) return true;
@@ -49,7 +49,7 @@ export function isRetiredId(id, retiredIds) {
   return slash !== -1 && retiredIds.has(lower.slice(slash + 1));
 }
 
-/** (a) Linhas do FITNESS_TABLE que ainda pontuam um modelo aposentado e roteável. */
+/** (a) FITNESS_TABLE rows that still score a retired, routable model. */
 export function findRetiredFitnessRows(routableRetiredIds, scoreFor, taskTypes = TASK_TYPES) {
   const violations = [];
   for (const id of routableRetiredIds) {
@@ -65,7 +65,7 @@ export function findRetiredFitnessRows(routableRetiredIds, scoreFor, taskTypes =
   return violations;
 }
 
-/** (b) Alvos de alias aposentados ou fora do catálogo. */
+/** (b) Alias targets that are retired or absent from the catalog. */
 export function findBadAliasTargets(aliases, catalogIds, retiredIds) {
   const catalog = new Set([...catalogIds].map((id) => id.toLowerCase()));
   const violations = [];
@@ -80,7 +80,7 @@ export function findBadAliasTargets(aliases, catalogIds, retiredIds) {
   return violations;
 }
 
-/** (c) Ids aposentados que o catálogo ainda roteia sem encaminhamento nem allowlist. */
+/** (c) Retired ids the catalog still routes with neither a forward nor an allowlist entry. */
 export function findUnforwardedRetiredIds(routableRetiredIds, aliases, allowlist) {
   const allowed = new Set((allowlist ?? []).map((id) => String(id).toLowerCase()));
   return routableRetiredIds
@@ -99,8 +99,8 @@ export function readSnapshot(snapshotPath = SNAPSHOT_PATH) {
 }
 
 async function loadProductionTables() {
-  // Nenhum gate pode migrar o banco do operador: taskFitness.ts importa src/lib/db/core.ts,
-  // então DATA_DIR aponta para um diretório descartável ANTES do import dinâmico.
+  // No gate may migrate the operator's database: taskFitness.ts imports src/lib/db/core.ts,
+  // so DATA_DIR points at a throwaway directory BEFORE the dynamic import.
   process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-lifecycle-gate-"));
   const [{ REGISTRY }, { getStaticFitnessTableScore }, { getBuiltInAliases }] = await Promise.all([
     import(pathToFileURL(path.join(ROOT, "open-sse/config/providers/index.ts")).href),

@@ -25,7 +25,7 @@ OmniRoute/
 ├── config/               # Static config + quality-gate state (i18n, payloadRules, quality/)
 ├── images/               # Marketing / README image assets
 ├── @omniroute/           # Publishable companion packages (opencode-plugin)
-├── examples/             # Sample plugins + omniroute-cmd-hello starter
+├── examples/             # Sample plugins + quickstart client snippets
 ├── contrib/              # Community contributions (podman/)
 ├── .source/              # Fumadocs source config (source.config.mjs + server/browser/dynamic)
 ├── .github/              # GitHub Actions workflows + issue templates + PR template

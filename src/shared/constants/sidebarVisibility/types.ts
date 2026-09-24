@@ -27,17 +27,10 @@ export const HIDEABLE_SIDEBAR_ITEM_IDS = [
   // OmniProxy > Tools
   "cli-code",
   "cli-agents",
-  "acp-agents",
-  "cloud-agents",
-  "conductor",
-  "agent-bridge",
-  "traffic-inspector",
   "discovery",
   // OmniProxy > Integrations
   "api-endpoints",
-  "webhooks",
   // OmniProxy — proxy tools
-  "mitm-proxy",
   "1proxy",
   // Analytics
   "analytics",
@@ -47,7 +40,6 @@ export const HIDEABLE_SIDEBAR_ITEM_IDS = [
   "cache",
   "analytics-compression",
   "analytics-search",
-  "analytics-evals",
   "provider-stats",
   // Monitoring — flat
   "activity",
@@ -66,28 +58,16 @@ export const HIDEABLE_SIDEBAR_ITEM_IDS = [
   "costs-free-tiers",
   "costs-quota-share",
   "free-provider-rankings",
-  "radar",
-  "radar-admin",
   // Monitoring > Audit
   "audit",
   "audit-mcp",
-  "audit-a2a",
   // Dev Tools
   "translator",
   "playground",
   "search-tools",
   // Agentic Features
-  "memory",
-  "skills",
-  "agent-skills",
-  "chaos-config",
   "mcp",
-  "a2a",
   "plugins",
-  // Gamification
-  "leaderboard",
-  "profile",
-  "tokens",
   // Other Features — flat
   "media",
   // Other Features > Batch
@@ -143,15 +123,6 @@ export interface SidebarItemDefinition {
   icon: string;
   exact?: boolean;
   external?: boolean;
-  /**
-   * Opt-in feature-flag gate. When present, the item is only shown while the
-   * named flag resolves to `true` server-side. Sidebar.tsx has no built-in
-   * feature-flag awareness — the flag's resolved value is fetched once
-   * (piggy-backed on the existing `/api/settings` call) and passed through
-   * `isSidebarItemVisibleForFlags()` alongside the existing hidden-items
-   * filter. Add new flag keys to this union as new flag-gated items appear.
-   */
-  featureFlagKey?: "RADAR_ENABLED";
 }
 
 export interface SidebarItemGroup {

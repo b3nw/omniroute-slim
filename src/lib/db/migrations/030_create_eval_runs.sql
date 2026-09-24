@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 CREATE TABLE IF NOT EXISTS eval_runs (
   id TEXT PRIMARY KEY,
   run_group_id TEXT,
