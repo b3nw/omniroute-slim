@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 -- 027_skill_mode_and_metadata.sql
 -- Adds per-skill mode metadata and indexing for provider/filter UX.
 

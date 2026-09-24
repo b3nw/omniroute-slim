@@ -88,8 +88,9 @@ test("permissions modal switch buttons declare button type", () => {
   // Self-service Visibility block has 4 inline switches: own-usage visibility,
   // shared-account quota visibility, disable-non-public-models (#3041), and the
   // per-key local usage command allowance (#4034). The API-key provider
-  // quota-policy bypass scope (#5731) and the Chaos Mode access scope (#6728)
-  // were extracted into dedicated toggle components (asserted below).
+  // quota-policy bypass scope (#5731) was extracted into a dedicated toggle
+  // component (asserted below); the Chaos Mode access scope (#6728) was dropped
+  // with the /api/chaos and /api/skills routes it gated.
   // The invariant is that every switch declares type="button"
   // (typedSwitchButtonCount === switchButtonCount) to avoid implicit submit.
   assert.equal(switchButtonCount, 4);
@@ -98,7 +99,6 @@ test("permissions modal switch buttons declare button type", () => {
   // The extracted toggle components keep the same invariant.
   for (const rel of [
     "src/app/(dashboard)/dashboard/api-manager/components/BypassProviderQuotaToggle.tsx",
-    "src/app/(dashboard)/dashboard/api-manager/components/ChaosModeAccessToggle.tsx",
     "src/app/(dashboard)/dashboard/api-manager/components/ApiKeyCompressionToggle.tsx",
   ]) {
     const componentSource = fs.readFileSync(path.join(repoRoot, rel), "utf8");

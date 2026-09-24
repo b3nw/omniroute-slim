@@ -178,14 +178,6 @@ test("registerPlugin registra subcomandos: list, install, remove, info, search, 
   }
 });
 
-test("exemplo omniroute-cmd-hello existe e tem register()", () => {
-  const examplePath = join(ROOT, "examples", "omniroute-cmd-hello", "index.mjs");
-  assert.ok(existsSync(examplePath), "exemplo index.mjs deve existir");
-  const src = readFileSync(examplePath, "utf8");
-  assert.ok(src.includes("export function register"), "deve exportar register");
-  assert.ok(src.includes("export const meta"), "deve exportar meta");
-});
-
 test("docs/frameworks/PLUGINS.md existe", () => {
   const docPath = join(ROOT, "docs", "frameworks", "PLUGINS.md");
   assert.ok(existsSync(docPath), "docs/frameworks/PLUGINS.md deve existir");

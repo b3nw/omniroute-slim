@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 // scripts/check/check-dead-code.mjs
-// Gate de dead-code via knip — unused exports, unused files.
-// Fase 7 INT: promovido de ADVISORY para RATCHET bloqueante.
-// Lê o baseline de quality-baseline.json (metrics.deadExports), compara e
-// falha com exit 1 se a contagem SUBIR. Suporta --update para ratchetar o baseline.
+// Dead-code gate via knip — unused exports, unused files.
+// Phase 7 INT: promoted from ADVISORY to a blocking RATCHET.
+// Reads the baseline from quality-baseline.json (metrics.deadExports), compares, and
+// fails with exit 1 if the count GOES UP. Supports --update to ratchet the baseline.
 //
-// Saída (stdout):
-//   DEAD_EXPORTS=<n>    — exports/re-exports/tipos não utilizados
-//   DEAD_FILES=<n>      — arquivos sem nenhum consumidor
-//   DEAD_TOTAL=<n>      — soma de ambos (métrica primária para o ratchet)
+// Output (stdout):
+//   DEAD_EXPORTS=<n>    — unused exports/re-exports/types
+//   DEAD_FILES=<n>      — files with no consumer at all
+//   DEAD_TOTAL=<n>      — sum of both (primary metric for the ratchet)
 //
-// Use --json para imprimir o relatório completo do knip em JSON.
-// Use --quiet para suprimir logs de diagnóstico.
-// Use --update para ratchetar o baseline quando a contagem cair legitimamente.
+// Use --json to print knip's full report as JSON.
+// Use --quiet to suppress diagnostic logs.
+// Use --update to ratchet the baseline when the count legitimately drops.
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -32,16 +32,16 @@ const BASELINE_PATH = path.resolve(
 );
 
 /**
- * Conta dead exports e dead files a partir do output JSON do knip.
+ * Counts dead exports and dead files from knip's JSON output.
  *
- * O reporter JSON do knip emite:
+ * knip's JSON reporter emits:
  *   { issues: Array<{ file, exports?, files?, types?, nsExports?, nsTypes?, ... }> }
  *
- * Cada entrada em `exports`, `types`, `nsExports`, `nsTypes` é um símbolo morto naquele
- * arquivo. A presença do arquivo em si na lista (campo `files: []` não-vazio ou arquivo
- * sem outros campos relevantes com `files: true` no include) indica arquivo morto.
+ * Each entry in `exports`, `types`, `nsExports`, `nsTypes` is a dead symbol in that
+ * file. The presence of the file itself in the list (a non-empty `files: []` field, or a
+ * file with no other relevant fields and `files: true` in the include) marks a dead file.
  *
- * @param {object} knipJson - Objeto JSON parseado do output do knip
+ * @param {object} knipJson - Parsed JSON object from knip's output
  * @returns {{ deadExports: number, deadFiles: number, deadTotal: number }}
  */
 export function parseKnipMetrics(knipJson) {
@@ -53,16 +53,16 @@ export function parseKnipMetrics(knipJson) {
   let deadFiles = 0;
 
   for (const fileEntry of knipJson.issues) {
-    // Dead file: o arquivo aparece na lista com campo `files` populado
-    // (knip emite um entry com files:[] indicando "este arquivo é morto")
+    // Dead file: the file appears in the list with a populated `files` field
+    // (knip emits an entry with files:[] meaning "this file is dead")
     if (Array.isArray(fileEntry.files) && fileEntry.files.length > 0) {
       deadFiles += fileEntry.files.length;
     }
-    // Alguns reporters indicam arquivo morto sem campo files — o entry existe
-    // sem exports/types = o arquivo inteiro não tem consumidor
-    // (conservador: só contar quando files[] está presente e populado)
+    // Some reporters flag a dead file without a files field — the entry exists
+    // without exports/types = the whole file has no consumer
+    // (conservative: only count when files[] is present and populated)
 
-    // Dead exports: somar todos os símbolos mortos por tipo de export
+    // Dead exports: sum every dead symbol per export kind
     const exportFields = [
       "exports",
       "types",
@@ -87,8 +87,8 @@ export function parseKnipMetrics(knipJson) {
 }
 
 /**
- * Avalia a contagem atual de dead-code total contra o baseline.
- * Direction: down (contagem só pode CAIR).
+ * Evaluates the current total dead-code count against the baseline.
+ * Direction: down (the count may only GO DOWN).
  *
  * Exported for unit testing.
  *
@@ -108,11 +108,11 @@ function runKnip() {
     "--reporter",
     "json",
     "--no-progress",
-    "--no-exit-code", // não falha por contagem — só coletamos métricas
+    "--no-exit-code", // do not fail on count — we only collect metrics
   ];
 
   if (!QUIET) {
-    process.stderr.write("[dead-code] Rodando knip --reporter json ...\n");
+    process.stderr.write("[dead-code] Running knip --reporter json ...\n");
   }
 
   let stdout;
@@ -121,13 +121,13 @@ function runKnip() {
       cwd: ROOT,
       encoding: "utf8",
       maxBuffer: 128 * 1024 * 1024,
-      timeout: 300_000, // 5 min (knip pode ser lento em monorepos grandes)
+      timeout: 300_000, // 5 min (knip can be slow on large monorepos)
     });
   } catch (err) {
-    // knip sai com código != 0 quando encontra issues; o JSON ainda vai no stdout.
+    // knip exits with a non-zero code when it finds issues; the JSON still goes to stdout.
     stdout = err.stdout ? String(err.stdout) : "";
     if (!stdout.trim()) {
-      process.stderr.write(`[dead-code] ERRO ao executar knip: ${err.message}\n`);
+      process.stderr.write(`[dead-code] ERROR running knip: ${err.message}\n`);
       process.exit(2);
     }
   }
@@ -169,7 +169,7 @@ function main() {
 
   const { deadExports, deadFiles, deadTotal } = parseKnipMetrics(knipJson);
 
-  // Emitir em formato KEY=VALUE para o coletor de métricas (collect-metrics.mjs)
+  // Emit in KEY=VALUE format for the metrics collector (collect-metrics.mjs)
   console.log(`DEAD_EXPORTS=${deadExports}`);
   console.log(`DEAD_FILES=${deadFiles}`);
   console.log(`DEAD_TOTAL=${deadTotal}`);
@@ -179,19 +179,19 @@ function main() {
   if (UPDATE && improved) {
     baselineJson.metrics.deadExports.value = deadTotal;
     fs.writeFileSync(BASELINE_PATH, JSON.stringify(baselineJson, null, 2) + "\n");
-    console.log(`[dead-code] baseline ratcheado: ${deadTotal} (era ${baselineValue})`);
+    console.log(`[dead-code] baseline ratcheted: ${deadTotal} (was ${baselineValue})`);
   }
 
   if (regressed) {
     process.stderr.write(
-      `[dead-code] REGRESSÃO — ${deadTotal} símbolos mortos > baseline ${baselineValue}\n` +
-        `  → Remova exports/arquivos não utilizados ou rode\n` +
-        `    'node scripts/check/check-dead-code.mjs --update' se a contagem caiu legitimamente.\n`
+      `[dead-code] REGRESSION — ${deadTotal} dead symbols > baseline ${baselineValue}\n` +
+        `  → Remove unused exports/files, or run\n` +
+        `    'node scripts/check/check-dead-code.mjs --update' if the count legitimately dropped.\n`
     );
     process.exit(1);
   }
 
-  console.log(`[dead-code] OK — ${deadTotal} símbolos mortos (baseline ${baselineValue})`);
+  console.log(`[dead-code] OK — ${deadTotal} dead symbols (baseline ${baselineValue})`);
   process.exitCode = 0;
 }
 

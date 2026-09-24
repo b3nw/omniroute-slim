@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 -- TV6 — Typed memory decay: track access frequency so decay can grant access-based immunity.
 --
 -- `access_count` increments each time a memory is injected into a prompt; `last_accessed_at`

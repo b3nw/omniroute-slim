@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 -- 144_radar_offers_cache.sql
 -- Single-row cache for the separately signed, live-only Radar offers feed.
 

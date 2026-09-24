@@ -16,7 +16,7 @@ import { useNotificationStore } from "@/store/notificationStore";
 import { extractApiErrorMessage } from "@/shared/http/apiErrorMessage";
 import { copyToClipboard } from "@/shared/utils/clipboard";
 import { getProviderDisplayLabel } from "@/shared/utils/providerDisplayLabel";
-import { useIsElectron, useOpenExternal } from "@/shared/hooks/useElectron";
+import { useIsElectron, useOpenExternal, usePlatform } from "@/shared/hooks/useElectron";
 import { HomeProviderTopologySection } from "./HomeProviderTopologySection";
 import { shouldShowProviderTopologyOnHome } from "./homeAppearance";
 import HomeRecentRequests from "../home/HomeRecentRequests";
@@ -109,7 +109,7 @@ const DOCS_LINK =
 export default function HomePageClient({ machineId }: HomePageClientProps) {
   const router = useRouter();
   const isElectron = useIsElectron();
-  const { openExternal } = useOpenExternal();
+  const openExternal = useOpenExternal();
   const t = useTranslations("home");
   const tp = useTranslations("providers");
   const [providerConnections, setProviderConnections] = useState([]);
@@ -133,8 +133,7 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
   const [updating, setUpdating] = useState(false);
 
   // Platform detection and download links for Electron
-  const platform =
-    typeof globalThis.window === "undefined" ? undefined : globalThis.window.electronAPI?.platform;
+  const platform = usePlatform();
   const electronDownload = useMemo(() => {
     const latest = versionInfo?.latest || "";
     const cleanLatest = latest.replace(/^v/, "");

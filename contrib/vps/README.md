@@ -1,9 +1,8 @@
 # Headless Linux VPS deployment
 
-This bundle runs the published OmniRoute server image on a Linux VPS without
-the Electron desktop shell. It keeps the dashboard on loopback by default,
-does not publish Redis, persists application data, and adds conservative
-resource and log limits.
+This bundle runs the OmniRoute-Slim server image on a Linux VPS. It keeps the
+dashboard on loopback by default, does not publish Redis, persists application
+data, and adds conservative resource and log limits.
 
 Use this bundle when the VPS only needs the API and web dashboard. The existing
 root-level Compose profiles remain the right choice for local development,
@@ -13,7 +12,7 @@ building from source, bundled provider CLIs, or the Playwright/Chromium image.
 
 - A supported Linux distribution with Docker Engine and Docker Compose v2.
 - At least 2 GiB of available RAM for the default limits. The host needs more
-  headroom if other workloads run beside OmniRoute.
+  headroom if other workloads run beside OmniRoute-Slim.
 - SSH access for the loopback dashboard tunnel.
 
 ## Install
@@ -23,9 +22,9 @@ locally avoids assuming that a matching version tag has already been published
 to a container registry:
 
 ```bash
-git switch --detach release/v3.8.50
-test "$(node -p "require('./package.json').version")" = "3.8.50"
-docker build --target runner-base --tag omniroute:3.8.50-vps .
+git switch --detach release/v3.9.0
+test "$(node -p "require('./package.json').version")" = "3.9.0"
+docker build --target runner-base --tag omniroute-slim:3.9.0-vps .
 ```
 
 Then initialize the deployment from the repository root:
@@ -99,7 +98,7 @@ Stop writes before copying SQLite data, then archive the named volume:
 docker compose stop omniroute
 mkdir -p backups
 docker run --rm \
-  -v omniroute-vps_omniroute-data:/data:ro \
+  -v omniroute-slim-vps_omniroute-data:/data:ro \
   -v "$PWD/backups:/backup" \
   docker.io/library/alpine:3.23 \
   tar -C /data -czf /backup/omniroute-data.tar.gz .

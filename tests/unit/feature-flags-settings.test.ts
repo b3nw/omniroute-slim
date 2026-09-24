@@ -34,14 +34,10 @@ const {
   isDisableStaticRegistryModelsEnabled,
 } = await import("../../src/shared/utils/featureFlags.ts");
 
-// #10889 added OMNIROUTE_OIDC_DISABLE_PASSWORD_LOGIN, bumping the count to 51.
-// The codex-app-server work then added OMNIROUTE_CODEX_APP_SERVER_ENABLED
-// (feature flag gating the opt-in Codex app-server WebSocket transport),
-// bumping it from 51 to 52. NO_THINKING_ALIAS_ENABLED (master switch for the
-// no-think/<provider>/<model> gateway aliases) then bumped it from 52 to 53.
-// OMNIROUTE_DISABLE_THINKING_LEVEL_VARIANTS bumped it from 53 to 54.
-// OMNIROUTE_SUPPRESS_BUILTIN_MODELS bumped it from 54 to 55.
-const EXPECTED_FEATURE_FLAG_COUNT = 55;
+// The OmniRoute-Slim excision passes removed the flags belonging to excised
+// subsystems. The last of them were RADAR_ENABLED (Radar module) and
+// SKILLS_SANDBOX_NETWORK_ENABLED (skills sandbox), leaving 49.
+const EXPECTED_FEATURE_FLAG_COUNT = 49;
 
 // ──────────────────────────────────────────────────────
 // Test group 1 — Flag definitions registry
@@ -360,8 +356,8 @@ describe("resolveFeatureFlag", () => {
     });
 
     it("returns true for '1'", () => {
-      setFeatureFlagOverride("SKILLS_SANDBOX_NETWORK_ENABLED", "1");
-      assert.ok(isFeatureFlagEnabled("SKILLS_SANDBOX_NETWORK_ENABLED"));
+      setFeatureFlagOverride("REQUIRE_API_KEY", "1");
+      assert.ok(isFeatureFlagEnabled("REQUIRE_API_KEY"));
     });
 
     it("returns true for 'yes'", () => {
@@ -533,12 +529,6 @@ describe("featureFlagUpdateSchema validation", () => {
     assert.ok(!knownKeys.has("UNKNOWN_FLAG_XYZ"), "UNKNOWN_FLAG_XYZ should not be a known key");
   });
 
-  it("validates that INJECTION_GUARD_MODE has known enum values", () => {
-    const def = FEATURE_FLAG_DEFINITIONS.find((d) => d.key === "INJECTION_GUARD_MODE");
-    assert.ok(def, "INJECTION_GUARD_MODE should exist");
-    assert.deepStrictEqual(def.enumValues, ["off", "warn", "block", "redact"]);
-  });
-
   it("validates that TOOL_POLICY_MODE has known enum values", () => {
     const def = FEATURE_FLAG_DEFINITIONS.find((d) => d.key === "TOOL_POLICY_MODE");
     assert.ok(def, "TOOL_POLICY_MODE should exist");
@@ -554,7 +544,7 @@ describe("featureFlagUpdateSchema validation", () => {
 
   it("setFeatureFlagOverride throws for invalid enum value", () => {
     assert.throws(
-      () => setFeatureFlagOverride("INJECTION_GUARD_MODE", "invalid_mode"),
+      () => setFeatureFlagOverride("TOOL_POLICY_MODE", "invalid_mode"),
       /Invalid value/
     );
   });
