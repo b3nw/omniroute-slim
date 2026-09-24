@@ -100,7 +100,7 @@ export function getConnectionLabel(connection: ClaudeConnectionLike): string {
 
 export function sanitizeFileNamePart(value: string): string {
   // Keep alphanumerics, dot, underscore, hyphen and @ so email addresses survive
-  // intact in the exported filename (e.g. `claude-auth-diego@example.com.json`).
+  // intact in the exported filename (e.g. `claude-auth-alice@example.com.json`).
   const normalized = value
     .trim()
     .toLowerCase()

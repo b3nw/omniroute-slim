@@ -6,7 +6,7 @@
  * - Domain: mask everything except the final `visibleChars`
  *
  * @example
- *   maskEmail("diego.souza@outlook.com.br")  // "die********@***********.br"
+ *   maskEmail("alice.smith@outlook.com.br")  // "ali********@***********.br"
  *   maskEmail("user@gmail.com")              // "use*@******.com"
  *   maskEmail("a@b.com")                     // "a@b.com"  (too short to mask)
  */
