@@ -14,7 +14,6 @@ const core = await import("../../src/lib/db/core.ts");
 const apiKeysDb = await import("../../src/lib/db/apiKeys.ts");
 const { updateSettings } = await import("@/lib/db/settings");
 const localDb = { updateSettings };
-const compliance = await import("../../src/lib/compliance/index.ts");
 const listRoute = await import("../../src/app/api/keys/route.ts");
 const keyRoute = await import("../../src/app/api/keys/[id]/route.ts");
 const revealRoute = await import("../../src/app/api/keys/[id]/reveal/route.ts");
@@ -131,7 +130,6 @@ test("POST /api/keys creates a key, preserves special characters, and persists n
   assert.match(body.key, /^sk-[a-z0-9-]+/i);
   assert.equal(stored?.noLog, true);
   assert.equal(stored?.compressionEnabled, true);
-  assert.equal(compliance.isNoLog(body.id), true);
 });
 
 test("POST /api/keys validates missing and oversized names", async () => {

@@ -17,7 +17,6 @@ const combosDb = await import("../../src/lib/db/combos.ts");
 const groupsDb = await import("../../src/lib/db/quotaGroups.ts");
 const poolsDb = await import("../../src/lib/db/quotaPools.ts");
 const providersDb = await import("../../src/lib/db/providers.ts");
-const compliance = await import("../../src/lib/compliance/index.ts");
 const poolIdRoute = await import("../../src/app/api/quota/pools/[id]/route.ts");
 const { removeQuotaCombosForPool, syncQuotaCombos } =
   await import("../../src/lib/quota/quotaCombos.ts");
@@ -90,7 +89,6 @@ function nextImmediate(): Promise<void> {
 
 test.beforeEach(() => {
   resetDb();
-  compliance.initAuditLog();
 });
 
 test.after(() => {
@@ -199,16 +197,6 @@ test("DELETE pool waits for scoped quota-combo cleanup before returning 204", as
     0
   );
   assert.deepEqual(getAllowedQuotas(apiKey.id), [otherGroupPool.id]);
-  const auditEvents = compliance.getAuditLog({ action: "quota.pool.deleted", limit: 10 });
-  assert.ok(
-    auditEvents.some(
-      (event) =>
-        typeof event === "object" &&
-        event !== null &&
-        (event as Record<string, unknown>).target === targetPool.id
-    ),
-    "successful DELETE must record quota.pool.deleted audit event"
-  );
 });
 
 test("DELETE prevents an in-flight create sync from recreating quota combos", async () => {

@@ -79,8 +79,8 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     needs: changes
-    # P3 (plano mestre): a release-PR viva fica DRAFT o ciclo inteiro — jobs pesados pulam
-    # drafts (ciclo v3.8.44: 123 runs pesados re-disparados por merges na release, 88 cancelados).
+    # The live release PR stays in DRAFT for the whole cycle, and heavy jobs skip drafts
+    # (cycle v3.8.44: 123 heavy runs re-triggered by merges into the release, 88 cancelled).
     # Path filter: pure docs / pure message-catalog PRs skip the code lint bag + typecheck.
     # Existence reason of this job is code regression; docs/i18n have dedicated jobs.
     if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false && needs.changes.outputs.code == 'true') }}
@@ -143,17 +143,6 @@ jobs:
       - run: npm run check:route-guard-membership
       - run: npm run check:test-discovery
       - run: npm run check:tracked-artifacts
-      # (gap 30) Also lives in quality.yml's PR-only "Merge integrity" job — because the
-      # CHANGELOG half of that job needs a base to diff against. This half does NOT: the
-      # generator either reproduces the committed SKILL.md files or it does not.
-      #
-      # Keeping it PR-only left a real hole. This cycle's merge trains landed in batches with
-      # `--admin`, which bypasses required checks, so three SKILL.md files drifted from the route
-      # catalog, rode the release squash into `main`, and the next cycle's sync-back turned them
-      # into a base-red that blocked EVERY PR into release/v3.8.50 until #8954. Running it here
-      # means a push to `main` catches the drift at the source instead of the next cycle
-      # inheriting it.
-      - run: npm run check:agent-skills-sync
       # WS1.7 (v3.8.49 plan): Dockerfile lint (hadolint, pinned by digest).
       # failure-threshold=error keeps the 5 pre-existing warnings (DL3008/DL3003/
       # DL3016 version pinning / WORKDIR) visible without blocking; any ERROR fails.
@@ -217,11 +206,11 @@ jobs:
           # stale per-file verdicts, which is exactly how 215 pre-existing errors stayed
           # invisible for a whole cycle. Exact key or a cold full lint (~13 min) — never a
           # partial cache from another configuration.
-      # Coverage mergeada (coverage-summary.json) p/ o ratchet de cobertura.
-      # continue-on-error: o artifact pode não existir se a job test-coverage foi
-      # SKIPPED (shard flaky). Nesse caso collect-metrics pula coverage.* (ausente sem
-      # erro) e o ratchet roda com --allow-missing — as métricas determinísticas
-      # (eslint/complexity/cognitive) seguem BLOQUEANTES.
+      # Merged coverage (coverage-summary.json) for the coverage ratchet.
+      # continue-on-error: the artifact may not exist if the test-coverage job was
+      # SKIPPED (flaky shard). In that case collect-metrics skips coverage.* (absent,
+      # not an error) and the ratchet runs with --allow-missing — the deterministic
+      # metrics (eslint/complexity/cognitive) stay BLOCKING.
       - uses: actions/download-artifact@v8
         continue-on-error: true
         with:
@@ -235,41 +224,43 @@ jobs:
           name: eslint-results
           path: .artifacts/
       - run: npm run quality:collect
-      # Catraca: falha se qualquer métrica regredir vs quality-baseline.json (commitado).
-      # Hoje: contagem de warnings do ESLint. Fase 4 estende com cobertura (lida do
-      # coverage mergeado). Tamanho de arquivo e duplicação têm gates dedicados.
-      # --allow-missing: pula métricas do baseline ausentes do collect (coverage.* quando
-      # o artifact não veio) em vez de falhar — mantém os gates determinísticos ativos.
+      # Ratchet: fails if any metric regresses vs quality-baseline.json (committed).
+      # Today: the ESLint warning count. Phase 4 extends it with coverage (read from the
+      # merged coverage report). File size and duplication have dedicated gates.
+      # --allow-missing: skips baseline metrics absent from the collect step (coverage.*
+      # when the artifact did not arrive) instead of failing — keeps the deterministic
+      # gates active.
       - name: Ratchet check
         run: node scripts/quality/check-quality-ratchet.mjs --allow-missing --summary .artifacts/quality-ratchet.md
-      # Fase 6A.5: require-tighten — BLOQUEANTE (promovido de advisory no fim do ciclo
-      # v3.8.27). Falha quando uma métrica MELHOROU sem o baseline ter sido apertado no
-      # mesmo PR (força capturar ganhos permanentes). As métricas coverage.* carregam
-      # tightenSlack para o gap anti-flake (CI mergeado > baseline) não disparar falso-
-      # positivo. Verificado limpo (exit 0) no tip de release/v3.8.27 com a cobertura
-      # mergeada == baseline (ver a nota _require_tighten_flip_blocking em
+      # Phase 6A.5: require-tighten — BLOCKING (promoted from advisory at the end of the
+      # v3.8.27 cycle). Fails when a metric IMPROVED without the baseline being tightened
+      # in the same PR (forces permanent gains to be captured). The coverage.* metrics
+      # carry tightenSlack so the anti-flake gap (merged CI > baseline) cannot fire a
+      # false positive. Verified clean (exit 0) at the tip of release/v3.8.27 with merged
+      # coverage == baseline (see the _require_tighten_flip_blocking note in
       # config/quality/quality-baseline.json).
       - name: Require-tighten (blocking)
         run: node scripts/quality/check-quality-ratchet.mjs --allow-missing --require-tighten
-      # Catraca de duplicação (jscpd@4 sobre src+open-sse). Roda neste job (paralelo)
-      # para não pesar no caminho crítico do lint.
+      # Duplication ratchet (jscpd@4 over src+open-sse). Runs in this job (in parallel)
+      # so it does not weigh on the lint critical path.
       - name: Duplication ratchet
         run: npm run check:duplication
       # Complexity + cognitive: one ESLint walk, two independent baselines (by ruleId).
       - name: Complexity + cognitive ratchets
         run: npm run check:complexity-ratchets
-      # Fase 7 INT: dead-code, type-coverage promovidos de advisory (quality-extended)
-      # para BLOQUEANTES aqui. cognitive-complexity is folded into the step above.
+      # Phase 7 INT: dead-code and type-coverage were promoted from advisory
+      # (quality-extended) to BLOCKING here. cognitive-complexity is folded into the
+      # step above.
       - name: Dead-code ratchet (knip)
         run: npm run check:dead-code
       - name: Type coverage ratchet
         run: npm run check:type-coverage
       - name: Compression budget ratchet (F2.4 / N4)
         run: npm run check:compression-budget
-      # CodeQL alerts ratchet — BLOQUEANTE (promovido de advisory na v3.8.26).
-      # Lê metrics.codeqlAlerts.value de quality-baseline.json e sai 1 SOMENTE numa
-      # regressão real (alertas abertos > baseline). Falha de medição (gh/auth/api)
-      # é skip gracioso com exit 0 — security-events:read no job-level permissions.
+      # CodeQL alerts ratchet — BLOCKING (promoted from advisory in v3.8.26).
+      # Reads metrics.codeqlAlerts.value from quality-baseline.json and exits 1 ONLY on
+      # a real regression (open alerts > baseline). A measurement failure (gh/auth/api)
+      # is a graceful skip with exit 0 — security-events:read in the job-level permissions.
       - name: CodeQL alerts ratchet (blocking)
         run: npm run check:codeql-ratchet
         env:
@@ -285,7 +276,7 @@ jobs:
           path: .artifacts/quality-ratchet.md
           if-no-files-found: warn
 
-  # Phase 7/8 extended quality gates — MIXED (Etapa 2, v3.8.26). The job no longer
+  # Phase 7/8 extended quality gates — MIXED (stage 2, v3.8.26). The job no longer
   # carries a job-level continue-on-error: the three ratchet-blocking steps below
   # (Secret scan / Workflow lint / Bundle size, all passing --ratchet) FAIL the job
   # on a measured regression vs config/quality/quality-baseline.json. The remaining
@@ -300,8 +291,8 @@ jobs:
     name: Quality Gates (Extended)
     runs-on: ubuntu-latest
     needs: changes
-    # P3 (plano mestre): a release-PR viva fica DRAFT o ciclo inteiro — jobs pesados pulam
-    # drafts (ciclo v3.8.44: 123 runs pesados re-disparados por merges na release, 88 cancelados).
+    # The live release PR stays in DRAFT for the whole cycle, and heavy jobs skip drafts
+    # (cycle v3.8.44: 123 heavy runs re-triggered by merges into the release, 88 cancelled).
     # Path filter: code-only (scanners/ratchets target production surface).
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'hotfix') && (github.event_name != 'pull_request' || (github.event.pull_request.draft == false && needs.changes.outputs.code == 'true')) }}
     steps:
@@ -317,19 +308,20 @@ jobs:
           node-version: ${{ env.CI_NODE_VERSION }}
           cache: npm
       - uses: ./.github/actions/npm-ci-retry
-      # Dead-code, cognitive-complexity, type-coverage foram promovidos ao job
-      # quality-gate (bloqueante) na Fase 7 INT — não rodam aqui para evitar duplo custo.
+      # Dead-code, cognitive-complexity and type-coverage were promoted to the
+      # quality-gate job (blocking) in Phase 7 INT — they do not run here, to avoid
+      # paying for them twice.
       - name: Circular deps (dpdm; advisory)
         continue-on-error: true
         run: npm run check:circular-deps
-      # BLOCKING ratchet (Etapa 2): bundleSize must not regress vs the baseline
+      # BLOCKING ratchet (stage 2): bundleSize must not regress vs the baseline
       # (gzip via @size-limit/file, installed by `npm ci`). --ratchet exits 1 on a
       # measured regression; it SKIPs (exit 0) when the size-limit plugin/build is
       # absent (a non-comparable measurement never blocks).
       - name: Bundle size (ratchet, blocking)
         run: npm run check:bundle-size -- --ratchet
-      # CodeQL ratchet foi PROMOVIDO a BLOQUEANTE no job quality-gate (v3.8.26) —
-      # não roda aqui para evitar duplo run/duplo report.
+      # The CodeQL ratchet was PROMOTED to BLOCKING in the quality-gate job (v3.8.26) —
+      # it does not run here, to avoid a duplicate run and a duplicate report.
       # Install the advisory security scanners so the gates below actually run
       # (they self-skip when the binaries are absent). Robustness lessons baked in:
       #   • `go install …/gitleaks/v8@latest` produces a binary WITHOUT the version
@@ -385,7 +377,7 @@ jobs:
           "$HOME/.local/bin/osv-scanner" --version || true
           "$HOME/.local/bin/oasdiff" --version || true
           zizmor --version || true
-      # BLOCKING ratchet (Etapa 2): secretFindings must not regress vs the baseline.
+      # BLOCKING ratchet (stage 2): secretFindings must not regress vs the baseline.
       # --ratchet exits 1 on a measured regression; it SKIPs (exit 0) when gitleaks
       # is absent (a missing binary never blocks).
       - name: Secret scan (gitleaks, ratchet, blocking)
@@ -398,7 +390,7 @@ jobs:
       # red this gate; the fix is to bump the dep or re-baseline metrics.vulnCount.
       - name: Vulnerability ratchet (osv-scanner, ratchet, blocking)
         run: npm run check:vuln-ratchet -- --ratchet
-      # BLOCKING ratchet (Etapa 2): zizmorFindings must not regress vs the baseline.
+      # BLOCKING ratchet (stage 2): zizmorFindings must not regress vs the baseline.
       # ONLY zizmor is ratcheted — actionlint findings are reported, not blocking.
       # --ratchet exits 1 on a measured zizmor regression; it SKIPs (exit 0) when
       # zizmor is absent (a missing binary never blocks).
@@ -406,7 +398,7 @@ jobs:
         run: npm run check:workflows -- --ratchet
       # OpenAPI breaking-change detection (oasdiff). Diffs the PR's public API
       # contract (docs/openapi.yaml) against the base branch's spec.
-      # BLOCKING ratchet (Fase 9 Onda 0): reads metrics.openapiBreaking.value and
+      # BLOCKING ratchet (phase 9, wave 0): reads metrics.openapiBreaking.value and
       # exits 1 ONLY on a measured regression (count > baseline). It SKIPs (exit 0)
       # when oasdiff is absent or the base spec can't be resolved — a missing
       # measurement never blocks. BASE_REF is read by the script from the env
@@ -420,8 +412,8 @@ jobs:
     name: Docs Sync (Strict)
     runs-on: ubuntu-latest
     needs: changes
-    # P3 (plano mestre): a release-PR viva fica DRAFT o ciclo inteiro — jobs pesados pulam
-    # drafts (ciclo v3.8.44: 123 runs pesados re-disparados por merges na release, 88 cancelados).
+    # The live release PR stays in DRAFT for the whole cycle, and heavy jobs skip drafts
+    # (cycle v3.8.44: 123 heavy runs re-triggered by merges into the release, 88 cancelled).
     # Run when docs OR code change: API/route code can break doc/OpenAPI contract gates.
     if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false && (needs.changes.outputs.docs == 'true' || needs.changes.outputs.code == 'true')) }}
     steps:
@@ -451,8 +443,8 @@ jobs:
     name: Docs Lint (prose — advisory)
     runs-on: ubuntu-latest
     needs: changes
-    # P3 (plano mestre): a release-PR viva fica DRAFT o ciclo inteiro — jobs pesados pulam
-    # drafts (ciclo v3.8.44: 123 runs pesados re-disparados por merges na release, 88 cancelados).
+    # The live release PR stays in DRAFT for the whole cycle, and heavy jobs skip drafts
+    # (cycle v3.8.44: 123 heavy runs re-triggered by merges into the release, 88 cancelled).
     # Prose/markdown only — skip when the PR has no doc surface.
     if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false && needs.changes.outputs.docs == 'true') }}
     # Advisory (warning-first): prose/markdown style must not block merges while the
@@ -482,8 +474,8 @@ jobs:
     name: i18n UI Coverage
     runs-on: ubuntu-latest
     needs: changes
-    # P3 (plano mestre): a release-PR viva fica DRAFT o ciclo inteiro — jobs pesados pulam
-    # drafts (ciclo v3.8.44: 123 runs pesados re-disparados por merges na release, 88 cancelados).
+    # The live release PR stays in DRAFT for the whole cycle, and heavy jobs skip drafts
+    # (cycle v3.8.44: 123 heavy runs re-triggered by merges into the release, 88 cancelled).
     # UI keys move with dashboard code OR message catalogs.
     if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false && (needs.changes.outputs.i18n == 'true' || needs.changes.outputs.code == 'true')) }}
     steps:
@@ -542,8 +534,8 @@ jobs:
   build:
     name: Build
     # Dynamic runner: when the release captain flips the USE_VPS_RUNNER repo var to
-    # 'true' (scripts/vps/release-runner-up.sh does it after the self-hosted VM is
-    # online), the heavy jobs run on the dedicated 32-core VPS runners (label
+    # 'true' after the self-hosted VM is online, the heavy jobs run on the
+    # dedicated 32-core self-hosted runners (label
     # omni-build) instead of queueing on the 20-concurrent-job hosted pool.
     # Safety: fork PRs NEVER reach the self-hosted runner — the expression falls
     # back to ubuntu-latest unless the PR head repo is this repository (push /
@@ -551,7 +543,7 @@ jobs:
     # var unset/false) also falls back to ubuntu-latest.
     runs-on: ${{ (vars.USE_VPS_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","omni-build"]') || 'ubuntu-latest' }}
     needs: changes
-    # The .113 pool runs ONE next-build with room to spare and two at the edge: the
+    # The self-hosted pool runs ONE next-build with room to spare and two at the edge: the
     # box has 31 GB and a single next-build peaks at 14–16 GB RSS. On 2026-08-28
     # 13:50Z the kernel OOM-killed main's build while a PR build ran beside it
     # (five Build jobs had been queued by a burst of PRs). Two lanes: main keeps
@@ -583,7 +575,7 @@ jobs:
       # webpack pass (9min0s vs 17min15s on a 32-core box; multi-core Rust vs webpack's
       # single-threaded compile). Standalone output smoke-validated (server boots,
       # /api/monitoring/health 200). Downstream jobs (e2e ×9, package-artifact,
-      # electron-package-smoke) consume this artifact, so a green run here validates
+      # package-artifact) consume this artifact, so a green run here validates
       # the Turbopack artifact end-to-end.
       - run: npm run build
         env:
@@ -592,7 +584,7 @@ jobs:
         # Use tar so the archive preserves paths relative to CWD (.build/next/...).
         # upload-artifact path-stripping is ambiguous when exclude patterns are used;
         # an explicit tar avoids the double-nesting issue (.build/next/next/...).
-        # Keep standalone/node_modules intact: package/electron jobs consume the
+        # Keep standalone/node_modules intact: the package jobs consume the
         # Next-traced standalone tree and must not replace it with root node_modules.
         run: |
           tar -czf "$RUNNER_TEMP/e2e-build.tar.gz" \
@@ -638,33 +630,34 @@ jobs:
       - run: npm run build:cli
       - name: Assert dist/server.js exists
         run: test -f dist/server.js || (echo "dist/server.js missing — build:cli did not assemble correctly" && exit 1)
-      # `build:cli` monta dist/ mas NAO grava dist/BUILD_SHA — so `build:release` faz
-      # isso, chamando write-build-sha.mjs. O guard de proveniencia do #10427, dentro
-      # de check:pack-artifact, rejeita um artefato sem SHA (e rejeita mesmo com
-      # OMNIROUTE_ALLOW_CANARY_BUILD=1: o que nao da para identificar nao da para
-      # vouchear). Sem este passo o par build+validate deste job e estruturalmente
-      # incompativel e falha 100% das vezes.
+      # `build:cli` assembles dist/ but does NOT write dist/BUILD_SHA — only
+      # `build:release` does that, by calling write-build-sha.mjs. The provenance guard
+      # from #10427, inside check:pack-artifact, rejects an artifact without a SHA (and
+      # rejects it even with OMNIROUTE_ALLOW_CANARY_BUILD=1: what cannot be identified
+      # cannot be vouched for). Without this step the build+validate pair in this job is
+      # structurally incompatible and fails 100% of the time.
       - name: Stamp dist/BUILD_SHA for the provenance guard (#10427)
-        # O SHA TEM de vir do head da PR, nao de `git rev-parse HEAD`. Este workflow
-        # roda em `pull_request`, entao o checkout e o MERGE COMMIT efemero que o
-        # GitHub cria — um commit que nao existe em branch nenhuma e portanto nunca e
-        # ancestral da release. O guard de proveniencia (#10427) rejeita exatamente
-        # isso, e com razao: um artefato carimbado com o merge commit nao pode ser
-        # rastreado ate codigo que passou pelos gates.
+        # The SHA MUST come from the PR head, not from `git rev-parse HEAD`. This
+        # workflow runs on `pull_request`, so the checkout is the ephemeral MERGE COMMIT
+        # that GitHub creates — a commit that exists on no branch and is therefore never
+        # an ancestor of the release. The provenance guard (#10427) rejects exactly that,
+        # and rightly so: an artifact stamped with the merge commit cannot be traced back
+        # to code that passed the gates.
         env:
           OMNIROUTE_BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           export OMNIROUTE_BUILD_SHA="${OMNIROUTE_BUILD_SHA:0:7}"
           node scripts/build/write-build-sha.mjs
-      # O guard de proveniencia checa ancestralidade contra `origin/main` por padrao.
-      # Esse e o ref certo na PUBLICACAO (npm-publish.yml roda em main), mas em
-      # `pull_request` e estruturalmente impossivel: enquanto a PR esta aberta o head
-      # dela NUNCA e ancestral de main — e o checkout raso nem traz `origin/main` para
-      # o grafo local, entao a sonda responde `false` de qualquer jeito. Resultado: o
-      # gate falhava 100% das vezes em PR. Pre-merge o unico invariante checavel e "o
-      # stamp corresponde a branch sob teste", entao apontamos o ref para o head da PR.
-      # Usamos `refs/pull/<N>/head` e nao `head.ref` porque aquele existe no PROPRIO
-      # origin mesmo quando a PR vem de um fork; `head.ref` so existe no repo do autor.
+      # The provenance guard checks ancestry against `origin/main` by default. That is
+      # the right ref at PUBLISH time (npm-publish.yml runs on main), but on
+      # `pull_request` it is structurally impossible: while the PR is open its head is
+      # NEVER an ancestor of main — and the shallow checkout does not even bring
+      # `origin/main` into the local graph, so the probe answers `false` either way.
+      # Result: the gate failed 100% of the time on PRs. Pre-merge, the only checkable
+      # invariant is "the stamp matches the branch under test", so we point the ref at
+      # the PR head. We use `refs/pull/<N>/head` rather than `head.ref` because the
+      # former exists on THIS origin even when the PR comes from a fork; `head.ref`
+      # only exists in the author's repo.
       - name: Resolve the provenance ref for the pack gate (#10427)
         id: provenance-ref
         env:
@@ -688,83 +681,20 @@ jobs:
       - name: Boot-smoke the packed tarball
         run: npm run check:pack-boot
 
-  electron-package-smoke:
-    name: Electron Package Smoke (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    needs: build
-    # WS1.5 (v3.8.49 plan): the Electron native-module path previously executed for
-    # the FIRST time on the release tag — the v3.8.48 Windows bug (npx.cmd spawned
-    # without shell, CVE-2024-27980 behavior change) could only surface at release.
-    # windows-latest runs prepare:bundle (better-sqlite3 prebuild verification since
-    # v13 — the node-gyp rebuild is gone) per release PR; ubuntu keeps the full
-    # pack + headless smoke.
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    env:
-      JWT_SECRET: ci-build-secret-with-sufficient-length-for-validation
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.CI_NODE_VERSION }}
-          cache: npm
-      - uses: ./.github/actions/npm-ci-retry
-      - run: npm run check:node-runtime
-      - name: Download Next.js build artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: next-build
-          # Workspace-relative on purpose: the matrix below includes windows-latest, whose
-          # default shell is pwsh, where $RUNNER_TEMP is empty (it is $env:RUNNER_TEMP) —
-          # #11896's first cut broke the Electron smoke on exactly that. A relative path
-          # works in bash and pwsh alike; hosted workspaces are ephemeral.
-          path: next-build-artifact
-      - name: Extract Next.js build artifact
-        run: |
-          tar -xzf next-build-artifact/e2e-build.tar.gz
-      - name: Install Electron dependencies
-        working-directory: electron
-        run: npm install --no-audit --no-fund
-      - name: Pack Electron app
-        if: runner.os == 'Linux'
-        working-directory: electron
-        run: npm run pack
-      # ADVISORY while the new Windows leg matures (repo convention, dast-smoke
-      # precedent): its first-ever real run (2026-07-15, run 29457533565) died in
-      # 0.7s with the error swallowed by pwsh — bash shell captures stderr and
-      # continue-on-error keeps the heavy gate green while we harden it (#7336).
-      - name: Prepare Electron standalone (Windows prebuild verification)
-        if: runner.os == 'Windows'
-        working-directory: electron
-        continue-on-error: true
-        shell: bash
-        run: npm run prepare:bundle 2>&1
-      - name: Smoke packaged Electron app
-        if: runner.os == 'Linux'
-        env:
-          ELECTRON_SMOKE_TIMEOUT_MS: 60000
-        run: xvfb-run -a npm run electron:smoke:packaged
-
   test-unit:
     name: Unit Tests (${{ matrix.shard }}/8)
     # Same dynamic-runner rule as Build (own-origin only; fallback ubuntu-latest).
     # PINNED to hosted, deliberately not on the USE_VPS_RUNNER switch (gap 19). One variable
     # governed the build and the test jobs, which want OPPOSITE machines: the build needs the
-    # .113's RAM, the tests need the hosted runner's link. Measured on 2026-07-29 —
-    # actions/setup-node took 20m06s on .113 with 4 concurrent runners versus 16s hosted (npm
+    # the self-hosted box's RAM, the tests need the hosted runner's link. Measured on 2026-07-29 —
+    # actions/setup-node took 20m06s on the self-hosted box with 4 concurrent runners versus 16s hosted (npm
     # cache restore saturating the link), while the tests themselves tied, 2m54 vs 2m31. So
     # self-hosted is strictly worse here and there is nothing to configure.
     runs-on: ubuntu-latest
     timeout-minutes: 25
     # needs: changes (not build) — this job never downloads the next-build artifact;
     # gating it on Build only serialized ~20min of wall-clock for nothing. Jobs that
-    # DO consume the artifact (e2e, package-artifact, electron-package-smoke) keep
+    # DO consume the artifact (e2e, package-artifact) keep
     # needs: build. The `if` mirrors Build's own skip condition so docs-only PRs
     # still skip the suite.
     needs: changes
@@ -787,27 +717,29 @@ jobs:
           cache: npm
       - uses: ./.github/actions/npm-ci-retry
       - run: npm run check:node-runtime
-      # QW-d (plano mestre): fonte única — o MESMO npm script dos runs locais (adiciona o
-      # setupPolyfill que o comando inline omitia; o glob canônico vive só no package.json).
-      # D3 (plano mestre): a coverage é coletada NESTE mesmo run (c8/NODE_V8_COVERAGE propaga
-      # aos filhos através do npm) — elimina a matrix Coverage Shard ×8, que re-executava a
-      # suíte inteira só para medir o gate. Padrão usado pelo CI do próprio nodejs/node.
-      # Heap: os shards rodam sob instrumentacao de cobertura do V8, que retem muito
-      # mais memoria que a suite crua. Com o teto antigo de 4096 MB os shards passaram
-      # a abortar com SIGABRT (exit 134, "Ineffective mark-compacts near heap limit")
-      # ao redor de 4086 MB conforme o catalogo de providers cresceu no ciclo v3.8.50 —
-      # todos os testes passavam e o processo morria no fim, o que le como falha de
-      # teste sem ser. O teto vive em `test:unit:ci:shard` (package.json) e agora
-      # acompanha os 8192 MB ja usados pelas variantes nao-shardadas; os runners
-      # GitHub-hosted tem 16 GB.
+      # Single source of truth — the SAME npm script the local runs use (it adds the
+      # setupPolyfill the old inline command omitted; the canonical glob lives only in
+      # package.json).
+      # Coverage is collected in THIS same run (c8/NODE_V8_COVERAGE propagates to child
+      # processes through npm) — that eliminates the Coverage Shard x8 matrix, which
+      # re-ran the whole suite just to measure the gate. Same pattern nodejs/node's own
+      # CI uses.
+      # Heap: the shards run under V8 coverage instrumentation, which retains far more
+      # memory than the bare suite. With the old 4096 MB ceiling the shards started
+      # aborting with SIGABRT (exit 134, "Ineffective mark-compacts near heap limit")
+      # around 4086 MB as the provider catalog grew during the v3.8.50 cycle — every
+      # test passed and the process died at the end, which reads as a test failure
+      # without being one. The ceiling lives in `test:unit:ci:shard` (package.json) and
+      # now matches the 8192 MB already used by the non-sharded variants; GitHub-hosted
+      # runners have 16 GB.
       - name: Unit tests (shard ${{ matrix.shard }}/8) with V8 coverage
         env:
           TEST_SHARD: ${{ matrix.shard }}/8
-          # NODE_OPTIONS (nao so o flag em test:unit:ci:shard) porque quem estoura o
-          # heap e o processo `c8` que embrulha a suite — ele agrega ~577 MB de JSON
-          # de cobertura bruta. Subir o teto so no node filho deixa o pai no default
-          # do V8 (~4 GB) e o OOM continua igual, em ~4083 MB. Mesmo padrao ja usado
-          # pelo job de merge de cobertura mais abaixo.
+          # NODE_OPTIONS (not just the flag in test:unit:ci:shard) because what blows
+          # the heap is the `c8` process wrapping the suite — it aggregates ~577 MB of
+          # raw coverage JSON. Raising the ceiling only on the child node leaves the
+          # parent at V8's default (~4 GB) and the OOM stays exactly the same, at
+          # ~4083 MB. Same pattern the coverage-merge job further below already uses.
           NODE_OPTIONS: --max-old-space-size=8192
         run: |
           rm -rf coverage-shard coverage-shard-report
@@ -862,8 +794,8 @@ jobs:
     # Same dynamic-runner rule as Build (own-origin only; fallback ubuntu-latest).
     # PINNED to hosted, deliberately not on the USE_VPS_RUNNER switch (gap 19). One variable
     # governed the build and the test jobs, which want OPPOSITE machines: the build needs the
-    # .113's RAM, the tests need the hosted runner's link. Measured on 2026-07-29 —
-    # actions/setup-node took 20m06s on .113 with 4 concurrent runners versus 16s hosted (npm
+    # the self-hosted box's RAM, the tests need the hosted runner's link. Measured on 2026-07-29 —
+    # actions/setup-node took 20m06s on the self-hosted box with 4 concurrent runners versus 16s hosted (npm
     # cache restore saturating the link), while the tests themselves tied, 2m54 vs 2m31. So
     # self-hosted is strictly worse here and there is nothing to configure.
     runs-on: ubuntu-latest
@@ -905,7 +837,7 @@ jobs:
           token: ${{ secrets.TRUNK_TOKEN }}
 
   # Node 24/26 compatibility matrices moved to .github/workflows/nightly-compat.yml
-  # (plano mestre testes+CI, Eixo D2 — they cost ~28% of every heavy run to catch a
+  # (testing+CI master plan, axis D2 — they cost ~28% of every heavy run to catch a
   # failure class that rarely originates in a PR; nightly catches it within 24h and
   # the release gate can still exercise them via workflow_dispatch when needed).
   test-coverage:
@@ -959,7 +891,7 @@ jobs:
           # Gate aligned to the project's local coverage bar: `npm run test:coverage`
           # gates at 60/60/60/60, so CI must match it (the previous CI floor of 40
           # silently undershot the local bar — a real drift). Real merged coverage is
-          # ~79/79/82/75, so 60 is a conservative floor with headroom; the Fase-4
+          # ~79/79/82/75, so 60 is a conservative floor with headroom; the phase-4
           # coverage ratchet (quality-baseline.json) layers "must not drop vs baseline"
           # on top of this floor.
           npx c8 report \
@@ -1114,7 +1046,7 @@ jobs:
               echo ""
               echo "## PR Test Policy"
               echo ""
-              echo "This PR changes production code in \`src/\`, \`open-sse/\`, \`electron/\`, or \`bin/\` without accompanying automated tests."
+              echo "This PR changes production code in \`src/\`, \`open-sse/\`, or \`bin/\` without accompanying automated tests."
             fi
           } > .artifacts/pr-coverage-comment.md
       - uses: actions/github-script@v9
@@ -1355,7 +1287,6 @@ jobs:
       - pr-test-policy
       - build
       - package-artifact
-      - electron-package-smoke
       - test-unit
       - test-coverage
       - sonarqube
@@ -1424,7 +1355,6 @@ jobs:
           echo "|-----|--------|" >> "$GITHUB_STEP_SUMMARY"
           echo "| Build Matrix | $(status '${{ needs.build.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Package Artifact | $(status '${{ needs.package-artifact.result }}') |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Electron Package Smoke | $(status '${{ needs.electron-package-smoke.result }}') |" >> "$GITHUB_STEP_SUMMARY"
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "## 🧪 Tests" >> "$GITHUB_STEP_SUMMARY"

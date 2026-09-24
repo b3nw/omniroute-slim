@@ -394,9 +394,6 @@ endpoints require management authentication.
 - Dashboard: `/dashboard/cloud-agents`
 - Storage: `cloud_agent_tasks` table
 
-For per-agent provisioning and OAuth specifics, see
-[`docs/frameworks/CLOUD_AGENT.md`](../frameworks/CLOUD_AGENT.md).
-
 ### C. Guardrails
 
 The guardrails module is a hot-reloadable middleware layer that inspects requests
@@ -496,7 +493,6 @@ For the full stealth playbook and operational guidance, see
   - Dispatcher: `src/lib/webhookDispatcher.ts`
   - Storage: `webhooks` SQLite table (via `src/lib/db/webhooks.ts`)
   - Dashboard: `/dashboard/webhooks` (subscriptions, secrets, retry history)
-  - For event taxonomy and retry semantics, see [`docs/frameworks/WEBHOOKS.md`](../frameworks/WEBHOOKS.md).
 - **Reasoning Cache** — replayable reasoning blocks for providers that emit
   thinking tokens (Claude, GLMT, etc.) so consecutive turns can skip re-thinking.
   - DB layer: `src/lib/db/reasoningCache.ts`

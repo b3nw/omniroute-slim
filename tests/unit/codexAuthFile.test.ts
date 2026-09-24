@@ -24,7 +24,7 @@ function sanitizeFileNamePart(value: string): string {
 }
 
 test("sanitizeFileNamePart keeps @ and . for emails", () => {
-  assert.equal(sanitizeFileNamePart("Diego.Souza@example.com"), "diego.souza@example.com");
+  assert.equal(sanitizeFileNamePart("Alice.Smith@example.com"), "alice.smith@example.com");
   assert.equal(sanitizeFileNamePart("user-1@example.io"), "user-1@example.io");
 });
 
@@ -47,11 +47,11 @@ test("sanitizeFileNamePart trims leading/trailing dashes", () => {
 });
 
 test("JWT email extraction: standard 'email' claim wins", () => {
-  const idToken = buildJwt({ email: "diego@example.com", sub: "abc" });
+  const idToken = buildJwt({ email: "alice@example.com", sub: "abc" });
   // Decode payload as the helper does
   const parts = idToken.split(".");
   const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
-  assert.equal(payload.email, "diego@example.com");
+  assert.equal(payload.email, "alice@example.com");
 });
 
 test("JWT email extraction: missing claim returns null/falsy", () => {
@@ -62,9 +62,9 @@ test("JWT email extraction: missing claim returns null/falsy", () => {
 });
 
 test("filename format: auth-{email}.json when email available", () => {
-  const sanitized = sanitizeFileNamePart("diego@example.com");
+  const sanitized = sanitizeFileNamePart("alice@example.com");
   const filename = `auth-${sanitized}.json`;
-  assert.equal(filename, "auth-diego@example.com.json");
+  assert.equal(filename, "auth-alice@example.com.json");
 });
 
 test("filename format: auth-{label}.json fallback when no email", () => {

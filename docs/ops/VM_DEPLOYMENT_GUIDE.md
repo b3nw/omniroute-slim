@@ -408,7 +408,7 @@ npx wrangler login
 npx wrangler deploy
 ```
 
-See also [TUNNELS_GUIDE.md](./TUNNELS_GUIDE.md) for the in-repo Cloudflare Tunnel walkthrough. The standalone `omnirouteCloud/` worker lives in a separate companion repo.
+The standalone `omnirouteCloud/` worker lives in a separate companion repo.
 
 ---
 

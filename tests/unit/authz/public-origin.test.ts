@@ -227,15 +227,15 @@ describe("direct LAN/loopback host origin (#5340)", () => {
       method: "POST",
       headers: {
         ...stampedPeer("192.168.0.50"),
-        host: "192.168.1.100:20128",
-        origin: "http://192.168.1.100:20128",
+        host: "192.168.1.15:20128",
+        origin: "http://192.168.1.15:20128",
         "sec-fetch-site": "same-origin",
       },
     });
 
     assert.equal(
       getPublicOriginCandidates(request).some(
-        (candidate) => candidate.origin === "http://192.168.1.100:20128"
+        (candidate) => candidate.origin === "http://192.168.1.15:20128"
       ),
       true
     );
@@ -282,8 +282,8 @@ describe("direct LAN/loopback host origin (#5340)", () => {
       method: "POST",
       headers: {
         ...stampedPeer("203.0.113.7"),
-        host: "192.168.1.100:20128",
-        origin: "http://192.168.1.100:20128",
+        host: "192.168.1.15:20128",
+        origin: "http://192.168.1.15:20128",
         "sec-fetch-site": "same-origin",
       },
     });
@@ -295,8 +295,8 @@ describe("direct LAN/loopback host origin (#5340)", () => {
     const request = new Request("http://omniroute:20128/api/keys", {
       method: "POST",
       headers: {
-        host: "192.168.1.100:20128",
-        origin: "http://192.168.1.100:20128",
+        host: "192.168.1.15:20128",
+        origin: "http://192.168.1.15:20128",
         "sec-fetch-site": "same-origin",
       },
     });
@@ -309,8 +309,8 @@ describe("direct LAN/loopback host origin (#5340)", () => {
       method: "POST",
       headers: {
         ...stampedPeer("192.168.0.50"),
-        host: "192.168.1.100:20128",
-        origin: "https://192.168.1.100:20128",
+        host: "192.168.1.15:20128",
+        origin: "https://192.168.1.15:20128",
         "sec-fetch-site": "same-origin",
       },
     });

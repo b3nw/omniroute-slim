@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 CREATE TABLE IF NOT EXISTS playground_presets (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,

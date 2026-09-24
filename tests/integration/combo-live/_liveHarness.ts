@@ -9,8 +9,10 @@
  * { LIVE_ENABLED: false }.
  *
  * SAFETY:
- *  - VPS access is READ-ONLY: one `grep` of the .env file + `scp` of the DB.
- *    No writes, no deletes, nothing else touches 192.168.1.100.
+ *  - Remote access is READ-ONLY: one `grep` of the .env file + `scp` of the DB.
+ *    No writes, no deletes, nothing else touches the remote host.
+ *  - The remote host is NOT hardcoded: set COMBO_LIVE_SSH_HOST (e.g.
+ *    `user@my-omniroute-host`) alongside the RUN_COMBO_LIVE=1 gate.
  *  - The snapshot file holds real production credentials. It lives only under
  *    the OS temp dir created here, is never written into the repo, and is
  *    deleted in cleanup().
@@ -26,6 +28,9 @@ import path from "node:path";
 // ---------------------------------------------------------------------------
 
 export const LIVE_ENABLED = process.env.RUN_COMBO_LIVE === "1";
+
+/** SSH target for the read-only snapshot, e.g. "user@my-omniroute-host". */
+const SSH_HOST = process.env.COMBO_LIVE_SSH_HOST ?? "";
 
 // In-scope provider ids (from the task spec).
 const IN_SCOPE_PROVIDERS = new Set([
@@ -117,6 +122,13 @@ export async function createLiveHarness(prefix: string): Promise<LiveHarness> {
     return { LIVE_ENABLED: false };
   }
 
+  if (!SSH_HOST) {
+    throw new Error(
+      "[liveHarness] COMBO_LIVE_SSH_HOST is required when RUN_COMBO_LIVE=1 " +
+        '(e.g. COMBO_LIVE_SSH_HOST="user@my-omniroute-host").'
+    );
+  }
+
   // -------------------------------------------------------------------------
   // 1. Create a temp dir to hold the snapshot (treat as sensitive).
   // -------------------------------------------------------------------------
@@ -132,10 +144,7 @@ export async function createLiveHarness(prefix: string): Promise<LiveHarness> {
   try {
     const output = execFileSync(
       "ssh",
-      [
-        "root@192.168.1.100",
-        'grep -E "^(STORAGE_ENCRYPTION_KEY|API_KEY_SECRET)=" ~/.omniroute/.env',
-      ],
+      [SSH_HOST, 'grep -E "^(STORAGE_ENCRYPTION_KEY|API_KEY_SECRET)=" ~/.omniroute/.env'],
       { encoding: "utf8", timeout: 15_000 }
     );
 
@@ -178,7 +187,7 @@ export async function createLiveHarness(prefix: string): Promise<LiveHarness> {
   const snapshotDbPath = path.join(snapshotDir, "storage.sqlite");
 
   try {
-    execFileSync("scp", ["root@192.168.1.100:/root/.omniroute/storage.sqlite", snapshotDbPath], {
+    execFileSync("scp", [`${SSH_HOST}:~/.omniroute/storage.sqlite`, snapshotDbPath], {
       timeout: 60_000,
     });
   } catch (err: any) {
@@ -199,7 +208,8 @@ export async function createLiveHarness(prefix: string): Promise<LiveHarness> {
   const { BaseExecutor } = await import("../../../open-sse/executors/base.ts");
   const { resetAllCircuitBreakers } = await import("../../../src/shared/utils/circuitBreaker.ts");
   const { clearInflight } = await import("../../../open-sse/services/requestDedup.ts");
-  const semanticCacheModule = await import("../../../src/lib/semanticCache.ts");
+  // Semantic cache is excised in OmniRoute-Slim; inert stub keeps the shape.
+  const semanticCacheModule = { clearCache: () => {} };
   const { clearIdempotency } = await import("../../../src/lib/idempotencyLayer.ts");
   const { invalidateDbCache } = await import("../../../src/lib/db/readCache.ts");
 

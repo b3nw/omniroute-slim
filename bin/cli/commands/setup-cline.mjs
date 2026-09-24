@@ -172,7 +172,7 @@ export function registerSetupCline(program) {
       "Configure Cline for OmniRoute: write ~/.cline/data (CLI mode) + print VS Code extension settings"
     )
     .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "20128")
-    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.1.100:20128")
+    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://<your-server-ip>:20128")
     .option("--api-key <key>", "OmniRoute API key (defaults to OMNIROUTE_API_KEY env var)")
     .option("--model <id>", "Model id for Cline (required unless picked interactively)")
     .option("--cline-dir <dir>", "Cline data dir (default: ~/.cline/data)")

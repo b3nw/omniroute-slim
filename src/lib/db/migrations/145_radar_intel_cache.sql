@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 -- Signed, live-only Radar Intel feed cache. The supporter identity is a
 -- one-way SHA-256 marker (`radar:<64 hex>`) and never contains the raw key.
 CREATE TABLE IF NOT EXISTS radar_intel_cache (

@@ -24,11 +24,11 @@ Machine from a macOS or Windows host.
 
 ```bash
 cd /path/to/omniroute
-podman build --target runner-base -t omniroute:base .
+podman build --target runner-base -t omniroute-slim:base .
 # For web-cookie providers (gemini-web, claude-web, claude-turnstile):
-podman build --target runner-web -t omniroute:web .
+podman build --target runner-web -t omniroute-slim:web .
 # For CLI tool support:
-podman build --target runner-cli -t omniroute:cli .
+podman build --target runner-cli -t omniroute-slim:cli .
 ```
 
 ### 2. Copy Quadlet files to the systemd directory
@@ -106,7 +106,7 @@ mkdir -p data
 
 ### 3. Build and start
 
-The application profiles use local image names such as `omniroute:base`; those
+The application profiles use local image names such as `omniroute-slim:base`; those
 are build outputs, not published Docker Hub tags. On the first run, have Compose
 build the selected profile:
 
@@ -118,7 +118,7 @@ Alternatively, build the matching target explicitly and tell Compose to reuse
 that local image:
 
 ```bash
-podman build --target runner-base -t omniroute:base .
+podman build --target runner-base -t omniroute-slim:base .
 podman compose --profile base up -d --no-build
 ```
 
@@ -170,7 +170,7 @@ podman run -d --name omniroute \
   -e DATA_DIR=/app/data \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  docker.io/diegosouzapw/omniroute:latest
+  localhost/omniroute-slim:base
 ```
 
 For a bind mount that still fails, inspect or repair the shared path from the

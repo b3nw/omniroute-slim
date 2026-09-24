@@ -7,13 +7,13 @@
 // inexistentes; 43% dos nomes alucinados reaparecem, registráveis por atacantes).
 // A revisão humana ao adicionar à allowlist é o ponto de controle.
 //
-// 6A.8: Expandido de 2 manifests hardcoded (package.json + electron/package.json)
+// 6A.8: Expandido de manifests hardcoded (package.json + workspaces)
 // para descoberta automática de TODOS os package.json do repo, excluindo:
 //   - node_modules/ (dep tree)
 //   - .next/, .build/, dist/, dist-electron/ (build artefatos)
 //   - .claude/ (worktrees de agentes)
 //   - _references/, _mono_repo/ (código de referência não pertencente ao repo)
-// Isso garante que workspaces novos (opencode-plugin, opencode-provider, open-sse, etc.)
+// Isso garante que workspaces novos (opencode-plugin, open-sse, etc.)
 // sejam automaticamente cobertos sem edição do script.
 //
 // Task 7.8: Anti-slopsquatting completo — para deps NOVAS (fora da allowlist),

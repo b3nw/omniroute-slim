@@ -60,8 +60,7 @@ Check for an open freeze before assuming the branch you want is mergeable:
 gh issue list --repo diegosouzapw/OmniRoute --label release-freeze --state open
 ```
 
-Merge mechanics (owner `queue` label → Mergify) are documented in
-[MERGE_TRAIN.md](./MERGE_TRAIN.md).
+Merge mechanics are driven by the owner `queue` label → Mergify.
 
 ## Why both a branch and a tag?
 
@@ -78,5 +77,4 @@ release PR to finish.
 
 - [CONTRIBUTING.md](../../CONTRIBUTING.md) — setup, tests, PR checklist
 - [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md) — pre-ship validation
-- [MERGE_TRAIN.md](./MERGE_TRAIN.md) — merge queue and fallback train
 - [RELEASE_GREEN.md](./RELEASE_GREEN.md) — keeping the release tip green

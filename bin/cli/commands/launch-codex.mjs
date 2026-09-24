@@ -280,7 +280,7 @@ export function registerLaunchCodex(program) {
     .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "20128")
     .option(
       "--remote <url>",
-      "Remote OmniRoute base URL, e.g. http://192.168.1.100:20128 (overrides --port + context)"
+      "Remote OmniRoute base URL, e.g. http://<your-server-ip>:20128 (overrides --port + context)"
     )
     .option("--profile <name>", "Codex profile to activate (passed as --profile <name>)")
     .option("-p, --p <name>", "Alias for --profile")

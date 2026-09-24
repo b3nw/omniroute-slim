@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 -- 073_memory_vec.sql
 -- Memory Engine Redesign (plan 21): metadata table for sqlite-vec.
 -- The actual virtual table `vec_memories(memory_id INTEGER, embedding float[N])`

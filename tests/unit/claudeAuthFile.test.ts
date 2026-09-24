@@ -131,7 +131,7 @@ function buildClaudeAuthPayload(connection: ClaudeConnectionLike): ClaudeAuthFil
 // ──── Tests: sanitizeFileNamePart ─────────────────────────────────────────────
 
 test("sanitizeFileNamePart keeps @ and . for emails", () => {
-  assert.equal(sanitizeFileNamePart("Diego.Souza@example.com"), "diego.souza@example.com");
+  assert.equal(sanitizeFileNamePart("Alice.Smith@example.com"), "alice.smith@example.com");
   assert.equal(sanitizeFileNamePart("user-1@example.io"), "user-1@example.io");
 });
 

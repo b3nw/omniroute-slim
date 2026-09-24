@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 -- 022_add_memory_fts5.sql
 -- Full-Text Search (FTS5) virtual table for memory fast searching.
 -- Provides efficient semantic and exact-match searching on memory content and keys.

@@ -8,7 +8,7 @@
  * across every connection in a rotation group, so two siblings never hit Auth0's
  * /oauth/token at the same time. Non-rotating providers are left untouched.
  *
- * Evidence: VM 192.168.1.100 logs showed bursts of 5-6 Codex refreshes within
+ * Evidence: production logs showed bursts of 5-6 Codex refreshes within
  * ~14s whenever a batch of accounts was added — exactly the cascade trigger.
  */
 import test from "node:test";

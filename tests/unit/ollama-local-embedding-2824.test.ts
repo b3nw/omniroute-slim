@@ -12,7 +12,6 @@ const { getEmbeddingProvider, parseEmbeddingModel } =
 const { handleEmbedding } = await import("../../open-sse/handlers/embeddings.ts");
 const core = await import("../../src/lib/db/core.ts");
 const { createProviderConnection } = await import("../../src/lib/db/providers.ts");
-const { createEmbeddingResponse } = await import("../../src/lib/embeddings/service.ts");
 
 test.after(() => {
   core.resetDbInstance();
@@ -171,42 +170,3 @@ test("ollama-local strips a pathological run of trailing slashes without ReDoS (
   assert.equal(capturedUrl, "http://192.168.1.100:11434/v1/embeddings");
 });
 
-test("ollama-local service hydrates the configured connection host without requiring a key", async () => {
-  await createProviderConnection({
-    provider: "ollama-local",
-    authType: "none",
-    name: "LAN Ollama",
-    isActive: true,
-    providerSpecificData: { baseUrl: "http://10.10.0.181:11434/v1///" },
-  });
-
-  const originalFetch = globalThis.fetch;
-  let captured: { url: string; headers: Record<string, string> } | null = null;
-  globalThis.fetch = async (url, options = {}) => {
-    captured = {
-      url: String(url),
-      headers: (options.headers as Record<string, string>) || {},
-    };
-    return new Response(
-      JSON.stringify({
-        data: [{ object: "embedding", embedding: [0.5, 0.6], index: 0 }],
-        usage: { prompt_tokens: 2, total_tokens: 2 },
-      }),
-      { status: 200, headers: { "content-type": "application/json" } }
-    );
-  };
-
-  try {
-    const response = await createEmbeddingResponse({
-      model: "ollama-local/embeddinggemma",
-      input: "hello",
-    });
-    assert.equal(response.status, 200);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-
-  assert.ok(captured);
-  assert.equal(captured.url, "http://10.10.0.181:11434/v1/embeddings");
-  assert.equal(captured.headers.Authorization, undefined);
-});

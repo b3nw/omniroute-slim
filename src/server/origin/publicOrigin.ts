@@ -176,7 +176,7 @@ function requestUrlProtocol(request: Request): "http" | "https" {
 
 /**
  * Direct (no-proxy) LAN/loopback access (#5340). When the dashboard is reached
- * over a private-network host — e.g. `http://192.168.1.100:20128` instead of the
+ * over a private-network host — e.g. `http://192.168.1.50:20128` instead of the
  * configured `localhost` base URL — Next.js standalone reports the internal bind
  * host in `request.url`, so the browser's same-origin `Origin` matches no
  * candidate and every mutation is rejected with INVALID_ORIGIN.

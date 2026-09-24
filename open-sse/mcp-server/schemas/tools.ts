@@ -14,7 +14,6 @@ import { toolSearchTool } from "./toolSearch.ts";
 import { pickFastestModelTool } from "./pickFastestModel.ts";
 import { getActiveSearchProviders } from "./providerEnums";
 import { CCR_MCP_TOOLS } from "./ccrTools.ts";
-import { radarCatalogTool } from "./radarCatalog.ts";
 import {
   AUTO_ROUTING_STRATEGY_VALUES,
   ROUTING_STRATEGY_VALUES,
@@ -1450,121 +1449,6 @@ export const oneproxyStatsTool: McpToolDefinition<
   sourceEndpoints: ["/api/settings/oneproxy"],
 };
 
-// --- omniroute_agent_skills_list ---
-export const agentSkillsListInput = z.object({
-  category: z.enum(["api", "cli", "config"]).optional().describe("Filter: api, cli, or config"),
-  area: z.string().optional().describe("Filter by area (e.g. 'providers', 'models', 'cli-serve')"),
-});
-
-export const agentSkillsListOutput = z.object({
-  skills: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      description: z.string(),
-      category: z.enum(["api", "cli", "config"]),
-      area: z.string(),
-      endpoints: z.array(z.string()).optional(),
-      cliCommands: z.array(z.string()).optional(),
-      icon: z.string().optional(),
-      isEntry: z.boolean().optional(),
-      isNew: z.boolean().optional(),
-      rawUrl: z.string(),
-      githubUrl: z.string(),
-    })
-  ),
-  count: z.number(),
-  coverage: z.object({
-    api: z.object({ have: z.number(), total: z.literal(23) }),
-    cli: z.object({ have: z.number(), total: z.literal(21) }),
-    config: z.object({ have: z.number(), total: z.literal(1) }),
-    totalSkills: z.number(),
-    generatedAt: z.string(),
-  }),
-});
-
-export const agentSkillsListTool: McpToolDefinition<
-  typeof agentSkillsListInput,
-  typeof agentSkillsListOutput
-> = {
-  name: "omniroute_agent_skills_list",
-  description:
-    "List OmniRoute agent skills with optional filtering by category (api/cli/config) or area. Returns skill metadata including id, name, description, endpoints/commands, and URLs.",
-  inputSchema: agentSkillsListInput,
-  outputSchema: agentSkillsListOutput,
-  scopes: ["read:catalog"],
-  auditLevel: "none",
-  phase: 2,
-  sourceEndpoints: ["/api/agent-skills"],
-};
-
-// --- omniroute_agent_skills_get ---
-export const agentSkillsGetInput = z.object({
-  id: z.string().describe("Canonical skill ID (e.g. 'omni-providers', 'cli-serve')"),
-});
-
-export const agentSkillsGetOutput = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string(),
-  category: z.enum(["api", "cli", "config"]),
-  area: z.string(),
-  endpoints: z.array(z.string()).optional(),
-  cliCommands: z.array(z.string()).optional(),
-  icon: z.string().optional(),
-  isEntry: z.boolean().optional(),
-  isNew: z.boolean().optional(),
-  rawUrl: z.string(),
-  githubUrl: z.string(),
-  markdown: z.object({
-    id: z.string(),
-    frontmatter: z.object({ name: z.string(), description: z.string() }),
-    body: z.string(),
-    source: z.enum(["filesystem", "github", "generated"]),
-    fetchedAt: z.string(),
-  }),
-});
-
-export const agentSkillsGetTool: McpToolDefinition<
-  typeof agentSkillsGetInput,
-  typeof agentSkillsGetOutput
-> = {
-  name: "omniroute_agent_skills_get",
-  description:
-    "Get detailed metadata and SKILL.md markdown for a single agent skill by its canonical ID. Returns all skill fields plus the raw markdown content.",
-  inputSchema: agentSkillsGetInput,
-  outputSchema: agentSkillsGetOutput,
-  scopes: ["read:catalog"],
-  auditLevel: "none",
-  phase: 2,
-  sourceEndpoints: ["/api/agent-skills/:id", "/api/agent-skills/:id/raw"],
-};
-
-export const agentSkillsCoverageInput = z.object({}).describe("No parameters required");
-
-export const agentSkillsCoverageOutput = z.object({
-  api: z.object({ have: z.number(), total: z.literal(23) }),
-  cli: z.object({ have: z.number(), total: z.literal(21) }),
-  config: z.object({ have: z.number(), total: z.literal(1) }),
-  totalSkills: z.number(),
-  generatedAt: z.string(),
-});
-
-export const agentSkillsCoverageTool: McpToolDefinition<
-  typeof agentSkillsCoverageInput,
-  typeof agentSkillsCoverageOutput
-> = {
-  name: "omniroute_agent_skills_coverage",
-  description:
-    "Returns the current SKILL.md coverage stats: how many of the 23 API, 21 CLI, and 1 config skill have generated SKILL.md files on the filesystem vs the catalog total.",
-  inputSchema: agentSkillsCoverageInput,
-  outputSchema: agentSkillsCoverageOutput,
-  scopes: ["read:catalog"],
-  auditLevel: "none",
-  phase: 2,
-  sourceEndpoints: ["/api/agent-skills"],
-};
-
 export { toolSearchInput, toolSearchOutput, toolSearchTool } from "./toolSearch.ts";
 
 export const MCP_TOOLS = [
@@ -1578,7 +1462,6 @@ export const MCP_TOOLS = [
   routeRequestTool,
   costReportTool,
   listModelsCatalogTool,
-  radarCatalogTool,
   webSearchTool,
   xSearchTool,
   webFetchTool,
@@ -1604,9 +1487,6 @@ export const MCP_TOOLS = [
   oneproxyFetchTool,
   oneproxyRotateTool,
   oneproxyStatsTool,
-  agentSkillsListTool,
-  agentSkillsGetTool,
-  agentSkillsCoverageTool,
   pickFastestModelTool,
 ] as const;
 

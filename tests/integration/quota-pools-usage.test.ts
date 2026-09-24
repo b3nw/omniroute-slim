@@ -29,7 +29,6 @@ const core = await import("../../src/lib/db/core.ts");
 const { updateSettings } = await import("@/lib/db/settings");
 const { createPool, upsertAllocations } = await import("@/lib/db/quotaPools");
 const localDb = { updateSettings };
-const compliance = await import("../../src/lib/compliance/index.ts");
 const { getSqliteQuotaStore } = await import("../../src/lib/quota/sqliteQuotaStore.ts");
 const { resetQuotaStoreSingleton } = await import("../../src/lib/quota/QuotaStore.ts");
 const poolsRoute = await import("../../src/app/api/quota/pools/route.ts");
@@ -49,7 +48,6 @@ function resetDb() {
 
 test.beforeEach(async () => {
   resetDb();
-  compliance.initAuditLog();
 });
 
 test.after(() => {

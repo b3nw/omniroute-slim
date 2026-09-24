@@ -135,7 +135,7 @@ function getConnectionLabel(connection: CodexConnectionLike): string {
 
 function sanitizeFileNamePart(value: string): string {
   // Keep alphanumerics, dot, underscore, hyphen and @ so email addresses survive
-  // intact in the exported filename (e.g. `auth-diego@example.com.json`).
+  // intact in the exported filename (e.g. `auth-alice@example.com.json`).
   const normalized = value
     .trim()
     .toLowerCase()

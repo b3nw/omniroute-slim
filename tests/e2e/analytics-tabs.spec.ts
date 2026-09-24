@@ -122,7 +122,7 @@ test.describe("Analytics Tabs UI", () => {
     });
   });
 
-  test("displays all 5 analytics tabs", async ({ page }) => {
+  test("displays all analytics tabs", async ({ page }) => {
     await gotoDashboardRoute(page, "/dashboard/analytics");
     await waitForAnalyticsShell(page);
 
@@ -135,7 +135,7 @@ test.describe("Analytics Tabs UI", () => {
     const count = await tabButtons.count();
     expect(count).toBeGreaterThanOrEqual(4);
 
-    const tabLabels = ["overview", "evals", "search", "utilization", "combo health"];
+    const tabLabels = ["overview", "search", "utilization", "combo health"];
     for (const label of tabLabels) {
       const tabButton = page
         .locator("button")

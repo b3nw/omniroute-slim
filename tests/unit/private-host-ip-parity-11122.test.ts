@@ -107,7 +107,7 @@ test("an over-long input is rejected rather than fed to the alternation", () => 
 });
 
 test("isPrivateHost keeps its verdicts after the move", () => {
-  for (const host of ["", "localhost", "127.0.0.1", "::1", "[::1]", "10.1.2.3", "192.168.1.100"]) {
+  for (const host of ["", "localhost", "127.0.0.1", "::1", "[::1]", "10.1.2.3", "192.168.1.50"]) {
     assert.equal(isPrivateHost(host), true, `expected private: ${JSON.stringify(host)}`);
   }
   for (const host of ["api.openai.com", "8.8.8.8", "172.32.0.1", "2001:db8::1"]) {

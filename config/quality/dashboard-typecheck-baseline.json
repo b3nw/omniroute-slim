@@ -112,9 +112,6 @@
     "TS2769": 3,
     "TS2345": 3
   },
-  "src/shared/components/SkillsConceptCard.tsx": {
-    "TS2503": 1
-  },
   "src/shared/components/analytics/charts.tsx": {
     "TS2345": 1
   },

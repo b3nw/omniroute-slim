@@ -667,8 +667,8 @@ test("Challenge 5.1: Parse compound strings and verify cooldown calculations", (
 test("Challenge 6.1: Responses never contain stack traces ('at /'), internal file paths, or bearer tokens", () => {
   const toxicErrorMessage = [
     "Error: Upstream request failed with status 500 for token Bearer ya29.a0AfH6SMD_secret123 and secret GOCSPX-secret_xyz",
-    "    at Object.execute (/home/runner/projects/core/llm-proxy/OmniRoute/open-sse/executors/geminiCli.ts:145:12)",
-    "    at async handleChatCore (/home/runner/projects/core/llm-proxy/OmniRoute/open-sse/handlers/chatCore.ts:89:9)",
+    "    at Object.execute (/home/user/projects/core/llm-proxy/OmniRoute/open-sse/executors/geminiCli.ts:145:12)",
+    "    at async handleChatCore (/home/user/projects/core/llm-proxy/OmniRoute/open-sse/handlers/chatCore.ts:89:9)",
     "    at async /app/dist/server.js:42:1",
   ].join("\n");
 
@@ -682,7 +682,7 @@ test("Challenge 6.1: Responses never contain stack traces ('at /'), internal fil
     assert.ok(!msg.includes("at /"));
 
     // 2. Must not contain internal absolute paths
-    assert.ok(!msg.includes("/home/runner"));
+    assert.ok(!msg.includes("/home/user"));
     assert.ok(!msg.includes("/open-sse/"));
     assert.ok(!msg.includes("/app/dist/"));
 
@@ -693,19 +693,19 @@ test("Challenge 6.1: Responses never contain stack traces ('at /'), internal fil
 
   // Verify buildErrorBody output
   const errorBody = buildErrorBody(500, toxicErrorMessage, {
-    internal_path: "/home/runner/sensitive/key.json",
+    internal_path: "/home/user/sensitive/key.json",
     token: "ya29.v0_secret_token",
     safe_info: "Service temporarily unavailable",
   });
 
-  assert.ok(!errorBody.error.message.includes("/home/runner"));
+  assert.ok(!errorBody.error.message.includes("/home/user"));
   assert.ok(!errorBody.error.message.includes("at /"));
   assert.ok(!errorBody.error.message.includes("ya29.a0AfH6SMD_secret123"));
 
   // Check upstream details sanitized
   if (errorBody.upstream_details) {
     const detailsStr = JSON.stringify(errorBody.upstream_details);
-    assert.ok(!detailsStr.includes("/home/runner"));
+    assert.ok(!detailsStr.includes("/home/user"));
     assert.ok(!detailsStr.includes("ya29.v0_secret_token"));
   }
 });

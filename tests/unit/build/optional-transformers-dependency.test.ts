@@ -93,24 +93,10 @@ test("lockfile marks the whole ONNX chain optional", () => {
 test("every @huggingface/transformers consumer loads it lazily so absent installs degrade gracefully", () => {
   // If any module ever switches to a STATIC import of the optional chain,
   // startup crashes on platforms where npm skipped it (Android/Termux).
-  // transformersLocal.ts must keep its lazy await import() (D8/D25);
   // onnxWorker.ts must keep its runtime-variable dynamicImport indirection.
 
-  const embeddingSrc = readFileSync(
-    join(repoRoot, "src/lib/memory/embedding/transformersLocal.ts"),
-    "utf8"
-  );
-  assert.doesNotMatch(
-    embeddingSrc,
-    /^\s*import\s+(?:[^'"]*?\s+from\s+)?["']@huggingface\/transformers["']/m,
-    "transformersLocal.ts must not statically import @huggingface/transformers"
-  );
-  assert.match(
-    embeddingSrc,
-    /await import\(["']@huggingface\/transformers["']\)/,
-    "transformersLocal.ts must load @huggingface/transformers via await import()"
-  );
-
+  // The memory-embedding consumer was excised in OmniRoute-Slim; onnxWorker.ts
+  // (LLMLingua compression) is the remaining consumer.
   const workerSrc = readFileSync(
     join(repoRoot, "open-sse/services/compression/engines/llmlingua/onnxWorker.ts"),
     "utf8"

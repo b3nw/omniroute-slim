@@ -4,7 +4,7 @@
  * Verifies:
  *   - GET returns driver + redisUrlConfigured flag (NEVER the URL itself)
  *   - PUT sqlite → 200; PUT redis without URL → 400; PUT redis with URL → 200
- *   - PUT emits quota.store.driver_changed audit event
+ *   - PUT switches the quota store driver
  *   - GET never returns actual Redis URL (Hard Rule #12 / #1)
  *   - Error responses don't leak stack traces (Hard Rule #12 / B25)
  *
@@ -28,7 +28,6 @@ process.env.QUOTA_STORE_DRIVER = "sqlite";
 const core = await import("../../src/lib/db/core.ts");
 const { updateSettings } = await import("@/lib/db/settings");
 const localDb = { updateSettings };
-const compliance = await import("../../src/lib/compliance/index.ts");
 const { resetQuotaStoreSingleton } = await import("../../src/lib/quota/QuotaStore.ts");
 const settingsRoute = await import("../../src/app/api/settings/quota-store/route.ts");
 
@@ -48,7 +47,6 @@ function resetDb() {
 
 test.beforeEach(() => {
   resetDb();
-  compliance.initAuditLog();
 });
 
 test.after(() => {
@@ -137,7 +135,7 @@ test("PUT /api/settings/quota-store driver=redis without URL → 400", async () 
   assert.doesNotMatch(JSON.stringify(body), /\s+at\s+\//, "No stack trace in 400 response");
 });
 
-test("PUT /api/settings/quota-store driver=redis with valid URL → 200 + audit event", async () => {
+test("PUT /api/settings/quota-store driver=redis with valid URL → 200", async () => {
   const req = await makeManagementSessionRequest("http://localhost/api/settings/quota-store", {
     method: "PUT",
     body: { driver: "redis", redisUrl: "redis://localhost:6379" },
@@ -153,25 +151,6 @@ test("PUT /api/settings/quota-store driver=redis with valid URL → 200 + audit 
   assert.equal(body.redisUrlConfigured, true);
   // Hard Rule #12 / #1 — URL NEVER in response
   assert.equal(body.redisUrl, null);
-
-  // Audit event
-  const logs = compliance.getAuditLog({ action: "quota.store.driver_changed", limit: 10 });
-  const events = Array.isArray(logs) ? logs : [];
-  const evt = events.find(
-    (e) =>
-      typeof e === "object" &&
-      e !== null &&
-      (e as Record<string, unknown>).action === "quota.store.driver_changed"
-  );
-  assert.ok(evt, "quota.store.driver_changed audit event must be present");
-
-  // Verify the actual Redis URL was NOT logged in audit metadata
-  const evtStr = JSON.stringify(evt);
-  assert.doesNotMatch(
-    evtStr,
-    /redis:\/\/localhost:6379/,
-    "Actual Redis URL must not appear in audit log metadata"
-  );
 });
 
 test("PUT /api/settings/quota-store with invalid driver → 400 (Zod)", async () => {

@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 -- 142_radar_referrals_cache.sql
 -- Radar referrals client local cache table.
 --

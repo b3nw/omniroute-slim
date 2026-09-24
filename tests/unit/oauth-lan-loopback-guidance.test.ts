@@ -22,7 +22,7 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const readSrc = (rel: string) => readFileSync(resolve(here, "../../src", rel), "utf8");
 
-const LAN = { hostname: "192.168.1.100", port: "20128", protocol: "http:" };
+const LAN = { hostname: "192.168.1.50", port: "20128", protocol: "http:" };
 
 test("hint reports the provider's fixed callback port alongside the dashboard port", () => {
   const hint = buildPkceLoopbackMismatchHint("codex", LAN);
@@ -31,7 +31,7 @@ test("hint reports the provider's fixed callback port alongside the dashboard po
   assert.equal(hint.redirectUri, "http://localhost:1455/auth/callback");
   assert.equal(hint.callbackPort, 1455);
   assert.equal(hint.dashboardPort, "20128");
-  assert.equal(hint.dashboardHost, "192.168.1.100");
+  assert.equal(hint.dashboardHost, "192.168.1.50");
 });
 
 test("tunnel command forwards BOTH ports and reuses the detected host", () => {
@@ -42,7 +42,7 @@ test("tunnel command forwards BOTH ports and reuses the detected host", () => {
   // back to. Forwarding only one of the two still fails.
   assert.equal(
     hint.tunnelCommand,
-    "ssh -L 20128:127.0.0.1:20128 -L 1455:127.0.0.1:1455 <user>@192.168.1.100"
+    "ssh -L 20128:127.0.0.1:20128 -L 1455:127.0.0.1:1455 <user>@192.168.1.50"
   );
   assert.equal(hint.localDashboardUrl, "http://localhost:20128");
 });
@@ -60,7 +60,7 @@ test("unknown provider degrades to dashboard-only forwarding, never an invalid f
   const hint = buildPkceLoopbackMismatchHint("some-future-pkce-provider", LAN);
 
   assert.equal(hint.callbackPort, null);
-  assert.equal(hint.tunnelCommand, "ssh -L 20128:127.0.0.1:20128 <user>@192.168.1.100");
+  assert.equal(hint.tunnelCommand, "ssh -L 20128:127.0.0.1:20128 <user>@192.168.1.50");
   assert.doesNotMatch(hint.tunnelCommand, /null|undefined|NaN/);
 });
 

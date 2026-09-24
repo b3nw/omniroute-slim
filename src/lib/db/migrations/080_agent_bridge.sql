@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 CREATE TABLE IF NOT EXISTS agent_bridge_state (
   agent_id TEXT PRIMARY KEY,
   dns_enabled INTEGER NOT NULL DEFAULT 0,

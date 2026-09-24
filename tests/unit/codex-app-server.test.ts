@@ -786,7 +786,7 @@ test("resolveAppServerConfig: env token allowed to operator-local psd URLs", () 
       "ws://[::1]:1456",
       "ws://10.0.0.5:1456",
       "ws://172.16.3.4:1456",
-      "ws://192.168.1.100:1456",
+      "ws://192.168.1.50:1456",
       "ws://169.254.1.1:1456",
       "ws://ts-egress:1456", // single-label LAN/hosts-file name
       "ws://codex.local:1456",

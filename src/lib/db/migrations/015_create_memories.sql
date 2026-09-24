@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 -- 014_create_memories.sql
 -- Memories table for persistent context storage.
 -- Stores structured conversation memories with support for different memory types.

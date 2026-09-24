@@ -10,7 +10,6 @@ const {
   normalizeCliCompatProviderId,
 } = await import("../../src/shared/constants/cliCompatProviders.ts");
 const { CLI_TOOL_IDS } = await import("../../src/shared/services/cliRuntime.ts");
-const { hasRegisteredAgent } = await import("../../src/lib/acp/registry.ts");
 const { applyFingerprint, isCliCompatEnabled, setCliCompatProviders } =
   await import("../../open-sse/config/cliFingerprints.ts");
 
@@ -41,11 +40,6 @@ test("CLI tools with unresolved logo provenance use the bundled generic icon", (
   assert.ok(CLI_TOOLS.opencode, "opencode must remain in the CLI catalog");
   assert.equal(CLI_TOOLS.opencode.imageLight, "/providers/cli-generic.svg");
   assert.equal(CLI_TOOLS.opencode.imageDark, "/providers/cli-generic.svg");
-});
-
-test("ACP registry accepts the Gemini CLI target used by the manager", () => {
-  assert.equal(hasRegisteredAgent("gemini"), true);
-  assert.equal(hasRegisteredAgent("definitely-not-an-agent"), false);
 });
 
 test("CLI fingerprint toggles only expose implemented fingerprints and functional legacy aliases", () => {

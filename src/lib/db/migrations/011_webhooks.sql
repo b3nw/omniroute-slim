@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 -- Migration 011: Webhooks for event subscriptions
 -- Part of API Endpoints dashboard (#563)
 

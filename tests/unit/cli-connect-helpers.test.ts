@@ -4,11 +4,11 @@ import { normalizeBaseUrl, hostLabel } from "../../bin/cli/commands/connect.mjs"
 import { profileNameFromModel } from "../../bin/cli/commands/configure.mjs";
 
 test("normalizeBaseUrl: bare host gets http:// and the default port", () => {
-  assert.equal(normalizeBaseUrl("192.168.1.100", "20128"), "http://192.168.1.100:20128");
+  assert.equal(normalizeBaseUrl("192.168.1.50", "20128"), "http://192.168.1.50:20128");
 });
 
 test("normalizeBaseUrl: host with explicit port keeps it", () => {
-  assert.equal(normalizeBaseUrl("192.168.1.100:9000", "20128"), "http://192.168.1.100:9000");
+  assert.equal(normalizeBaseUrl("192.168.1.50:9000", "20128"), "http://192.168.1.50:9000");
 });
 
 test("normalizeBaseUrl: full https URL is preserved as origin", () => {
@@ -22,7 +22,7 @@ test("normalizeBaseUrl: empty input returns empty string", () => {
 
 test("hostLabel strips scheme and port", () => {
   assert.equal(hostLabel("https://omni.example.com:20128"), "omni.example.com");
-  assert.equal(hostLabel("192.168.1.100:20128"), "192.168.1.100");
+  assert.equal(hostLabel("192.168.1.50:20128"), "192.168.1.50");
   assert.equal(hostLabel("http://10.0.0.1"), "10.0.0.1");
 });
 

@@ -114,7 +114,6 @@ used when neither a DB override nor an environment variable is present.
 | ------------------------------------- | ------- | ------- | -------------------------------------------------------- |
 | `OMNIROUTE_DISABLE_LOCAL_HEALTHCHECK` | boolean | `false` | Disable the local instance health check endpoint.        |
 | `OMNIROUTE_DISABLE_TOKEN_HEALTHCHECK` | boolean | `false` | Disable the token validation health check.               |
-| `SKILLS_SANDBOX_NETWORK_ENABLED`      | boolean | `false` | Enable network access in the skills sandbox environment. |
 
 > [!NOTE]
 > The `Restart` column marks flags with `requiresRestart: true` — the value is

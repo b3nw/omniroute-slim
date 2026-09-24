@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 -- Migration 060: Gamification leaderboard, badges, XP, token ledger, invites, community servers
 
 CREATE TABLE IF NOT EXISTS leaderboard (

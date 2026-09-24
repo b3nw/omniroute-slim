@@ -12,8 +12,8 @@ import { resolveStampedPeer } from "../../src/server/authz/peerStamp.ts";
 
 test("isPrivateLanHost: accepts RFC1918 IPv4 (incl. :port and ::ffff: mapped)", () => {
   for (const h of [
-    "192.168.1.100",
-    "192.168.1.100:54321",
+    "192.168.1.15",
+    "192.168.1.15:54321",
     "10.0.0.5",
     "172.16.0.9",
     "172.31.255.254",
@@ -43,7 +43,7 @@ test("isPrivateLanHost: accepts IPv6 ULA / link-local", () => {
 test("isPrivateLanHost: rejects public IPs, loopback and junk", () => {
   for (const h of [
     "8.8.8.8",
-    "69.164.221.35", // public VPS
+    "203.0.113.10", // public host
     "100.63.255.255", // just outside Tailscale 100.64/10
     "100.128.0.1", // just outside Tailscale 100.64/10
     "172.32.0.1", // just outside 172.16/12
@@ -65,7 +65,7 @@ test("isLoopbackHost: IPv4, hostname:port, bracketed + bare IPv6, ::ffff: mapped
   assert.equal(isLoopbackHost("::1"), true);
   assert.equal(isLoopbackHost("::ffff:127.0.0.1"), true);
   assert.equal(isLoopbackHost("[::1]:20128"), true);
-  assert.equal(isLoopbackHost("192.168.1.100"), false);
+  assert.equal(isLoopbackHost("192.168.1.15"), false);
   assert.equal(isLoopbackHost("8.8.8.8"), false);
 });
 
@@ -73,21 +73,18 @@ test("classifyHostLocality: loopback / lan / remote, with fail-closed null", () 
   assert.equal(classifyHostLocality("127.0.0.1"), "loopback");
   assert.equal(classifyHostLocality("::1"), "loopback");
   assert.equal(classifyHostLocality("::ffff:127.0.0.1"), "loopback");
-  assert.equal(classifyHostLocality("192.168.1.100"), "lan");
+  assert.equal(classifyHostLocality("192.168.1.15"), "lan");
   assert.equal(classifyHostLocality("::ffff:192.168.1.20"), "lan");
   assert.equal(classifyHostLocality("8.8.8.8"), "remote");
-  assert.equal(classifyHostLocality("69.164.221.35"), "remote");
+  assert.equal(classifyHostLocality("203.0.113.10"), "remote");
   assert.equal(classifyHostLocality(null), "remote", "unknown peer must fail closed");
 });
 
-test("services + traffic-inspector remain LOCAL_ONLY paths", () => {
+// The traffic-inspector and issue-agent surfaces were excised from
+// OmniRoute-Slim; their LOCAL_ONLY prefixes went with them. Only the retained
+// spawn-capable surfaces are asserted here.
+test("services remains a LOCAL_ONLY path", () => {
   assert.equal(isLocalOnlyPath("/api/services/9router/status"), true);
-  assert.equal(isLocalOnlyPath("/api/tools/traffic-inspector/sessions"), true);
-});
-
-test("issue-agent routes are LOCAL_ONLY by default", () => {
-  assert.equal(isLocalOnlyPath("/api/issue-agent/runs"), true);
-  assert.equal(isLocalOnlyPath("/api/issue-agent/runs/recorded-triage"), true);
 });
 
 test("management policy must NOT derive locality from the spoofable Host header", () => {
@@ -134,7 +131,7 @@ const TOK = "process-secret-token-abc";
 
 test("resolveStampedPeer: returns the IP only for a correctly-tokened stamp", () => {
   assert.equal(resolveStampedPeer(`${TOK}|127.0.0.1`, TOK), "127.0.0.1");
-  assert.equal(resolveStampedPeer(`${TOK}|192.168.1.100`, TOK), "192.168.1.100");
+  assert.equal(resolveStampedPeer(`${TOK}|192.168.1.15`, TOK), "192.168.1.15");
   assert.equal(resolveStampedPeer(`${TOK}|::1`, TOK), "::1");
   assert.equal(resolveStampedPeer(`${TOK}|::ffff:192.168.1.20`, TOK), "::ffff:192.168.1.20");
 });

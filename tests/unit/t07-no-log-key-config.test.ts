@@ -16,7 +16,7 @@ process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "t07-test-secret-key"
 
 const core = await import("../../src/lib/db/core.ts");
 const apiKeysDb = await import("../../src/lib/db/apiKeys.ts");
-const compliance = await import("../../src/lib/compliance/index.ts");
+const compliance = await import("../../src/lib/db/noLog.ts");
 const callLogs = await import("../../src/lib/usage/callLogs.ts");
 const schemas = await import("../../src/shared/validation/schemas.ts");
 
@@ -95,7 +95,7 @@ test("API key no_log persists and updates compliance state", async () => {
   assert.equal(compliance.isNoLog(created.id), false);
 });
 
-test("call logs omit payloads when key no_log is enabled and redact PII otherwise", async () => {
+test("call logs omit payloads when key no_log is enabled and redact secrets otherwise", async () => {
   const created = await apiKeysDb.createApiKey("privacy-log-key", "machine-test");
 
   const baseEntry = {
@@ -141,8 +141,5 @@ test("call logs omit payloads when key no_log is enabled and redact PII otherwis
   assert.ok(withPayloadEntry, "Expected a log entry with payload persisted");
 
   const payloadDetails = await callLogs.getCallLogById(withPayloadEntry.id);
-  assert.equal(payloadDetails?.requestBody?.email, "[EMAIL_REDACTED]");
   assert.equal(payloadDetails?.requestBody?.token, "[REDACTED]");
-  assert.equal(payloadDetails?.requestBody?.nested?.contact, "[EMAIL_REDACTED]");
-  assert.equal(payloadDetails?.responseBody?.summary, "Contact [EMAIL_REDACTED] for details");
 });

@@ -69,10 +69,6 @@ per-tool launchers `omniroute launch` (Claude Code) and `omniroute launch-codex`
 (Codex) remain available. Gemini CLI is launch-only: it is an `omniroute run`
 target but has no `setup-*`/`configure` recipe.
 
-> **Full reference:** the master table — what each command writes, every flag,
-> local vs remote, and which tools want a `/v1` suffix — lives in
-> **[CLI Integrations](../guides/CLI-INTEGRATIONS.md)**.
-
 ### Running these inside a container
 
 A `setup-*` command executed inside the OmniRoute container writes into the

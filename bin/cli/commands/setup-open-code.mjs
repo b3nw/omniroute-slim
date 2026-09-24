@@ -419,7 +419,7 @@ export function registerSetupOpenCode(setupCommand) {
     )
     .option(
       "--remote <url>",
-      "Remote OmniRoute URL, e.g. http://192.168.1.100:20128 (overrides --base-url and the context)"
+      "Remote OmniRoute URL, e.g. http://<your-server-ip>:20128 (overrides --base-url and the context)"
     )
     .option("--display-name <name>", "Display name in the OpenCode UI (optional)")
     .option(

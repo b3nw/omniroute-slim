@@ -19,8 +19,6 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 if (!process.env.JWT_SECRET) process.env.JWT_SECRET = "test-guardrails-3496-jwt-secret";
 if (!process.env.API_KEY_SECRET) process.env.API_KEY_SECRET = "test-guardrails-3496-apikey-secret";
 
-const listRoute = await import("../../src/app/api/guardrails/route.ts");
-const testRoute = await import("../../src/app/api/guardrails/test/route.ts");
 const core = await import("../../src/lib/db/core.ts");
 
 test.after(() => {
@@ -35,68 +33,6 @@ test.after(() => {
     /* ignore */
   }
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-});
-
-test("#3496 GET /api/guardrails lists the registered guardrails with status", async () => {
-  const req = await makeManagementSessionRequest("http://localhost/api/guardrails");
-  const res = await listRoute.GET(req);
-  assert.equal(res.status, 200);
-
-  const body = await res.json();
-  assert.ok(Array.isArray(body.guardrails), "expected guardrails[] in the body");
-
-  const names = body.guardrails.map((g) => g.name);
-  for (const expected of ["vision-bridge", "pii-masker", "prompt-injection"]) {
-    assert.ok(names.includes(expected), `expected ${expected} in [${names.join(", ")}]`);
-  }
-
-  for (const g of body.guardrails) {
-    assert.equal(typeof g.name, "string");
-    assert.equal(typeof g.enabled, "boolean");
-    assert.equal(typeof g.priority, "number");
-  }
-});
-
-test("#3496 POST /api/guardrails/test runs the pre-call pipeline over a sample input", async () => {
-  const req = await makeManagementSessionRequest("http://localhost/api/guardrails/test", {
-    method: "POST",
-    body: { input: { messages: [{ role: "user", content: "hello world" }] } },
-  });
-  const res = await testRoute.POST(req);
-  assert.equal(res.status, 200);
-
-  const body = await res.json();
-  assert.equal(typeof body.blocked, "boolean");
-  assert.ok(Array.isArray(body.results), "expected a per-guardrail results[]");
-
-  const evaluated = body.results.map((r) => r.guardrail);
-  assert.ok(
-    evaluated.includes("pii-masker"),
-    `expected pii-masker to be evaluated, got [${evaluated.join(", ")}]`
-  );
-});
-
-test("#3496 POST /api/guardrails/test honors disabledGuardrails", async () => {
-  const req = await makeManagementSessionRequest("http://localhost/api/guardrails/test", {
-    method: "POST",
-    body: { input: "hello", disabledGuardrails: ["pii-masker"] },
-  });
-  const res = await testRoute.POST(req);
-  assert.equal(res.status, 200);
-
-  const body = await res.json();
-  const pii = body.results.find((r) => r.guardrail === "pii-masker");
-  assert.ok(pii, "pii-masker should still appear in results");
-  assert.equal(pii.skipped, true, "pii-masker should be skipped when disabled");
-});
-
-test("#3496 POST /api/guardrails/test rejects a body without input (400)", async () => {
-  const req = await makeManagementSessionRequest("http://localhost/api/guardrails/test", {
-    method: "POST",
-    body: {},
-  });
-  const res = await testRoute.POST(req);
-  assert.equal(res.status, 400);
 });
 
 // Regression guard for the quality gate: the docs no longer reference any
