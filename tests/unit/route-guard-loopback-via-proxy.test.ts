@@ -75,7 +75,7 @@ test("classifyStampedPeerLocality: private-LAN socket WITH a proxy stamp is stil
   // the proxy is exposed (it could be tunneled to the public internet), so any
   // proxy hop downgrades locality to remote.
   assert.equal(
-    classifyStampedPeerLocality(`${TOK}|192.168.1.100`, `${TOK}|1`, TOK),
+    classifyStampedPeerLocality(`${TOK}|192.168.1.15`, `${TOK}|1`, TOK),
     "remote"
   );
 });

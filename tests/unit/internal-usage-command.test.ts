@@ -320,7 +320,7 @@ test("handleInternalUsageCommandHttpRequest sanitizes internal errors and never 
     {
       isValidApiKey: async () => {
         throw new Error(
-          `boom at /home/diegosouzapw/dev/proxys/OmniRoute/src/lib/usage/internalUsageCommand.ts:1:1`
+          `boom at /home/user/dev/proxys/OmniRoute/src/lib/usage/internalUsageCommand.ts:1:1`
         );
       },
       getApiKeyMetadata: async () => {

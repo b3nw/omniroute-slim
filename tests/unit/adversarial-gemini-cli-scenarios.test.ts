@@ -606,7 +606,7 @@ test("Scenario 5: Public Credentials Validation - Zero Plaintext Client IDs or S
   assert.equal(GEMINI_CLI_CONFIG.clientSecret, decodedSecret);
 
   // Error Sanitizer Security Verification (CWE-209 / ERROR_SANITIZATION.md)
-  const rawLeakError = `Error: 400 Bad Request at /home/runner/projects/OmniRoute/src/secret_handler.ts:42:15
+  const rawLeakError = `Error: 400 Bad Request at /home/user/projects/OmniRoute/src/secret_handler.ts:42:15
     Authorization: Bearer ya29.a0AfH6SMDxyz123456789
     Client Secret: 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
     File: C:\\Users\\Administrator\\AppData\\Local\\Temp\\debug.log`;
@@ -615,7 +615,7 @@ test("Scenario 5: Public Credentials Validation - Zero Plaintext Client IDs or S
   // Must be single line (drops stack trace)
   assert.ok(!sanitized.includes("\n"), "Must drop multiline stack traces");
   // Must replace file paths
-  assert.ok(!sanitized.includes("/home/runner"), "Must strip POSIX file path");
+  assert.ok(!sanitized.includes("/home/user"), "Must strip POSIX file path");
   assert.ok(!sanitized.includes("C:\\Users"), "Must strip Windows file path");
   // Must redact bearer tokens & secrets
   assert.ok(!sanitized.includes("ya29.a0AfH6SMDxyz123456789"), "Must redact OAuth token");

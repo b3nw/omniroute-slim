@@ -77,8 +77,8 @@ test("Tier 1: parseGeminiCliResetDuration handles seconds, compound durations an
 test("Tier 1: sanitizeGeminiCliError redacts stack traces, paths, tokens and secrets", () => {
   const rawError = [
     "Error: Upstream request failed for token Bearer ya29.a0AfH6SMD_secret123 with client secret GOCSPX-secret_xyz",
-    "    at Object.execute (/home/runner/projects/core/llm-proxy/OmniRoute/open-sse/executors/geminiCli.ts:145:12)",
-    "    at async handleChatCore (/home/runner/projects/core/llm-proxy/OmniRoute/open-sse/handlers/chatCore.ts:89:9)",
+    "    at Object.execute (/home/user/projects/core/llm-proxy/OmniRoute/open-sse/executors/geminiCli.ts:145:12)",
+    "    at async handleChatCore (/home/user/projects/core/llm-proxy/OmniRoute/open-sse/handlers/chatCore.ts:89:9)",
   ].join("\n");
 
   const sanitized = sanitizeGeminiCliError(rawError);
@@ -88,7 +88,7 @@ test("Tier 1: sanitizeGeminiCliError redacts stack traces, paths, tokens and sec
   assert.ok(!sanitized.includes("handleChatCore"));
 
   // Paths redacted
-  assert.ok(!sanitized.includes("/home/runner"));
+  assert.ok(!sanitized.includes("/home/user"));
 
   // Sensitive credentials redacted
   assert.ok(!sanitized.includes("ya29.a0AfH6SMD_secret123"));
