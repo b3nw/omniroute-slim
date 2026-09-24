@@ -26,8 +26,8 @@ coverage, and reconciliation steps.
 ### Clone & Install
 
 ```bash
-git clone https://github.com/diegosouzapw/OmniRoute.git
-cd OmniRoute
+git clone https://github.com/b3nw/OmniRoute-Slim.git
+cd OmniRoute-Slim
 npm install
 ```
 
@@ -185,11 +185,6 @@ npm run coverage:report
 npm run lint
 npm run check
 
-# Gated real-upstream combo smoke (requires a remote OmniRoute host + real provider credits)
-# Hits REAL providers — costs a little. NEVER runs in CI. Skips cleanly without the gate.
-# Needs SSH access to your own deployment; the harness sources a read-only DB snapshot
-# from the host set via COMBO_LIVE_SSH_HOST (see tests/integration/combo-live/).
-RUN_COMBO_LIVE=1 npm run test:combo:live
 ```
 
 Coverage notes:
@@ -403,5 +398,5 @@ Then rsync `dist/` to the remote host's `app/` directory and restart the service
 - **API Reference**: See [`docs/reference/API_REFERENCE.md`](docs/reference/API_REFERENCE.md)
 - **Security docs**: [`docs/security/CLI_TOKEN.md`](docs/security/CLI_TOKEN.md), [`docs/security/ROUTE_GUARD_TIERS.md`](docs/security/ROUTE_GUARD_TIERS.md), [`docs/security/ERROR_SANITIZATION.md`](docs/security/ERROR_SANITIZATION.md), [`docs/security/PUBLIC_CREDS.md`](docs/security/PUBLIC_CREDS.md)
 - **Ops docs**: [`docs/ops/SQLITE_RUNTIME.md`](docs/ops/SQLITE_RUNTIME.md)
-- **Issues**: [github.com/diegosouzapw/OmniRoute/issues](https://github.com/diegosouzapw/OmniRoute/issues)
+- **Issues**: [github.com/b3nw/OmniRoute-Slim/issues](https://github.com/b3nw/OmniRoute-Slim/issues)
 - **ADRs**: See `docs/adr/` for architectural decision records

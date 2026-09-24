@@ -1,7 +1,7 @@
 {
   "name": "omniroute-slim",
   "version": "3.9.0",
-  "description": "Unified AI router with 351 providers, RTK+Caveman compression, auto fallback, MCP/A2A, desktop, PWA, and OpenAI-compatible APIs.",
+  "description": "Streamlined AI gateway and intelligent model proxy with multi-provider routing, fallback chains, combo models, and OpenAI/Claude/Gemini compatibility.",
   "type": "module",
   "bin": {
     "omniroute": "bin/omniroute.mjs",
@@ -158,7 +158,6 @@
     "check:changelog-integrity": "node scripts/check/check-changelog-integrity.mjs",
     "sweep:stale-fragments": "node scripts/release/sweep-stale-fragments.mjs",
     "changelog:aggregate": "node scripts/release/aggregate-changelog.mjs",
-    "check:agent-skills-sync": "node --import tsx/esm scripts/skills/generate-agent-skills.mjs",
     "check:build-scope": "node scripts/check/check-build-scope.mjs",
     "check:error-helper": "node scripts/check/check-error-helper.mjs",
     "check:migration-numbering": "node scripts/check/check-migration-numbering.mjs",
