@@ -260,3 +260,10 @@ docker-compose.yml.bak
 
 # check:install-upgrade work trees (~12 GB, disposable)
 /.install-upgrade/
+
+# Worktree / local scratch workspaces
+/worktrees/
+/work/
+/scratch/
+/state/
+
