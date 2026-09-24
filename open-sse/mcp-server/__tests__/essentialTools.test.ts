@@ -22,10 +22,12 @@ describe("MCP Essential Tools", () => {
   });
 
   describe("Tool schema validation", () => {
-    it("should have exactly 14 essential tools (including Radar catalog + x_search)", () => {
+    it("should have exactly 13 essential tools (including x_search)", () => {
       // 13 -> 14: #10985 shipped omniroute_x_search as a phase-1 tool.
+      // 14 -> 13: omniroute_radar_catalog was excised — it called a /api/radar/catalog
+      // route that does not exist in Slim.
       const schemas = MCP_ESSENTIAL_TOOLS;
-      expect(schemas).toHaveLength(14);
+      expect(schemas).toHaveLength(13);
     });
 
     it("all tools should have omniroute_ prefix", () => {

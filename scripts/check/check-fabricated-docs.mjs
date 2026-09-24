@@ -786,7 +786,7 @@ export function scanDocFile(absPath, index, root = ROOT) {
     // the fileRef regex anchors on the `src`/`open-sse`/… token, so a leading `/`
     // means the real reference is `<something>/src/...` — either a relative example
     // path (`./src/index.ts`, a PII-pattern sample) or a workspace-package path
-    // (`@omniroute/opencode-provider/src/index.ts`). Neither resolves from repo root.
+    // (`@omniroute/opencode-plugin/src/index.ts`). Neither resolves from repo root.
     if (m.index > 0 && textNoCode[m.index - 1] === "/") continue;
     const ln = lineOf(text, m.index);
     findings.push({

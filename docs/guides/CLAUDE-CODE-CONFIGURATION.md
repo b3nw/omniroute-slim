@@ -18,7 +18,7 @@ with per-model profiles, mirroring the Codex setup.
 omniroute launch
 
 # Against a remote OmniRoute (after `omniroute connect <host>`, this is automatic)
-omniroute launch --remote http://192.168.0.15:20128 --api-key oma_live_xxx
+omniroute launch --remote http://203.0.113.10:20128 --api-key oma_live_xxx
 
 # Generate per-model profiles, then launch one
 omniroute setup-claude            # writes ~/.claude/profiles/<name>/settings.json
@@ -142,7 +142,7 @@ profile per model at `~/.claude/profiles/<name>/settings.json`, reusing the
   "model": "glm/glm-5.2",
   "effortLevel": "xhigh",
   "env": {
-    "ANTHROPIC_BASE_URL": "http://192.168.0.15:20128",
+    "ANTHROPIC_BASE_URL": "http://203.0.113.10:20128",
     "ANTHROPIC_MODEL": "glm/glm-5.2",
     "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1",
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "190000",
@@ -170,7 +170,7 @@ changes your active/default Claude config, auth, or the `~/.claude/settings.json
 omniroute setup-claude
 
 # Remote VPS (bakes the VPS URL into every profile)
-omniroute setup-claude --remote http://192.168.0.15:20128 --api-key oma_live_xxx
+omniroute setup-claude --remote http://203.0.113.10:20128 --api-key oma_live_xxx
 
 # Only some providers
 omniroute setup-claude --only glm,kimi

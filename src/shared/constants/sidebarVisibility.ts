@@ -2,7 +2,6 @@ export * from "./sidebarVisibility/types";
 export { COMPRESSION_CONTEXT_GROUP, SIDEBAR_SECTIONS } from "./sidebarVisibility/sections";
 
 import { HIDEABLE_SIDEBAR_ITEM_IDS } from "./sidebarVisibility/types";
-import { parseRadarAdminUrl } from "../validation/radarAdminUrl";
 import type {
   HideableSidebarItemId,
   SidebarItemId,
@@ -25,11 +24,8 @@ export const SIDEBAR_ICON_ACCENTS: Partial<Record<SidebarItemId, string>> = {
   "context-combos": "#C084FC",
   "cli-code": "#FACC15",
   "cli-agents": "#93C5FD",
-  "cloud-agents": "#7DD3FC",
   "api-endpoints": "#14B8A6",
-  webhooks: "#EC4899",
   proxy: "#A3E635",
-  "mitm-proxy": "#FB7185",
   "1proxy": "#22D3EE",
   analytics: "#06B6D4",
   "analytics-combo-health": "#34D399",
@@ -38,7 +34,6 @@ export const SIDEBAR_ICON_ACCENTS: Partial<Record<SidebarItemId, string>> = {
   cache: "#84CC16",
   "analytics-compression": "#F97316",
   "analytics-search": "#38BDF8",
-  "analytics-evals": "#A78BFA",
   logs: "#CBD5E1",
   "logs-proxy": "#A3E635",
   "logs-console": "#FACC15",
@@ -50,21 +45,12 @@ export const SIDEBAR_ICON_ACCENTS: Partial<Record<SidebarItemId, string>> = {
   "costs-pricing": "#FB923C",
   "costs-budget": "#22C55E",
   "costs-quota-share": "#06B6D4",
-  "radar-admin": "#F59E0B",
   audit: "#F43F5E",
   "audit-mcp": "#818CF8",
-  "audit-a2a": "#A855F7",
   translator: "#3B82F6",
   playground: "#EAB308",
   "search-tools": "#0891B2",
-  memory: "#10B981",
-  skills: "#F43F5E",
-  "agent-skills": "#D946EF",
   mcp: "#8B5CF6",
-  a2a: "#06B6D4",
-  leaderboard: "#FACC15",
-  profile: "#60A5FA",
-  tokens: "#A3E635",
   media: "#D946EF",
   batch: "#14B8A6",
   "batch-files": "#38BDF8",
@@ -130,68 +116,12 @@ export function getSidebarIconAccent(id: string): string {
   );
 }
 
-/**
- * Decide whether a sidebar item should be shown given a resolved feature-flag
- * map. Items without `featureFlagKey` are always visible. Fails OPEN when the
- * flag isn't present in the map (e.g. `/api/settings` hasn't returned yet, or
- * an older server response predates the flag) — a missing entry must never
- * hide an unrelated item.
- */
-export function isSidebarItemVisibleForFlags(
-  item: Pick<SidebarItemDefinition, "featureFlagKey">,
-  flags: Record<string, boolean>
-): boolean {
-  if (!item.featureFlagKey) return true;
-  return flags[item.featureFlagKey] !== false;
-}
-
 export function getSectionItems(
   section: SidebarSectionDefinition | { children: readonly SidebarSectionChild[] }
 ): readonly SidebarItemDefinition[] {
   return section.children.flatMap((child) =>
     "type" in child && child.type === "group" ? child.items : [child as SidebarItemDefinition]
   );
-}
-
-const RADAR_ADMIN_ITEM: SidebarItemDefinition = {
-  id: "radar-admin",
-  href: "",
-  i18nKey: "radarAdmin",
-  labelFallback: "Radar Admin ↗",
-  subtitleKey: "radarAdminSubtitle",
-  subtitleFallback: "Private operations panel",
-  icon: "admin_panel_settings",
-  external: true,
-};
-
-/**
- * Materialize owner-only entries resolved at request time. The canonical
- * catalog never embeds the private URL; an absent or invalid authenticated
- * settings value returns the original sections without the admin item.
- */
-export function resolveRuntimeSidebarSections(
-  sections: readonly SidebarSectionDefinition[],
-  runtime: { radarAdminUrl?: unknown }
-): SidebarSectionDefinition[] {
-  const radarAdminUrl = parseRadarAdminUrl(runtime.radarAdminUrl);
-  if (!radarAdminUrl) return [...sections];
-
-  return sections.map((section) => {
-    if (section.id !== "costs") return section;
-
-    const children = section.children.filter(
-      (child) => !("id" in child && child.id === RADAR_ADMIN_ITEM.id)
-    );
-    const radarIndex = children.findIndex((child) => !("type" in child) && child.id === "radar");
-    const insertionIndex = radarIndex >= 0 ? radarIndex + 1 : children.length;
-    const resolvedChildren = [...children];
-    resolvedChildren.splice(insertionIndex, 0, {
-      ...RADAR_ADMIN_ITEM,
-      href: radarAdminUrl,
-    });
-
-    return { ...section, children: resolvedChildren };
-  });
 }
 
 // ─── Ordering & preset setting keys ──────────────────────────────────────────
@@ -227,9 +157,6 @@ export const ESSENTIALS_ADVANCED_TOOL_IDS: ReadonlySet<HideableSidebarItemId> = 
   "runtime",
   "resilience-connections",
   "mcp",
-  "a2a",
-  "memory",
-  "skills",
 ]);
 
 const MINIMAL_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
@@ -260,7 +187,6 @@ const DEVELOPER_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
   "context-combos",
   "cli-code",
   "cli-agents",
-  "acp-agents",
   "api-endpoints",
   "analytics",
   "analytics-combo-health",
@@ -272,10 +198,7 @@ const DEVELOPER_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
   "resilience-connections",
   "translator",
   "playground",
-  "memory",
-  "skills",
   "mcp",
-  "a2a",
   "settings-general",
   "settings-modality-bridge",
   "settings-routing",
@@ -300,7 +223,6 @@ const ADMIN_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
   "costs-pricing",
   "costs-budget",
   "costs-quota-share",
-  "radar-admin",
   "cache",
   "logs",
   "activity",
@@ -308,7 +230,6 @@ const ADMIN_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
   "runtime",
   "audit",
   "audit-mcp",
-  "audit-a2a",
   "settings-general",
   "settings-modality-bridge",
   "settings-routing",

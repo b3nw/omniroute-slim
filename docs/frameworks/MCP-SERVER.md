@@ -6,9 +6,9 @@ lastUpdated: 2026-08-08
 
 # OmniRoute MCP Server Documentation
 
-> Model Context Protocol server with 110 tools across routing, cache, compression, memory, skills, proxy, pool, Radar, and context source operations.
+> Model Context Protocol server with 57 tools across routing, cache, compression, proxy, pool, and context source operations.
 >
-> Source of truth: `open-sse/mcp-server/server.ts` computes **110 unique tools** with `countUniqueMcpTools()`: 45 canonical definitions (including the six CCR lifecycle tools, the agent-skills trio, `omniroute_radar_catalog`, and `omniroute_x_search`), plus memory (3), skills (4), GitHub skills (3), pool (6), gamification (8), plugins (8), Notion (6), Obsidian (22), local corpus (3), and two RTK-only compression tools.
+> Source of truth: `open-sse/mcp-server/server.ts` computes **57 unique tools** with `countUniqueMcpTools()`: 41 canonical definitions (including the six CCR lifecycle tools and `omniroute_x_search`), plus pool (6), plugins (8), and compression (13) — collections that overlap by name, so the de-duplicated total is lower than their sum.
 
 ## Installation
 
@@ -77,7 +77,6 @@ Cursor, Cline, and compatible MCP client setup.
 | `omniroute_route_request`       | `execute:completions` | Send a chat completion through OmniRoute routing                                                                               |
 | `omniroute_cost_report`         | `read:usage`          | Cost report by period (session/day/week/month)                                                                                 |
 | `omniroute_list_models_catalog` | `read:models`         | Full model catalog with capabilities, status, pricing                                                                          |
-| `omniroute_radar_catalog`       | `read:radar`          | Local signed Radar catalog; optional provider/family filters                                                                   |
 | `omniroute_tool_search`         | `read:tools`          | Discover tools from the registered MCP catalog                                                                                 |
 | `omniroute_web_search`          | `execute:search`      | Web search through the configured search providers. Not X/Twitter.                                                             |
 | `omniroute_x_search`            | `execute:search`      | Search X through xAI/SuperGrok, or choose `xquik-search` for Xquik API results. Requires credentials for the selected backend. |
@@ -213,22 +212,10 @@ curl -X DELETE http://localhost:20128/api/settings/notion
 | `notion_get_database`        | `read:notion`  | Get database schema by ID                                      |
 | `notion_append_blocks`       | `write:notion` | Append children blocks to a parent block (max 100 per request) |
 
-## Agent Skill Catalog Tools (3)
-
-Defined in `open-sse/mcp-server/tools/agentSkillTools.ts`. Backed by `src/lib/agentSkills/catalog`. These tools expose the 42-entry Agent Skills documentation catalog to MCP clients and external agents. Scope: `read:catalog`.
-
-| Tool                              | Scopes         | Description                                                                                                      |
-| :-------------------------------- | :------------- | :--------------------------------------------------------------------------------------------------------------- |
-| `omniroute_agent_skills_list`     | `read:catalog` | List all 42 agent skills with optional `category` (api\|cli) and `area` filters; returns metadata + coverage     |
-| `omniroute_agent_skills_get`      | `read:catalog` | Get full metadata + SKILL.md content for a single skill by canonical `id`                                        |
-| `omniroute_agent_skills_coverage` | `read:catalog` | Coverage stats: how many of the 22 API and 20 CLI skills have SKILL.md files on the filesystem vs catalog totals |
-
-See [AGENT-SKILLS.md](./AGENT-SKILLS.md) for the full catalog and how external agents consume it.
-
 ## Related Frameworks (v3.8.0)
 
-The MCP tool inventory above (110 unique tools, computed by `countUniqueMcpTools()`) is intentionally
-scoped to runtime routing/cache/compression/memory/skills/proxy/context-source operations. Two adjacent
+The MCP tool inventory above (57 unique tools, computed by `countUniqueMcpTools()`) is intentionally
+scoped to runtime routing/cache/compression/proxy/context-source operations. Two adjacent
 frameworks ship alongside the MCP server in v3.8.0 and are documented separately:
 
 ### Cloud Agents
@@ -240,7 +227,6 @@ their own REST surface (`/api/v1/agents/*`) and are **not** part of the MCP tool
 
 - Implementation: `src/lib/cloudAgent/` (`registry.ts`, `agents/codex-cloud.ts`, `agents/devin.ts`, `agents/jules.ts`).
 - Lifecycle: `createTask`, `getStatus`, `approvePlan`, `sendMessage`, `listSources`.
-- Documentation: [docs/frameworks/CLOUD_AGENT.md](./CLOUD_AGENT.md).
 
 ### Guardrails
 
@@ -304,7 +290,6 @@ MCP tools are authenticated through API key scopes. Scope enforcement is central
 | `read:skills`         | `skills_list`, `skills_executions`                                                                                |
 | `write:skills`        | `skills_enable`                                                                                                   |
 | `execute:skills`      | `skills_execute`                                                                                                  |
-| `read:catalog`        | `agent_skills_list`, `agent_skills_get`, `agent_skills_coverage`                                                  |
 
 Wildcard scopes are supported: `read:*` grants all read-scopes, `*` grants full access.
 
@@ -371,7 +356,7 @@ MCP tool, prompt, and resource registries can compress descriptions at registrat
 
 Description compression shrinks each tool's metadata; **tool-cardinality reduction** goes one step further by reducing _how many_ tools are announced at all. Advertising fewer tools in the `tools/list` manifest cuts the per-request token cost the client's model pays for the tool catalog ("layer 5" compression). The implementation is a pure, stateless filter in `open-sse/mcp-server/toolCardinality.ts` (`reduceToolManifest`), wired into the registration loop in `createMcpServer()` (`open-sse/mcp-server/server.ts`).
 
-**Opt-in, off by default.** The filter only runs when at least one of two environment variables is set; with neither set, all 110 tools are announced unchanged.
+**Opt-in, off by default.** The filter only runs when at least one of two environment variables is set; with neither set, all 57 tools are announced unchanged.
 
 | Variable         | Mode                                                                                    |
 | :--------------- | :-------------------------------------------------------------------------------------- |

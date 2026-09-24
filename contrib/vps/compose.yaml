@@ -1,4 +1,4 @@
-name: omniroute-vps
+name: omniroute-slim-vps
 
 services:
   redis:

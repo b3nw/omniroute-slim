@@ -9,7 +9,6 @@ import {
   SIDEBAR_PRESET_KEY,
   ESSENTIALS_ADVANCED_TOOL_IDS,
   normalizeHiddenSidebarItems,
-  resolveRuntimeSidebarSections,
   type HideableSidebarItemId,
   type SidebarItemDefinition,
   type SidebarSectionChild,
@@ -65,7 +64,6 @@ function CommandPaletteDialog({ onClose }: { onClose: () => void }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [hiddenItems, setHiddenItems] = useState<Set<string>>(new Set());
   const [activePreset, setActivePreset] = useState<string | null>(null);
-  const [radarAdminUrl, setRadarAdminUrl] = useState<unknown>(null);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -78,7 +76,6 @@ function CommandPaletteDialog({ onClose }: { onClose: () => void }) {
         setActivePreset(
           typeof data?.[SIDEBAR_PRESET_KEY] === "string" ? data[SIDEBAR_PRESET_KEY] : null
         );
-        setRadarAdminUrl(data?.radarAdminUrl ?? null);
       })
       .catch(() => {
         // ignore aborts and fetch failures; palette still works with empty hidden set
@@ -105,7 +102,7 @@ function CommandPaletteDialog({ onClose }: { onClose: () => void }) {
 
   const allItems = useMemo<PaletteItem[]>(
     () =>
-      resolveRuntimeSidebarSections(SIDEBAR_SECTIONS, { radarAdminUrl }).flatMap((section) => {
+      SIDEBAR_SECTIONS.flatMap((section) => {
         const sectionLabel = safeTranslate(section.titleKey, section.titleFallback);
         return section.children.flatMap<PaletteItem>((child) => {
           if (isSidebarGroup(child)) {
@@ -156,7 +153,7 @@ function CommandPaletteDialog({ onClose }: { onClose: () => void }) {
           ];
         });
       }),
-    [hiddenItems, radarAdminUrl, safeTranslate, activePreset]
+    [hiddenItems, safeTranslate, activePreset]
   );
 
   const filtered = useMemo(() => {

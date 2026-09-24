@@ -64,21 +64,6 @@ PORT=20128 DASHBOARD_PORT=20129 NEXT_PUBLIC_BASE_URL=http://localhost:20129 npm 
 
 See the [Docker Guide](./DOCKER_GUIDE.md) for complete Docker setup including Compose profiles and Caddy HTTPS.
 
-### Desktop App (Electron)
-
-OmniRoute ships a desktop wrapper built on Electron 41 + electron-builder 26.10. Available scripts (workspace root):
-
-```bash
-npm run electron:dev          # Run desktop with hot-reload
-npm run electron:build        # Build for current OS (auto-detected)
-npm run electron:build:win    # Windows installer (NSIS + portable)
-npm run electron:build:mac    # macOS (dmg + zip, arm64+x64)
-npm run electron:build:linux  # Linux (AppImage + deb + rpm)
-npm run electron:smoke:packaged  # Smoke-test packaged build
-```
-
-Releases of the desktop installers are attached to GitHub Releases. For the full Electron deep-dive (signing, IPC bridge, distros), see [`ELECTRON_GUIDE.md`](./ELECTRON_GUIDE.md) _(criado em fase posterior)_.
-
 ### Headless server (CI/automation)
 
 For unattended setups (Docker, Kubernetes, CI), use:
@@ -191,9 +176,6 @@ env injected and no config written at all, use the generic launcher
 `omniroute run <target>` (claude, codex, aider, goose, opencode, qwen, gemini);
 the legacy per-tool launchers `omniroute launch` (Claude Code) and
 `omniroute launch-codex` (Codex) remain available.
-
-For the full table (what each command writes, every flag, local vs remote, base-URL
-`/v1` conventions), see **[CLI Integrations](./CLI-INTEGRATIONS.md)**.
 
 For detailed per-tool configuration (Claude Code, Codex CLI, Cursor, Cline, OpenClaw, Kilo Code, Copilot, and more), see the dedicated **[CLI Tools Guide](../reference/CLI-TOOLS.md)**.
 

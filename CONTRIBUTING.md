@@ -26,8 +26,8 @@ coverage, and reconciliation steps.
 ### Clone & Install
 
 ```bash
-git clone https://github.com/diegosouzapw/OmniRoute.git
-cd OmniRoute
+git clone https://github.com/b3nw/OmniRoute-Slim.git
+cd OmniRoute-Slim
 npm install
 ```
 
@@ -185,24 +185,13 @@ npm run coverage:report
 npm run lint
 npm run check
 
-# Gated real-upstream combo smoke (requires VPS access + real provider credits)
-# Hits REAL providers — costs a little. NEVER runs in CI. Skips cleanly without the gate.
-# Needs: ssh root@192.168.0.15 access (sources a read-only DB snapshot from the VPS).
-RUN_COMBO_LIVE=1 npm run test:combo:live
-
-# Phase-3 VPS live smoke — plain Node ESM scripts, hit the live .15 server directly.
-# Requires: ssh root@192.168.0.15 access (combos created/torn down via SSH sqlite).
-# Hits REAL providers (small cost). Creates/deletes only __live_test__* combos. NEVER runs in CI.
-# REQUIRE_API_KEY=false on .15 so no API key needed, but honors COMBO_LIVE_BASE_URL / COMBO_LIVE_API_KEY if set.
-npm run test:combo:live:vps              # 7 HTTP scenarios (priority/round-robin/weighted/cost/fusion/auto + health)
-npm run test:combo:live:vps:failover     # adds a real cross-provider failover scenario (8 total)
 ```
 
 Coverage notes:
 
 - `npm run test:coverage` measures source coverage for the main unit test suite, excludes `tests/**`, and includes `open-sse/**`
 - Pull requests must keep the coverage gate at **60%+** statements/lines/functions/branches
-- If a PR changes production code in `src/`, `open-sse/`, `electron/`, or `bin/`, it must add or update automated tests in the same PR
+- If a PR changes production code in `src/`, `open-sse/`, or `bin/`, it must add or update automated tests in the same PR
 - `npm run coverage:report` prints the detailed file-by-file report from the latest coverage run
 - `npm run test:coverage:legacy` preserves the older metric for historical comparison
 - See `docs/ops/COVERAGE_PLAN.md` for the phased coverage improvement roadmap
@@ -307,8 +296,6 @@ open-sse/                   # @omniroute/open-sse workspace
 ├── transformer/            # Responses API transformer
 └── utils/                  # 22 utility modules (stream, TLS, proxy, logging)
 
-electron/                   # Electron desktop app (cross-platform)
-
 tests/
 ├── unit/                   # Node.js test runner (1,574 test files)
 ├── integration/            # Integration tests
@@ -401,7 +388,7 @@ Releases are managed via the `/generate-release` workflow. When a new GitHub Rel
 
 For VPS deploys, use `npm run build:release` (not `npm run build`) — it performs a clean
 rebuild, assembles the bundle into `dist/`, and writes the `dist/BUILD_SHA` sentinel.
-Then use the `/deploy-vps-*-cc` skills which rsync `dist/` to the remote `app/` directory.
+Then rsync `dist/` to the remote host's `app/` directory and restart the service.
 
 ---
 
@@ -411,5 +398,5 @@ Then use the `/deploy-vps-*-cc` skills which rsync `dist/` to the remote `app/` 
 - **API Reference**: See [`docs/reference/API_REFERENCE.md`](docs/reference/API_REFERENCE.md)
 - **Security docs**: [`docs/security/CLI_TOKEN.md`](docs/security/CLI_TOKEN.md), [`docs/security/ROUTE_GUARD_TIERS.md`](docs/security/ROUTE_GUARD_TIERS.md), [`docs/security/ERROR_SANITIZATION.md`](docs/security/ERROR_SANITIZATION.md), [`docs/security/PUBLIC_CREDS.md`](docs/security/PUBLIC_CREDS.md)
 - **Ops docs**: [`docs/ops/SQLITE_RUNTIME.md`](docs/ops/SQLITE_RUNTIME.md)
-- **Issues**: [github.com/diegosouzapw/OmniRoute/issues](https://github.com/diegosouzapw/OmniRoute/issues)
+- **Issues**: [github.com/b3nw/OmniRoute-Slim/issues](https://github.com/b3nw/OmniRoute-Slim/issues)
 - **ADRs**: See `docs/adr/` for architectural decision records

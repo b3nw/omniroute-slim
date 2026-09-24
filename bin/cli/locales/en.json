@@ -212,16 +212,6 @@
     "api_key_filter": "Filter by a specific API key",
     "limit": "Maximum number of rows to show (default: 100)"
   },
-  "simulate": {
-    "description": "Dry-run routing simulation — show which providers would be selected without calling upstream",
-    "file": "Load full request body from JSON file",
-    "model": "Model ID (default: auto)",
-    "combo": "Force a specific combo by name",
-    "reasoning": "Reasoning effort level (low|medium|high)",
-    "thinking": "Extended thinking token budget",
-    "explain": "Print fallback tree and cost range to stderr",
-    "noCombo": "No matching combo found. Configure one with: omniroute combo create"
-  },
   "chat": {
     "description": "Send a one-shot chat prompt to OmniRoute",
     "file": "Read prompt from file",
@@ -376,34 +366,6 @@
       "description": "MCP audit log (alias for audit --source mcp)"
     }
   },
-  "a2a": {
-    "skills": {
-      "description": "List available A2A skills from the agent card"
-    },
-    "invoke": {
-      "description": "Invoke an A2A skill and return the task ID",
-      "input": "JSON input object",
-      "input_file": "Path to JSON input file",
-      "wait": "Wait for task completion before returning",
-      "timeout": "Timeout waiting for completion in ms (default: 60000)"
-    },
-    "tasks": {
-      "description": "Manage A2A tasks",
-      "list": {
-        "status": "Filter by status",
-        "skill": "Filter by skill ID"
-      },
-      "watch": {
-        "description": "Poll task status until completion"
-      },
-      "stream": {
-        "description": "Stream task execution events via SSE"
-      },
-      "logs": {
-        "description": "Show task messages and artifacts"
-      }
-    }
-  },
   "policy": {
     "description": "Manage OmniRoute authorization policies",
     "list": {
@@ -474,27 +436,6 @@
       "file": "Path to request JSON file"
     }
   },
-  "tunnel": {
-    "title": "Tunnels",
-    "listDescription": "List active tunnels",
-    "createDescription": "Create a tunnel",
-    "created": "Tunnel created: {url}",
-    "stopped": "Tunnel stopped.",
-    "confirmStop": "Stop tunnel {id}?",
-    "stopDescription": "Stop a tunnel",
-    "statusDescription": "Show detailed status of a tunnel",
-    "logsDescription": "Show logs for a tunnel",
-    "infoDescription": "Show configuration details of a tunnel",
-    "rotateDescription": "Generate a new tunnel URL",
-    "tailOpt": "Number of log lines to show",
-    "typeRequired": "Tunnel type is required.",
-    "noLogs": "No logs available.",
-    "notAvailable": "Tunnel info not available.",
-    "noTunnels": "No active tunnels.",
-    "infoTitle": "Tunnel info: {type}",
-    "rotated": "Tunnel URL rotated: {url}",
-    "confirmRotate": "Rotate tunnel {type}? (a new URL will be generated)"
-  },
   "stop": {
     "description": "Stop the OmniRoute server",
     "stopping": "Stopping server (PID {pid})...",
@@ -544,120 +485,6 @@
     },
     "get": {
       "description": "Get a single audit log entry by ID"
-    }
-  },
-  "skills": {
-    "description": "Manage OmniRoute skills (sandbox, builtin, custom, hybrid, skillssh)",
-    "list": {
-      "description": "List installed skills",
-      "type": "Filter by type (sandbox|custom|builtin|hybrid|skillssh)",
-      "enabled": "Show only enabled skills",
-      "disabled": "Show only disabled skills",
-      "api_key": "Filter by API key"
-    },
-    "get": {
-      "description": "Get details for a skill by ID"
-    },
-    "install": {
-      "description": "Install a skill from file or URL",
-      "from_file": "Path to skill JSON definition file",
-      "from_url": "URL of remote skill definition",
-      "type": "Skill type (sandbox|custom|hybrid)",
-      "enable": "Enable skill after install"
-    },
-    "enable": {
-      "description": "Enable a skill by ID"
-    },
-    "disable": {
-      "description": "Disable a skill by ID",
-      "yes": "Skip confirmation prompt"
-    },
-    "delete": {
-      "description": "Delete a skill by ID",
-      "yes": "Skip confirmation prompt"
-    },
-    "execute": {
-      "description": "Execute a skill by ID",
-      "input": "JSON input object",
-      "input_file": "Path to JSON input file",
-      "timeout": "Execution timeout in ms (default: 30000)"
-    },
-    "executions": {
-      "description": "List skill execution history",
-      "skill": "Filter by skill ID",
-      "limit": "Maximum results (default: 50)",
-      "status": "Filter by status (running|completed|failed)"
-    },
-    "skillssh": {
-      "description": "Manage skills installed via SSH"
-    },
-    "marketplace": {
-      "description": "Browse and install skills from the marketplace"
-    },
-    "mp": {
-      "search": {
-        "description": "Search marketplace packages",
-        "category": "Filter by category",
-        "tag": "Filter by tag",
-        "limit": "Maximum results (default: 30)",
-        "sort": "Sort by: downloads|rating|recent"
-      },
-      "info": {
-        "description": "Show package details and readme"
-      },
-      "install": {
-        "description": "Install a marketplace package",
-        "version": "Package version (default: latest)",
-        "enable": "Enable after install",
-        "yes": "Skip confirmation prompt"
-      },
-      "categories": {
-        "description": "List marketplace categories"
-      },
-      "featured": {
-        "description": "Show featured marketplace packages"
-      }
-    }
-  },
-  "memory": {
-    "description": "Manage OmniRoute conversational memory (FTS5 + vector)",
-    "search": {
-      "description": "Search memory entries by semantic query",
-      "type": "Filter by memory type (user|feedback|project|reference)",
-      "limit": "Maximum results (default: 20)",
-      "api_key": "Filter by API key",
-      "token_budget": "Limit total tokens in results"
-    },
-    "add": {
-      "description": "Add a new memory entry",
-      "content": "Memory text content",
-      "file": "Read content from file",
-      "type": "Memory type (default: user)",
-      "metadata": "JSON metadata object",
-      "api_key": "Associate with API key"
-    },
-    "clear": {
-      "description": "Delete memory entries matching filters",
-      "type": "Filter by type",
-      "older": "Delete entries older than duration (30d, 6m, 1y)",
-      "api_key": "Filter by API key",
-      "yes": "Skip confirmation prompt"
-    },
-    "list": {
-      "description": "List memory entries without search ranking",
-      "type": "Filter by type",
-      "limit": "Maximum results (default: 100)",
-      "api_key": "Filter by API key"
-    },
-    "get": {
-      "description": "Get a single memory entry by ID"
-    },
-    "delete": {
-      "description": "Delete a memory entry by ID",
-      "yes": "Skip confirmation prompt"
-    },
-    "health": {
-      "description": "Show memory subsystem health (FTS5 + Qdrant)"
     }
   },
   "oauth": {
@@ -732,83 +559,6 @@
       "description": "List source files produced by a task"
     }
   },
-  "eval": {
-    "description": "Manage eval suites and runs",
-    "suites": {
-      "description": "Manage eval suites",
-      "list": {
-        "description": "List eval suites"
-      },
-      "get": {
-        "description": "Get eval suite details by ID"
-      },
-      "create": {
-        "description": "Create an eval suite from a JSON file",
-        "file": "Path to suite definition JSON file"
-      }
-    },
-    "run": {
-      "description": "Start an eval run for a suite",
-      "model": "Model ID to evaluate (default: auto)",
-      "combo": "Force a specific combo by name",
-      "concurrency": "Number of concurrent samples (default: 4)",
-      "tag": "Tag this run for later filtering",
-      "watch": "Watch run progress until completion"
-    },
-    "list": {
-      "description": "List eval runs",
-      "suite": "Filter by suite ID",
-      "status": "Filter by status",
-      "since": "Return runs since this timestamp",
-      "limit": "Maximum results (default: 50)"
-    },
-    "get": {
-      "description": "Get eval run details by ID"
-    },
-    "results": {
-      "description": "Show sample results for an eval run",
-      "failed": "Show only failed samples"
-    },
-    "cancel": {
-      "description": "Cancel a running eval",
-      "yes": "Skip confirmation prompt"
-    },
-    "scorecard": {
-      "description": "Show scorecard for a completed eval run"
-    }
-  },
-  "webhooks": {
-    "description": "Manage OmniRoute webhooks",
-    "events": {
-      "description": "List all available webhook event types"
-    },
-    "list": {
-      "description": "List configured webhooks"
-    },
-    "get": {
-      "description": "Get webhook details by ID"
-    },
-    "add": {
-      "description": "Register a new webhook",
-      "url": "Destination URL",
-      "events": "Comma-separated list of event types",
-      "secret": "HMAC signing secret",
-      "header": "Extra header in key=value format (repeatable)",
-      "no_enabled": "Create webhook in disabled state"
-    },
-    "update": {
-      "description": "Update an existing webhook",
-      "enabled": "Set enabled state (true|false)"
-    },
-    "remove": {
-      "description": "Delete a webhook",
-      "yes": "Skip confirmation prompt"
-    },
-    "test": {
-      "description": "Send a test event to a webhook",
-      "event": "Event type to simulate (default: request.completed)"
-    }
-  },
   "program": {
     "description": "OmniRoute — Smart AI Router with Auto Fallback",
     "version": "Print version and exit",
@@ -840,38 +590,6 @@
     },
     "delete": {
       "yes": "Skip confirmation"
-    }
-  },
-  "batches": {
-    "description": "Manage OpenAI-compatible batch jobs",
-    "list": {
-      "status": "Filter by status",
-      "limit": "Max results"
-    },
-    "create": {
-      "description": "Create a batch job",
-      "inputFile": "Input file ID",
-      "endpoint": "Target endpoint",
-      "window": "Completion window",
-      "metadata": "Add metadata key=value"
-    },
-    "submit": {
-      "description": "Upload JSONL file and create batch",
-      "jsonl": "Path to JSONL file",
-      "endpoint": "Target endpoint",
-      "wait": "Wait for completion"
-    },
-    "cancel": {
-      "yes": "Skip confirmation"
-    },
-    "wait": {
-      "timeout": "Timeout in ms"
-    },
-    "output": {
-      "out": "Save output to path"
-    },
-    "errors": {
-      "out": "Save errors to path"
     }
   },
   "translator": {
@@ -920,11 +638,6 @@
       "description": "Show divergence from upstream prices",
       "model": "Filter by model"
     }
-  },
-  "radar": {
-    "description": "Inspect and synchronize the local Radar catalog feeds",
-    "status": "Show local Radar settings and feed cache status",
-    "sync": "Synchronize catalog, referrals, offers, and Intel through the local server"
   },
   "resilience": {
     "description": "Inspect and manage resilience mechanisms",
@@ -1225,37 +938,6 @@
     "install": "Install completion script globally for detected shell",
     "refresh": "Refresh cache of combos/providers/models"
   },
-  "logs": {
-    "description": "Stream or export request logs",
-    "follow": "Stream logs in real-time",
-    "filter": "Filter by level (error,warn,info) — comma-separated",
-    "lines": "Number of lines to fetch",
-    "timeout": "Connection timeout in ms",
-    "baseUrl": "OmniRoute API base URL",
-    "requestId": "Filter by request ID",
-    "apiKey": "Filter by API key",
-    "combo": "Filter by combo name",
-    "status": "Filter by HTTP status code",
-    "durationMin": "Min request duration in ms",
-    "durationMax": "Max request duration in ms",
-    "export": "Save logs to file (json/jsonl/csv)",
-    "exported": "Logs saved to {path}",
-    "stopped": "Log stream stopped.",
-    "streamError": "Log stream error: {message}"
-  },
-  "tray": {
-    "description": "Control the system tray icon",
-    "show": "Show the tray icon (if server is running with --tray)",
-    "hide": "Hide the tray icon",
-    "quit": "Quit OmniRoute via tray"
-  },
-  "autostart": {
-    "description": "Manage OmniRoute autostart at boot (Linux: systemd user service)",
-    "enable": "Enable autostart at boot",
-    "disable": "Disable autostart at boot",
-    "toggle": "Toggle autostart at boot",
-    "status": "Show autostart status"
-  },
   "runtime": {
     "description": "Manage native runtime dependencies",
     "check": "Check status of native deps in runtime directory",
@@ -1307,23 +989,5 @@
   },
   "setupCodex": {
     "description": "Generate ~/.codex profile files from OmniRoute live model catalog"
-  },
-  "packs": {
-    "description": "Manage optional runtime packs (ML / browser automation)",
-    "listDescription": "List optional packs and their install state",
-    "installDescription": "Install an optional pack into DATA_DIR",
-    "verifyDescription": "Verify installed packs against the shipped checksum index",
-    "removeDescription": "Remove an installed optional pack",
-    "sourceOpt": "Directory holding pack payloads and the pack index",
-    "warnNoIndex": "optional-packs.index.json not found — install/verify are unavailable in this checkout (desktop bundles ship it)",
-    "errUnknown": "unknown pack: {name}",
-    "errNoIndex": "pack index not found; pass --source <dir> holding the pack payload (desktop bundles ship it next to the app)",
-    "installed": "pack \"{name}\" installed and verified at {dir}",
-    "restartHint": "restart the OmniRoute server (or desktop app) so the runtime picks the pack up",
-    "removed": "pack \"{name}\" removed",
-    "notInstalled": "pack \"{name}\" was not installed",
-    "verifyOk": "all installed packs verified",
-    "verifyFailed": "{count} pack(s) failed verification",
-    "noneInstalled": "no optional packs installed"
   }
 }

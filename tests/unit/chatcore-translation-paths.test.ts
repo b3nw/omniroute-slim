@@ -13,8 +13,6 @@ const auth = await import("../../src/sse/services/auth.ts");
 const upstreamProxyDb = await import("../../src/lib/db/upstreamProxy.ts");
 const { invalidateCacheControlSettingsCache } =
   await import("../../src/lib/cacheControlSettings.ts");
-const { clearCache, getCachedResponse, generateSignature } =
-  await import("../../src/lib/semanticCache.ts");
 const { clearIdempotency } = await import("../../src/lib/idempotencyLayer.ts");
 const { getPendingRequests, clearPendingRequests } =
   await import("../../src/lib/usage/usageHistory.ts");
@@ -313,7 +311,6 @@ async function resetStorage() {
   resetPayloadRulesConfigForTests();
   register(FORMATS.OPENAI_RESPONSES, FORMATS.OPENAI, originalResponsesToOpenAI, null);
   invalidateCacheControlSettingsCache();
-  clearCache();
   clearIdempotency();
   clearInflight();
   clearModelsDevCapabilities();
@@ -2263,58 +2260,6 @@ test("chatCore serves a cached idempotent response without hitting the provider 
   const payload = (await second.result.response.json()) as any;
   assert.equal(payload.choices[0].message.content, "ok");
 });
-test("chatCore returns a semantic cache HIT for repeated deterministic requests", async () => {
-  let upstreamHits = 0;
-  const sharedBody = {
-    model: "gpt-4o-mini",
-    stream: false,
-    temperature: 0,
-    messages: [{ role: "user", content: "cache this exact answer" }],
-  };
-
-  const first = await invokeChatCore({
-    provider: "openai",
-    model: "gpt-4o-mini",
-    body: sharedBody,
-    responseFormat: "openai",
-    responseFactory() {
-      upstreamHits += 1;
-      return buildOpenAIResponse(false, "cached-once");
-    },
-  });
-
-  const second = await invokeChatCore({
-    provider: "openai",
-    model: "gpt-4o-mini",
-    body: sharedBody,
-    responseFormat: "openai",
-    responseFactory() {
-      upstreamHits += 1;
-      return buildOpenAIResponse(false, "should-not-run");
-    },
-  });
-
-  assert.equal(first.calls.length, 1);
-  assert.equal(first.result.response.headers.get("X-OmniRoute-Cache"), "MISS");
-  assert.equal(second.calls.length, 0);
-  assert.equal(second.result.response.headers.get("X-OmniRoute-Cache"), "HIT");
-  assert.equal(upstreamHits, 1);
-
-  const payload = (await second.result.response.json()) as any;
-  assert.equal(payload.choices[0].message.content, "cached-once");
-
-  await flushAsyncSideEffects();
-  const semanticLog = await waitFor(async () => {
-    const rows = await getCallLogs({ limit: 10 });
-    const hit = rows.find((row) => row.cacheSource === "semantic");
-    if (!hit) return null;
-    return await getCallLogById(hit.id);
-  });
-  assert.ok(semanticLog, "expected semantic cache HIT to be persisted in call logs");
-  assert.equal(semanticLog.cacheSource, "semantic");
-  assert.equal(semanticLog.path, "/v1/chat/completions");
-  assert.equal(semanticLog.status, 200);
-});
 test("chatCore skips semantic cache when disabled in settings", async () => {
   await settingsDb.updateSettings({ semanticCacheEnabled: false });
 
@@ -3258,60 +3203,6 @@ test("chatCore locks per-model quota failures without dropping quota helper refe
 });
 
 // ── Streaming semantic cache tests ──────────────────────────────────────────
-test("chatCore caches streaming response and serves cache HIT on repeat", async () => {
-  let upstreamHits = 0;
-  const sharedBody = {
-    model: "gpt-4o-mini",
-    stream: true,
-    temperature: 0,
-    messages: [{ role: "user", content: "stream-cache-test" }],
-  };
-
-  const first = await invokeChatCore({
-    provider: "openai",
-    model: "gpt-4o-mini",
-    accept: "text/event-stream",
-    body: sharedBody,
-    responseFormat: "openai",
-    responseFactory() {
-      upstreamHits += 1;
-      return buildOpenAIResponse(true, "streamed-once");
-    },
-  });
-
-  assert.equal(first.result.success, true);
-  // Consume the stream to trigger onStreamComplete and cache write
-  await first.result.response.text();
-  await flushAsyncSideEffects();
-
-  // Second request with same body should get cache HIT (JSON, not SSE)
-  const second = await invokeChatCore({
-    provider: "openai",
-    model: "gpt-4o-mini",
-    accept: "text/event-stream",
-    body: sharedBody,
-    responseFormat: "openai",
-    responseFactory() {
-      upstreamHits += 1;
-      return buildOpenAIResponse(true, "should-not-stream");
-    },
-  });
-
-  assert.equal(upstreamHits, 1, "upstream should be called only once");
-  assert.equal(second.calls.length, 0, "second request should not reach upstream");
-  assert.equal(second.result.response.headers.get("X-OmniRoute-Cache"), "HIT");
-
-  // #2952 — a streaming client receives the cache HIT as an SSE stream (not a
-  // raw JSON body), so content + reasoning_content arrive in the streaming shape.
-  assert.equal(
-    second.result.response.headers.get("Content-Type"),
-    "text/event-stream",
-    "streaming cache HIT should be served as SSE"
-  );
-  const sse = await second.result.response.text();
-  assert.match(sse, /^data:/m, "cache HIT should be SSE-framed");
-  assert.match(sse, /streamed-once/, "SSE cache HIT should carry the cached content");
-});
 test("chatCore does not cache streaming response when temperature > 0", async () => {
   let upstreamHits = 0;
   const sharedBody = {
@@ -3351,95 +3242,4 @@ test("chatCore does not cache streaming response when temperature > 0", async ()
   await second.result.response.text();
   assert.equal(upstreamHits, 2, "both requests should hit upstream");
   assert.equal(second.calls.length, 1, "second request should reach upstream");
-});
-test("chatCore skips streaming cache when X-OmniRoute-No-Cache header is set", async () => {
-  let upstreamHits = 0;
-  const sharedBody = {
-    model: "gpt-4o-mini",
-    stream: true,
-    temperature: 0,
-    messages: [{ role: "user", content: "no-cache-stream" }],
-  };
-
-  const first = await invokeChatCore({
-    provider: "openai",
-    model: "gpt-4o-mini",
-    accept: "text/event-stream",
-    requestHeaders: { "x-omniroute-no-cache": "true" },
-    body: sharedBody,
-    responseFormat: "openai",
-    responseFactory() {
-      upstreamHits += 1;
-      return buildOpenAIResponse(true, "bypass-cache");
-    },
-  });
-
-  await first.result.response.text();
-  await flushAsyncSideEffects();
-
-  // Verify nothing was cached
-  const sig = generateSignature("gpt-4o-mini", sharedBody.messages, 0, 1);
-  const cached = getCachedResponse(sig);
-  assert.equal(cached, null, "response should not be cached when no-cache header is set");
-
-  const second = await invokeChatCore({
-    provider: "openai",
-    model: "gpt-4o-mini",
-    accept: "text/event-stream",
-    requestHeaders: { "x-omniroute-no-cache": "true" },
-    body: sharedBody,
-    responseFormat: "openai",
-    responseFactory() {
-      upstreamHits += 1;
-      return buildOpenAIResponse(true, "bypass-again");
-    },
-  });
-
-  await second.result.response.text();
-  assert.equal(upstreamHits, 2, "both requests should hit upstream with no-cache");
-});
-test("chatCore returns cache HIT as SSE when the client requests streaming", async () => {
-  const sharedBody = {
-    model: "gpt-4o-mini",
-    stream: false,
-    temperature: 0,
-    messages: [{ role: "user", content: "json-then-sse-cache" }],
-  };
-
-  // First: non-streaming request populates cache
-  await invokeChatCore({
-    provider: "openai",
-    model: "gpt-4o-mini",
-    body: sharedBody,
-    responseFormat: "openai",
-    responseFactory() {
-      return buildOpenAIResponse(false, "cached-json");
-    },
-  });
-
-  // Second: streaming request should still get cache HIT as JSON
-  const second = await invokeChatCore({
-    provider: "openai",
-    model: "gpt-4o-mini",
-    accept: "text/event-stream",
-    body: { ...sharedBody, stream: true },
-    responseFormat: "openai",
-    responseFactory() {
-      return buildOpenAIResponse(true, "should-not-stream");
-    },
-  });
-
-  assert.equal(second.calls.length, 0, "cached response should prevent upstream call");
-  assert.equal(second.result.response.headers.get("X-OmniRoute-Cache"), "HIT");
-  // #2952 — even though the cache was populated by a non-streaming request, a
-  // later streaming request gets the cached completion SSE-wrapped, so streaming
-  // clients keep their streaming shape (and reasoning_content) on cache hits.
-  assert.equal(
-    second.result.response.headers.get("Content-Type"),
-    "text/event-stream",
-    "streaming cache HIT should be served as SSE"
-  );
-  const sse = await second.result.response.text();
-  assert.match(sse, /^data:/m, "cache HIT should be SSE-framed");
-  assert.match(sse, /cached-json/, "SSE cache HIT should carry the cached content");
 });

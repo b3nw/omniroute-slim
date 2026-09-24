@@ -91,7 +91,6 @@ export {
   ccrStatsTool,
 } from "./tools.ts";
 
-export { radarCatalogInput, radarCatalogOutput, radarCatalogTool } from "./radarCatalog.ts";
 
 // A2A schemas
 export {

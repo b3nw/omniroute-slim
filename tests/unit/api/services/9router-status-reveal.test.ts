@@ -3,7 +3,7 @@
  *
  * - Without ?reveal: returns only masked key
  * - With ?reveal=key but missing X-Reveal-Confirm: returns 403
- * - With ?reveal=key and X-Reveal-Confirm: yes: returns apiKeyPlain + logs audit
+ * - With ?reveal=key and X-Reveal-Confirm: yes: returns apiKeyPlain
  */
 
 import { describe, it, before, after, beforeEach } from "node:test";
@@ -32,9 +32,6 @@ await updateVersionManagerTool("9router", {
   status: "stopped",
 });
 
-// Ensure audit_log table exists (compliance init)
-const { initAuditLog, countAuditLog } = await import("../../../../src/lib/compliance/index.ts");
-initAuditLog();
 
 // Import GET after env is set
 const { GET } =
@@ -92,23 +89,6 @@ describe("GET /api/services/9router/status", () => {
     assert.ok(body.apiKeyPlain.startsWith("nr_"), "plain key should start with nr_");
     // masked should also be present
     assert.ok("apiKeyMasked" in body, "should still have apiKeyMasked");
-  });
-
-  it("reveal logs an audit entry with action=service.reveal_api_key", async () => {
-    const countBefore = countAuditLog({ action: "service.reveal_api_key" });
-
-    const req = makeRequest("http://localhost/api/services/9router/status?reveal=key", {
-      "X-Reveal-Confirm": "yes",
-    });
-    const res = await GET(req);
-    assert.equal(res.status, 200);
-
-    const countAfter = countAuditLog({ action: "service.reveal_api_key" });
-    assert.equal(
-      countAfter,
-      countBefore + 1,
-      `audit entries should increase by 1 (was ${countBefore}, now ${countAfter})`
-    );
   });
 
   it("plain key is different from masked key (not trivially masked)", async () => {

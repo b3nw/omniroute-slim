@@ -84,7 +84,6 @@ import { resolveOmniRouteBaseUrl } from "../../src/shared/utils/resolveOmniRoute
 import { sanitizeErrorMessage } from "../utils/error.ts";
 import { mcpFetchTimeoutSignal } from "./fetchTimeout.ts";
 import { getMcpModelsCatalog } from "./catalog.ts";
-import { registerRadarCatalogTool } from "./radarCatalog.ts";
 import type { TextToolResult } from "./toolResult.ts";
 export { getMcpModelsCatalog } from "./catalog.ts";
 
@@ -891,8 +890,6 @@ export function createMcpServer(options?: CreateMcpServerOptions): McpServer {
       handleListModelsCatalog(listModelsCatalogInput.parse(args))
     )
   );
-
-  registerRadarCatalogTool(server, withScopeEnforcement);
 
   server.registerTool(
     "omniroute_simulate_route",

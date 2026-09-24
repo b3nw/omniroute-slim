@@ -9,7 +9,7 @@ import {
 
 describe("maskEmail", () => {
   it("masks standard email correctly", () => {
-    assert.equal(maskEmail("diego.souza@gmail.com"), "die********@******com");
+    assert.equal(maskEmail("alice.smith@gmail.com"), "ali********@******com");
   });
 
   it("masks email with short username (exactly visibleChars)", () => {
@@ -39,7 +39,7 @@ describe("maskEmail", () => {
   });
 
   it("handles multi-part TLDs correctly", () => {
-    assert.equal(maskEmail("diego.souza@outlook.com.br"), "die********@***********.br");
+    assert.equal(maskEmail("alice.smith@outlook.com.br"), "ali********@***********.br");
     assert.equal(maskEmail("evelyn@outlook.com.br"), "eve***@***********.br");
   });
 

@@ -20,7 +20,6 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "cloud-agent-creds-test-secret";
 
 const core = await import("../../src/lib/db/core.ts");
-const creds = await import("../../src/lib/cloudAgent/credentials.ts");
 
 test.after(() => {
   core.resetDbInstance();
@@ -39,43 +38,3 @@ test("migration 061 provisions cloud_agent_credentials (table exists after DB in
   );
 });
 
-test("ensureCredentialsTable is no longer exported (inline DDL removed)", () => {
-  assert.equal(
-    (creds as Record<string, unknown>).ensureCredentialsTable,
-    undefined,
-    "lazy table creation must be gone — migration owns the schema"
-  );
-});
-
-test("save → get round-trips and decrypts the API key", () => {
-  creds.saveCloudAgentCredential("devin", "sk-secret-123", "https://api.devin.example");
-  const got = creds.getCloudAgentCredentialFromDb("devin");
-  assert.deepEqual(got, { apiKey: "sk-secret-123", baseUrl: "https://api.devin.example" });
-});
-
-test("get returns null for unknown provider", () => {
-  assert.equal(creds.getCloudAgentCredentialFromDb("does-not-exist"), null);
-});
-
-test("save upserts (ON CONFLICT) rather than duplicating", () => {
-  creds.saveCloudAgentCredential("jules", "sk-first");
-  creds.saveCloudAgentCredential("jules", "sk-second", "https://jules.example");
-  const got = creds.getCloudAgentCredentialFromDb("jules");
-  assert.deepEqual(got, { apiKey: "sk-second", baseUrl: "https://jules.example" });
-});
-
-test("list returns masked keys, never the plaintext", () => {
-  creds.saveCloudAgentCredential("codex-cloud", "sk-supersecretvalue");
-  const list = creds.listCloudAgentCredentials();
-  const entry = list.find((c) => c.providerId === "codex-cloud");
-  assert.ok(entry, "saved provider must appear in the list");
-  assert.equal(entry.apiKey, "****alue");
-  assert.ok(!entry.apiKey.includes("supersecret"), "plaintext key must never be returned");
-});
-
-test("delete removes the credential", () => {
-  creds.saveCloudAgentCredential("temp", "sk-temp");
-  assert.ok(creds.getCloudAgentCredentialFromDb("temp"));
-  creds.deleteCloudAgentCredential("temp");
-  assert.equal(creds.getCloudAgentCredentialFromDb("temp"), null);
-});

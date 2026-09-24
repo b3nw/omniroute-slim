@@ -23,7 +23,7 @@ const readSrc = (rel: string) => readFileSync(resolve(here, "../../src", rel), "
 const readCatalog = (locale: string) =>
   JSON.parse(readFileSync(resolve(here, `../../src/i18n/messages/${locale}.json`), "utf8"));
 
-const LAN = { hostname: "192.168.0.15", port: "20128", protocol: "http:" };
+const LAN = { hostname: "192.168.1.50", port: "20128", protocol: "http:" };
 
 test("the callback rides the DASHBOARD port, not a fixed provider port", () => {
   const hint = buildGoogleLoopbackHint("antigravity", LAN);
@@ -31,13 +31,13 @@ test("the callback rides the DASHBOARD port, not a fixed provider port", () => {
   // Mirrors OAuthModal's GOOGLE_OAUTH_PROVIDERS redirectUri branch.
   assert.equal(hint.redirectUri, "http://127.0.0.1:20128/callback");
   assert.equal(hint.dashboardPort, "20128");
-  assert.equal(hint.dashboardHost, "192.168.0.15");
+  assert.equal(hint.dashboardHost, "192.168.1.50");
 });
 
 test("a SINGLE forward is enough — unlike codex, there is no second port", () => {
   const hint = buildGoogleLoopbackHint("antigravity", LAN);
 
-  assert.equal(hint.tunnelCommand, "ssh -L 20128:127.0.0.1:20128 <user>@192.168.0.15");
+  assert.equal(hint.tunnelCommand, "ssh -L 20128:127.0.0.1:20128 <user>@192.168.1.50");
   assert.doesNotMatch(hint.tunnelCommand, /1455/);
   assert.equal(hint.localDashboardUrl, "http://localhost:20128");
 });
@@ -59,7 +59,7 @@ test("agy gets NO helper command — the CLI only mints antigravity blobs", () =
   assert.equal(hint.helperCommand, null);
   // ...but agy IS still allowed to paste a blob, so the tunnel path must stay.
   assert.ok(PASTE_CREDENTIAL_PROVIDERS.has("agy"));
-  assert.equal(hint.tunnelCommand, "ssh -L 20128:127.0.0.1:20128 <user>@192.168.0.15");
+  assert.equal(hint.tunnelCommand, "ssh -L 20128:127.0.0.1:20128 <user>@192.168.1.50");
 });
 
 test("an empty location.port resolves from the protocol", () => {

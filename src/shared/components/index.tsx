@@ -46,7 +46,5 @@ export { default as InfoTooltip } from "./InfoTooltip";
 export { default as PresetSlider } from "./PresetSlider";
 export { default as DistributeProxiesButton } from "./DistributeProxiesButton";
 
-export { SkillsConceptCard } from "./SkillsConceptCard";
-
 // Layouts
 export * from "./layouts";

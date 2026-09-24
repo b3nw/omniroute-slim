@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 -- 163_radar_feed_cache_generated_at.sql
 --
 -- radar_feed_cache (migration 136) kept only fetched_at — when this install

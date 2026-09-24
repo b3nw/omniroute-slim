@@ -61,14 +61,6 @@ describe("Pipeline Wiring — instrumentation-node.ts", () => {
     assert.match(src, /seedDefaultModelAliases/);
   });
 
-  it("should initialize Arena ELO sync on the live startup path (on by default, opt-out)", () => {
-    // The Next standalone runtime boots through instrumentation-node, NOT server-init.ts.
-    // The Arena ELO sync (which feeds the Free Provider Rankings page) must be wired here,
-    // or it never runs in production. initArenaEloSync self-gates through the feature flag
-    // resolver so ARENA_ELO_SYNC_ENABLED and dashboard overrides still apply.
-    assert.match(src, /initArenaEloSync/);
-    assert.match(src, /m\.initArenaEloSync\(\)/);
-  });
 
   it("should initialize pricing + models.dev sync on the live startup path (self-gated, opt-in)", () => {
     // Same dead-path bug as Arena: these were only wired into the never-executed server-init.ts
@@ -83,11 +75,6 @@ describe("Pipeline Wiring — sse chat handler", () => {
   const src = readProjectFile("src/sse/handlers/chat.ts");
   const coreSrc = readProjectFile("open-sse/handlers/chatCore.ts");
 
-  it("should import and use guardrail pre-call validation", () => {
-    assert.ok(src, "src/sse/handlers/chat.ts should exist");
-    assert.match(src, /guardrailRegistry/);
-    assert.match(src, /runPreCallHooks/);
-  });
 
   it("should import circuit breaker integration", () => {
     assert.match(src, /getCircuitBreaker|CircuitBreakerOpenError/);
@@ -147,14 +134,10 @@ describe("Pipeline Wiring — middleware proxy", () => {
 
 describe("API Routes — existence check", () => {
   const routes = [
-    "src/app/api/cache/stats/route.ts",
     "src/app/api/telemetry/summary/route.ts",
     "src/app/api/usage/budget/route.ts",
     "src/app/api/usage/quota/route.ts",
     "src/app/api/fallback/chains/route.ts",
-    "src/app/api/compliance/audit-log/route.ts",
-    "src/app/api/evals/route.ts",
-    "src/app/api/evals/[suiteId]/route.ts",
     "src/app/api/policies/route.ts",
   ];
 
@@ -166,9 +149,6 @@ describe("API Routes — existence check", () => {
 });
 
 describe("API Routes — export HTTP methods", () => {
-  it("/api/cache/stats should export GET and DELETE", () => {
-    assertRouteMethods("src/app/api/cache/stats/route.ts", ["GET", "DELETE"]);
-  });
 
   it("/api/telemetry/summary should export GET", () => {
     assertRouteMethods("src/app/api/telemetry/summary/route.ts", ["GET"]);
@@ -186,17 +166,8 @@ describe("API Routes — export HTTP methods", () => {
     assertRouteMethods("src/app/api/fallback/chains/route.ts", ["GET", "POST", "DELETE"]);
   });
 
-  it("/api/compliance/audit-log should export GET", () => {
-    assertRouteMethods("src/app/api/compliance/audit-log/route.ts", ["GET"]);
-  });
 
-  it("/api/evals should export GET and POST", () => {
-    assertRouteMethods("src/app/api/evals/route.ts", ["GET", "POST"]);
-  });
 
-  it("/api/evals/[suiteId] should export GET", () => {
-    assertRouteMethods("src/app/api/evals/[suiteId]/route.ts", ["GET"]);
-  });
 
   it("/api/policies should export GET and POST", () => {
     assertRouteMethods("src/app/api/policies/route.ts", ["GET", "POST"]);
@@ -268,15 +239,14 @@ describe("API Routes — dashboard and tool consumers", () => {
     assert.doesNotMatch(requestLogger, /\/api\/logs\/active/);
   });
 
-  it("keeps usage quota wired through A2A and MCP tools", () => {
-    const quotaSkill = readProjectFile("src/lib/a2a/skills/quotaManagement.ts");
+  it("keeps usage quota wired through MCP tools", () => {
+    // The agent-framework quota skill was excised; the MCP surface and the
+    // /api/usage/quota route it consumes are retained.
     const mcpAdvancedTools = readProjectFile("open-sse/mcp-server/tools/advancedTools.ts");
     const mcpServer = readProjectFile("open-sse/mcp-server/server.ts");
 
-    assert.ok(quotaSkill, "quotaManagement skill should exist");
     assert.ok(mcpAdvancedTools, "advanced MCP tools should exist");
     assert.ok(mcpServer, "MCP server should exist");
-    assert.match(quotaSkill, /\/api\/usage\/quota/);
     assert.match(mcpAdvancedTools, /\/api\/usage\/quota/);
     assert.match(mcpServer, /\/api\/usage\/quota/);
     assertRouteMethods("src/app/api/usage/quota/route.ts", ["GET"]);
@@ -434,19 +404,12 @@ describe("Page Integration — logs page wiring", () => {
 
 describe("Page Integration — settings page wiring", () => {
   const src = readProjectFile("src/app/(dashboard)/dashboard/settings/resilience/page.tsx");
-  const memorySkillsTab = readProjectFile(
-    "src/app/(dashboard)/dashboard/settings/components/MemorySkillsTab.tsx"
-  );
 
   it("should include resilience tab in advanced settings", () => {
     assert.ok(src, "src/app/(dashboard)/dashboard/settings/resilience/page.tsx should exist");
     assert.match(src, /ResilienceTab/);
   });
 
-  it("should not label the active skills settings card as a placeholder", () => {
-    assert.ok(memorySkillsTab, "MemorySkillsTab should exist");
-    assert.doesNotMatch(memorySkillsTab, /Skills Settings \(placeholder\)/);
-  });
 });
 
 describe("Page Integration — cache page wiring", () => {

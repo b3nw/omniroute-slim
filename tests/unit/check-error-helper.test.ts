@@ -191,16 +191,6 @@ test("models catalog route has been removed from the shipped missing-helper allo
   await assertRouteRemovedFromMissingHelperAllowlist("src/app/api/models/catalog/route.ts");
 });
 
-test("cli-tools backups route has been removed from the shipped missing-helper allowlist", async () => {
-  await assertRouteRemovedFromMissingHelperAllowlist("src/app/api/cli-tools/backups/route.ts");
-});
-
-test("cli-tools guide-settings route has been removed from the shipped missing-helper allowlist", async () => {
-  await assertRouteRemovedFromMissingHelperAllowlist(
-    "src/app/api/cli-tools/guide-settings/[toolId]/route.ts"
-  );
-});
-
 test("providers test-batch route has been removed from the shipped missing-helper allowlist", async () => {
   await assertRouteRemovedFromMissingHelperAllowlist("src/app/api/providers/test-batch/route.ts");
 });

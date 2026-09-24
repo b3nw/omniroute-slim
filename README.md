@@ -1,139 +1,141 @@
 # OmniRoute-Slim
 
-**OmniRoute-Slim** is a high-performance, ultra-lean, multi-provider LLM proxy and intelligent router. Derived from [OmniRoute](https://github.com/b3nw/OmniRoute), it removes peripheral subsystems (MITM local interception, autonomous agent orchestrators, vector memory/RAG, gamification, and multi-lingual dictionary overhead) to provide a resilient, single-purpose routing core.
+**Streamlined AI Model Gateway & Proxy**
+
+A high-performance, single-purpose proxy and intelligent router for large language models — one
+OpenAI-compatible endpoint in front of every provider you use.
 
 ---
 
-## 1. Macro Reduction & Footprint Metrics
+## What is OmniRoute-Slim?
 
-Baseline is the fork-point commit `75fd0bd` (the imported upstream OmniRoute snapshot); "Slim" is the
-current `HEAD`. Line counts cover git-tracked files only, excluding lockfiles and binary assets.
+OmniRoute-Slim sits between your application and your model providers. Point your client at it once,
+and it handles authentication, routing, failover, quota accounting, and streaming format translation
+for you.
 
-| Metric                                                     | Upstream OmniRoute (`75fd0bd`) | OmniRoute-Slim (HEAD)        | Reduction                   |
-| ---------------------------------------------------------- | ------------------------------ | ---------------------------- | --------------------------- |
-| **All tracked text lines**                                 | ~3.58M lines (3,583,374)       | **~1.77M lines (1,766,748)** | **-1.82M lines (-50.7%)**   |
-| **Core `src/` + `open-sse/` TypeScript** _(`.ts`/`.tsx`)_  | ~861k lines (860,803)          | **~713k lines (713,109)**    | **-148k lines (-17.2%)**    |
-| **Localization assets** _(42 non-English locales removed)_ | 606,078 lines (37.0 MB)        | **15,292 lines (773 KB)**    | **-590,786 lines (-97.5%)** |
-| **Disk footprint** _(excl. `node_modules`, `.git`)_        | —                              | **~74 MB on disk**           | —                           |
-| **Third-party dependencies**                               | 77 runtime / 55 dev            | **71 runtime / 54 dev**      | **-6 runtime / -1 dev**     |
+Its core is a zero-allocation streaming SSE conversion engine that translates request and response
+formats bidirectionally across **OpenAI, Anthropic, Google Gemini, DeepSeek, xAI, Groq, Mistral,
+Ollama, and Cohere** — including reasoning deltas (`thinking`, `reasoning_content`), tool-call chunk
+reassembly, and usage accounting. A client that speaks the OpenAI Chat Completions API can drive an
+Anthropic or Gemini model without changing a line of code.
 
-Localization figures span both dictionary sets — `src/i18n/messages/` and `bin/cli/locales/`. Each
-retains only `en.json` (723 KB and 49 KB respectively); the 42 non-English locales were dropped from
-both, eliminating 84 JSON files.
+## Why "Slim"?
 
----
+OmniRoute-Slim is a fork of [OmniRoute](https://github.com/b3nw/OmniRoute) with the peripheral
+subsystems removed: the desktop (Electron) shell, agent-to-agent frameworks, vector memory and local
+RAG, MITM certificate interception, gamification, and 42 non-English dictionary bundles. What remains
+is focused entirely on fast, dependable, low-latency API routing and proxying.
 
-## 2. Architecture & Subsystem Boundary
+The measured footprint reduction and the full per-subsystem rationale live in
+[`docs/architecture/SLIM_REDUCTION_METRICS.md`](docs/architecture/SLIM_REDUCTION_METRICS.md).
 
-```
-                        ┌──────────────────────────────────────────────┐
-                        │              OmniRoute-Slim                  │
-                        ├──────────────────────────────────────────────┤
-  RETAINED CORE         │  • Universal SSE Streaming Format Engine     │
-  (High-Throughput      │  • Upstream TLS JA3/JA4 Emulation (opt-in)   │
-   Proxying & Routing)  │  • Live Dynamic Catalog & models.dev Sync    │
-                        │  • Quota Pools & Antigravity Dual-Window Cap │
-                        │  • Combos, Load Balancing & Reasoning Router │
-                        │  • Prompt Compression (extractive + ladder)  │
-                        │  • Operational WebUI Dashboard               │
-                        └──────────────────────┬───────────────────────┘
-                                               │
-               EXCISED SUBSYSTEMS              ▼
-       ┌───────────────────────────────────────────────────────────────┐
-       │ ❌ 42 Non-English Locales (-591k LOC across both dict sets)   │
-       │ ❌ MITM Transparent CA Generator & Tunnels (Tailscale/ngrok) │
-       │ ❌ IDE/CLI Helpers & Config Injectors (Cursor/VSCode)         │
-       │ ❌ Autonomous Agent Frameworks (A2A, Conductor, Skills)       │
-       │ ❌ Vector Memory & Local Corpus RAG (sqlite-vec, onnxruntime) │
-       │ ❌ Guardrails Subsystem & Modality Bridge API Surface         │
-       │ ❌ Real-Time Radar 3D Visualizer & Chaos Engineering         │
-       │ ❌ Gamification, Badges, XP & Third-Party Sync (Notion/Obs)   │
-       │ ❌ Heavy Packages (express, lowdb, transformers, http-proxy)  │
-       └───────────────────────────────────────────────────────────────┘
-```
+## Status
 
-**Upstream TLS fingerprint emulation is opt-in, not default-on.** It activates only when
-`ENABLE_TLS_FINGERPRINT="true"` and the `wreq-js` transport is loadable. For traffic that also
-traverses a forward proxy, an explicit `TLS_FINGERPRINT_PROVIDERS` allowlist is additionally
-required — absent that allowlist, fingerprinting stays confined to direct (non-proxied) egress so
-enabling the flag cannot silently alter proxied traffic (`open-sse/utils/proxyFetch.ts`).
+**Alpha — external testers wanted.** The core proxy and routing paths are exercised by the test suite
+and running in real deployments, but the project is young and the API surface may still shift.
+Feedback, bug reports, and pull requests are very welcome — please
+[open an issue](https://github.com/b3nw/OmniRoute-Slim/issues).
 
 ---
 
-## 3. Feature Analysis: Available vs. Removed
+## Quick Start
 
-### 3.1 Available & Hardened Features
-
-- **Universal Streaming & Translation Engine (`open-sse/`):**
-  - Zero-allocation bidirectional streaming SSE format conversion across **OpenAI, Anthropic, Google Gemini, DeepSeek, xAI, Groq, Mistral, Ollama, and Cohere**.
-  - Complete normalization for reasoning deltas (`thinking`, `reasoning_content`), tool call chunk reassembly, and usage tracking.
-- **Upstream Forward Proxying & TLS Fingerprint Emulation (`proxyFetch.ts`, `proxyEgress.ts`):**
-  - Full outbound HTTP, HTTPS, and SOCKS5 (with remote DNS resolution) egress proxy support.
-  - Browser and curl TLS JA3/JA4 fingerprint emulation on upstream requests, gated behind `ENABLE_TLS_FINGERPRINT` plus a provider allowlist for proxied egress (see §2).
-- **Dynamic Catalog Synchronization (`src/lib/catalog/`):**
-  - Live model discovery, pricing ingestion, and capability mapping directly from provider endpoints and `models.dev`.
-  - Context window definitions, model aliasing, and tokenizer metadata.
-- **Combos, Load Balancing & Reasoning Routing:**
-  - Model aliasing, sequential fallback chains, weighted load distribution, and reasoning model selection.
-  - Circuit breaking, provider cooldowns, and automatic failover.
-- **Quota Pools & Antigravity Dual-Quota Tracking (`src/lib/quota/`):**
-  - Hard and soft spend budgets with auto-cutoff.
-  - Dual-window quota tracking supporting both 5-hour rolling session allocations and 7-day rolling weekly caps.
-  - Single-flight OAuth refresh locks to eliminate token invalidation races.
-- **Prompt Compression Engine (`open-sse/services/compression/`):**
-  - **Extractive token compression** — the engine registry under `engines/` (relevance, LLMLingua, RTK, CCR, session-dedup, headroom, Omniglyph, Caveman) prunes and rewrites context rather than re-encoding it.
-  - **Adaptive relevance ladder** (`adaptiveCompression/ladder.ts`) escalates compression tiers against a computed token target, backed by a fidelity gate, hard budget, and worker pool.
-  - `src/lib/compression/` retains only the judge-model client used to score compression fidelity.
-- **Operational WebUI Dashboard (`src/app/(dashboard)/`):**
-  - Primary operational surfaces: **Providers** (`/dashboard/providers`), **Combos & Routing** (`/dashboard/combos`), **API Keys & Quotas** (`/dashboard/api-manager`), **Usage & Costs** (`/dashboard/usage`, `/dashboard/costs`), **Prompt Compression** (`/dashboard/compression`, `/dashboard/context`), and **System Health & Settings** (`/dashboard/health`, `/dashboard/settings`).
-  - These are the surfaces the Slim fork actively maintains, not an exhaustive route list — the tree currently ships 73 dashboard pages, including analytics, logs, cache, and discovery views inherited from upstream.
-- **Retained surfaces worth calling out explicitly:**
-  - **Interactive Playground** — the provider playground component library lives at `/dashboard/providers/playground/` and is mounted inside the provider detail page (`/dashboard/providers/[id]`) and the provider test slide-over; it has no standalone `page.tsx` of its own. A navigable combo playground route does exist at `/dashboard/combos/playground`.
-  - **Batch API** — `/api/v1/batches` (plus `/[id]`, `/[id]/cancel`, `/delete-completed`) remains fully wired to `src/lib/db/batches`. Batch processing was **not** excised.
-
----
-
-### 3.2 Features Removed & Trade-off Rationale
-
-| Excised Subsystem                    | Location(s) Removed                                                                  | Why Excised & Operational Impact                                                                                                                                                                                                                                                 |
-| ------------------------------------ | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **42 Non-English Locales**           | `src/i18n/messages/*.json`, `bin/cli/locales/*.json`                                 | Static JSON dictionaries accounted for ~591k lines (97.5% of all localization content). Standardized on an English-only runtime (`en.json` in both dictionary sets).                                                                                                             |
-| **MITM Transparent Proxy & Tunnels** | `src/mitm/`, `tailscaleTunnel.ts`, `cloudflaredTunnel.ts`, `ngrokTunnel.ts`          | Local root CA generation and OS DNS hijacking require high privileges and are fragile in server environments. Upstream forward proxying is preserved.                                                                                                                            |
-| **CLI Helpers & IDE Injectors**      | `src/lib/cli-helper/`, `src/lib/cursor/`, `src/lib/vscode/`                          | External editor configuration injectors are outside the scope of dedicated proxy infrastructure.                                                                                                                                                                                 |
-| **Autonomous Agent Systems**         | `src/lib/a2a/`, `src/lib/conductor/`, `src/lib/skills/`, `src/lib/acp/`              | Agent-to-agent protocols and background issue-fixing bots add complex state machines unrelated to low-latency proxying.                                                                                                                                                          |
-| **Vector Memory & Local RAG**        | `src/lib/memory/`, `sqlite-vec`, `onnxruntime-node`                                  | Heavy native binary dependencies and embedding chunkers bloated memory and build artifacts.                                                                                                                                                                                      |
-| **Guardrails & Modality Bridge**     | `src/lib/guardrails/`, `/api/modality-bridge`                                        | Both directories and the API route are gone, and the P1 dangling imports they left behind are resolved. Residual settings-schema fields (`modalityBridge*`) and the post-call `reconcileGuardrailReroute` hook in `src/sse/handlers/` are retained as inert compatibility shims. |
-| **Real-time Diagnostics & Toys**     | `src/lib/radar/`, `src/lib/chaos/`, `src/lib/vncSession/`, `src/lib/evals/`          | WebSocket 3D graph animations, fault injectors, remote VNC canvases, and LMSYS Elo scrapers excised.                                                                                                                                                                             |
-| **Gamification & Third-Party Sync**  | `src/lib/gamification/`, `src/lib/notion/`, `src/lib/obsidian/`, `src/lib/telegram/` | Badges, XP points, and note-taking sync integrations removed.                                                                                                                                                                                                                    |
-| **Excised Dependencies**             | `package.json`                                                                       | Removed packages including `express`, `http-proxy-middleware`, `https-proxy-agent`, `lowdb`, `selfsigned`, `@ngrok/ngrok`, `@huggingface/transformers`, `onnxruntime-node`, `sqlite-vec`, and `node-loader`.                                                                     |
-
-> **Note:** `src/lib/jobs/` is **retained** — it holds scheduled maintenance jobs (backup, budget reset, reasoning-cache cleanup, token health checks), not an async batch queue registry.
-
----
-
-## 4. Testing Policy & Homelab Verification
-
-- **Mandatory Testing Model:** All automated tests, live verification probes, and homolog checks must strictly target **`inferx/*`** models (e.g. `inferx/deepseek-v4-flash-0731`, `inferx/glm-5.3-flash`).
-- **OAuth Testing Prohibition:** Never test against Anthropic or OpenAI/Codex OAuth tokens.
-
----
-
-## 5. Operational Commands
+### Docker Compose
 
 ```bash
-# Install dependencies
-npm install
-
-# Run development server (port 20128)
-npm run dev
-
-# Run quality gates
-npm run typecheck:core               # Strict TypeScript check for proxy core
-npm run check:open-sse-typecheck     # Open-SSE typecheck validation (0 errors baseline)
-npm run test:security                # Security and secrets validator tests
-npm run test:plan3                   # Core routing and executor tests
-npm run check:env-doc-sync           # Contract sync between code, docs, and .env.example
-
-# Production standalone build
-npm run build
+git clone https://github.com/b3nw/OmniRoute-Slim.git
+cd OmniRoute-Slim
+cp .env.example .env     # then set JWT_SECRET, API_KEY_SECRET, STORAGE_ENCRYPTION_KEY
+docker compose --profile base up -d omniroute-base
 ```
+
+### Docker (single container)
+
+```bash
+docker build --target runner-base -t omniroute-slim .
+
+docker run -d --name omniroute-slim \
+  -p 20128:20128 \
+  -v omniroute-data:/app/data \
+  -e JWT_SECRET="$(openssl rand -base64 48)" \
+  -e API_KEY_SECRET="$(openssl rand -hex 32)" \
+  -e STORAGE_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+  omniroute-slim
+```
+
+By default the dashboard and the `/v1/*` API are served together on **port 20128**. Set `API_PORT`
+(conventionally `20129`) to split the proxy API onto its own listener.
+
+The `runner-base` image is the lean server runtime. Build `--target runner-web` instead if you need
+the Playwright-backed browser-session providers.
+
+### From Source
+
+```bash
+git clone https://github.com/b3nw/OmniRoute-Slim.git
+cd OmniRoute-Slim
+npm install
+cp .env.example .env
+npm run dev
+```
+
+Then open <http://localhost:20128> for the dashboard, and send traffic to
+`http://localhost:20128/v1/chat/completions`.
+
+Runnable client snippets for curl, Python, Node.js, and PHP are in
+[`examples/quickstart/`](examples/quickstart/).
+
+---
+
+## Configuration
+
+Every setting is an environment variable. [`.env.example`](.env.example) is the annotated,
+authoritative template — each variable is documented inline with its default and the module that
+reads it. The generated cross-reference is in
+[`docs/reference/ENVIRONMENT.md`](docs/reference/ENVIRONMENT.md).
+
+At minimum, set `JWT_SECRET`, `API_KEY_SECRET`, and `STORAGE_ENCRYPTION_KEY` before exposing the
+service. Provider credentials can be supplied via environment variables or added through the
+dashboard at runtime.
+
+---
+
+## Core Features
+
+- **Universal SSE format translation** — bidirectional streaming conversion across every supported
+  provider dialect, with reasoning deltas, tool-call reassembly, and normalized usage reporting.
+- **Combo models & fallback chains** — alias one logical model onto an ordered chain of real ones,
+  with weighted load distribution, circuit breaking, provider cooldowns, and automatic failover.
+- **Dynamic model catalog sync** — live model discovery, pricing ingestion, context-window and
+  capability mapping pulled directly from provider endpoints and `models.dev`.
+- **Spend & token quota tracking** — hard and soft budgets with auto-cutoff, quota pools, dual-window
+  (rolling session + weekly) accounting, and single-flight OAuth refresh locks.
+- **Prompt compression** — an extractive engine registry plus an adaptive relevance ladder that
+  escalates compression tiers against a computed token target, behind a fidelity gate.
+- **Upstream forward proxying** — HTTP, HTTPS, and SOCKS5 (with remote DNS) egress, proxy pools, and
+  opt-in TLS JA3/JA4 fingerprint emulation.
+- **Operational dashboard** — providers, combos and routing, API keys and quotas, usage and costs,
+  compression, health, and settings.
+
+---
+
+## Deployment & Examples
+
+- [`examples/quickstart/`](examples/quickstart/) — minimal client snippets (curl, Python, Node.js, PHP).
+- [`contrib/vps/`](contrib/vps/) — hardened single-host Docker Compose deployment for a VPS.
+- [`contrib/podman/`](contrib/podman/) — rootless Podman Quadlet units.
+- [`docs/`](docs/) — architecture, routing policy, provider notes, security, and the full
+  environment reference.
+
+---
+
+## Contributing
+
+Contributions are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development setup, the
+quality gates a pull request must pass, and the commit conventions. Please also read the
+[Code of Conduct](CODE_OF_CONDUCT.md). Security issues should follow the process in
+[`SECURITY.md`](SECURITY.md) rather than being filed as public issues.
+
+## License
+
+[MIT](LICENSE).

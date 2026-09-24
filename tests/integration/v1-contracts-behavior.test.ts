@@ -36,17 +36,6 @@ test("contract: /api/v1 OPTIONS exposes CORS and allowed methods", async () => {
   assert.ok(response.headers.has("Access-Control-Allow-Methods"));
 });
 
-test("contract: /api/v1/embeddings OPTIONS exposes POST/GET/OPTIONS", async () => {
-  const { OPTIONS } = await import("../../src/app/api/v1/embeddings/route.ts");
-  const response = await OPTIONS();
-  const allowMethods = response.headers.get("Access-Control-Allow-Methods") || "";
-
-  assert.equal(response.status, 200);
-  assert.ok(allowMethods.includes("GET"));
-  assert.ok(allowMethods.includes("POST"));
-  assert.ok(allowMethods.includes("OPTIONS"));
-});
-
 test("contract: /api/v1 and /api/v1/models return consistent model IDs", async () => {
   const [{ GET: getV1 }, { GET: getV1Models }] = await Promise.all([
     import("../../src/app/api/v1/route.ts"),
@@ -91,25 +80,6 @@ test("contract: /api/v1/models returns OpenAI-compatible model shape", async () 
     assert.equal(typeof first.id, "string");
     assert.equal(first.object, "model");
     assert.equal(typeof first.created, "number");
-    assert.equal(typeof first.owned_by, "string");
-  }
-});
-
-test("contract: /api/v1/embeddings GET returns embedding model listing shape", async () => {
-  const { GET: getEmbeddings } = await import("../../src/app/api/v1/embeddings/route.ts");
-  const response = await getEmbeddings(authedRequest("/api/v1/embeddings"));
-
-  assert.equal(response.status, 200);
-  const body = (await response.json()) as any;
-
-  assert.equal(body.object, "list");
-  assert.ok(Array.isArray(body.data));
-  // In CI environments without provider connections, the filtered specialty catalog may be empty.
-  if (body.data.length > 0) {
-    const first = body.data[0];
-    assert.equal(first.object, "model");
-    assert.equal(first.type, "embedding");
-    assert.equal(typeof first.id, "string");
     assert.equal(typeof first.owned_by, "string");
   }
 });

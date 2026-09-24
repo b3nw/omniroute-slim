@@ -17,7 +17,6 @@ const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-repro-691
 process.env.DATA_DIR = TEST_DATA_DIR;
 
 const core = await import("../../src/lib/db/core.ts");
-const { clearCache } = await import("../../src/lib/semanticCache.ts");
 const { clearIdempotency } = await import("../../src/lib/idempotencyLayer.ts");
 const { clearInflight } = await import("../../open-sse/services/requestDedup.ts");
 const { resetAll: resetAccountSemaphores } =
@@ -109,7 +108,6 @@ async function invokeChatCore({ body, provider, model, endpoint = "/v1/chat/comp
 async function resetStorage() {
   clearUpstreamProxyConfigCache();
   resetPayloadRulesConfigForTests();
-  clearCache();
   clearIdempotency();
   clearInflight();
   core.resetDbInstance();

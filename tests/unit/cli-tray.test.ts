@@ -90,13 +90,3 @@ test("autostart.enable registers Linux autostart (systemd and/or desktop)", asyn
   disable();
   assert.equal(isAutostartEnabled(), false, "isAutostartEnabled deve ser false após disable");
 });
-
-test("commands/tray.mjs pode ser importado sem erro", async () => {
-  const mod = await import("../../bin/cli/commands/tray.mjs");
-  assert.equal(typeof mod.registerTray, "function");
-});
-
-test("commands/autostart.mjs pode ser importado sem erro", async () => {
-  const mod = await import("../../bin/cli/commands/autostart.mjs");
-  assert.equal(typeof mod.registerAutostart, "function");
-});

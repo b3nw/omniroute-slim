@@ -1,6 +1,5 @@
 // AUTO-GENERATED. Do not edit.
 import { register_playground } from "./playground.mjs";
-import { register_memory } from "./memory.mjs";
 import { register_chat } from "./chat.mjs";
 import { register_messages } from "./messages.mjs";
 import { register_responses } from "./responses.mjs";
@@ -27,13 +26,9 @@ import { register_cloud } from "./cloud.mjs";
 import { register_fallback } from "./fallback.mjs";
 import { register_telemetry } from "./telemetry.mjs";
 import { register_quota } from "./quota.mjs";
-import { register_agentbridge } from "./agentbridge.mjs";
-import { register_traffic_inspector } from "./traffic-inspector.mjs";
-import { register_agent_skills } from "./agent-skills.mjs";
 
 export const API_TAGS = [
   "playground",
-  "memory",
   "chat",
   "messages",
   "responses",
@@ -60,9 +55,6 @@ export const API_TAGS = [
   "fallback",
   "telemetry",
   "quota",
-  "agentbridge",
-  "traffic-inspector",
-  "agent-skills",
 ];
 
 export function registerApiCommands(program) {
@@ -76,7 +68,6 @@ export function registerApiCommands(program) {
       API_TAGS.forEach((t) => console.log(t));
     });
   register_playground(api);
-  register_memory(api);
   register_chat(api);
   register_messages(api);
   register_responses(api);
@@ -103,7 +94,4 @@ export function registerApiCommands(program) {
   register_fallback(api);
   register_telemetry(api);
   register_quota(api);
-  register_agentbridge(api);
-  register_traffic_inspector(api);
-  register_agent_skills(api);
 }

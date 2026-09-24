@@ -7,7 +7,7 @@
  * (`codex --profile glm52`) without editing config files by hand.
  *
  * Primary use-case: configure a local Codex CLI to use models from a VPS.
- *   omniroute setup-codex --remote http://100.67.86.91:20128 --api-key sk-xxx
+ *   omniroute setup-codex --remote http://100.64.10.20:20128 --api-key sk-xxx
  *
  * The command is idempotent: re-running updates existing profile files in place.
  */
@@ -377,7 +377,7 @@ export function registerSetupCodex(program) {
     .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "20128")
     .option(
       "--remote <url>",
-      "Remote OmniRoute URL, e.g. http://100.67.86.91:20128 — fetches models from there"
+      "Remote OmniRoute URL, e.g. http://100.64.10.20:20128 — fetches models from there"
     )
     .option(
       "--api-key <key>",

@@ -304,7 +304,9 @@ const nextConfig = {
     "process",
   ],
   transpilePackages: ["@omniroute/open-sse", "@lobehub/icons", "fumadocs-ui", "fumadocs-core"],
-  allowedDevOrigins: ["localhost", "127.0.0.1", "192.168.0.250"],
+  allowedDevOrigins: process.env.OMNIROUTE_DEV_ORIGINS
+    ? process.env.OMNIROUTE_DEV_ORIGINS.split(",")
+    : ["localhost", "127.0.0.1"],
   typescript: {
     // TODO: Re-enable after fixing all sub-component useTranslations scope issues
     ignoreBuildErrors: true,
@@ -467,17 +469,9 @@ const nextConfig = {
       },
       // Guides
       { source: "/docs/docker-guide", destination: "/docs/guides/docker-guide", permanent: true },
-      {
-        source: "/docs/electron-guide",
-        destination: "/docs/guides/electron-guide",
-        permanent: true,
-      },
       { source: "/docs/features", destination: "/docs/guides/features", permanent: true },
-      { source: "/docs/i18n", destination: "/docs/guides/i18n", permanent: true },
       { source: "/docs/kiro-setup", destination: "/docs/guides/kiro-setup", permanent: true },
-      { source: "/docs/pwa-guide", destination: "/docs/guides/pwa-guide", permanent: true },
       { source: "/docs/setup-guide", destination: "/docs/guides/setup-guide", permanent: true },
-      { source: "/docs/termux-guide", destination: "/docs/guides/termux-guide", permanent: true },
       {
         source: "/docs/troubleshooting",
         destination: "/docs/guides/troubleshooting",
@@ -500,24 +494,8 @@ const nextConfig = {
         permanent: true,
       },
       // Frameworks
-      { source: "/docs/a2a-server", destination: "/docs/frameworks/a2a-server", permanent: true },
-      {
-        source: "/docs/agent-protocols-guide",
-        destination: "/docs/frameworks/agent-protocols-guide",
-        permanent: true,
-      },
-      { source: "/docs/cloud-agent", destination: "/docs/frameworks/cloud-agent", permanent: true },
-      { source: "/docs/evals", destination: "/docs/frameworks/evals", permanent: true },
-      {
-        source: "/docs/gamification",
-        destination: "/docs/frameworks/gamification",
-        permanent: true,
-      },
       { source: "/docs/mcp-server", destination: "/docs/frameworks/mcp-server", permanent: true },
-      { source: "/docs/memory", destination: "/docs/frameworks/memory", permanent: true },
       { source: "/docs/opencode", destination: "/docs/frameworks/opencode", permanent: true },
-      { source: "/docs/skills", destination: "/docs/frameworks/skills", permanent: true },
-      { source: "/docs/webhooks", destination: "/docs/frameworks/webhooks", permanent: true },
       // Routing
       { source: "/docs/auto-combo", destination: "/docs/routing/auto-combo", permanent: true },
       {
@@ -595,7 +573,6 @@ const nextConfig = {
         permanent: true,
       },
       { source: "/docs/sqlite-runtime", destination: "/docs/ops/sqlite-runtime", permanent: true },
-      { source: "/docs/tunnels-guide", destination: "/docs/ops/tunnels-guide", permanent: true },
       {
         source: "/docs/vm-deployment-guide",
         destination: "/docs/ops/vm-deployment-guide",

@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 -- 023_fix_memory_fts_uuid.sql
 -- Fix FTS5 UUID/INTEGER mismatch that caused semantic search to always return 0 results.
 --

@@ -23,7 +23,6 @@ const leases = await import("../../src/lib/db/exclusiveConnectionLeases.ts");
 const translator = await import("../../src/app/api/translator/send/route.ts");
 const translatorPreview = await import("../../src/app/api/translator/translate/route.ts");
 const modelTests = await import("../../src/lib/api/modelTestRunner.ts");
-const vnc = await import("../../src/lib/vncSession/service.ts");
 
 const OWNER = "vlo_UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU";
 
@@ -128,17 +127,6 @@ test("translator request preview never materializes a lease-only credential", as
   assert.equal(externalCalls, 0);
 });
 
-test("browser-login start rejects lease-only connections before Docker or provider access", async () => {
-  const connection = await seedConnection("vnc-lease-only");
-  await markLeaseOnly(connection.id);
-
-  await assert.rejects(
-    vnc.startSession(connection.id),
-    /unavailable for managed lease connections/
-  );
-  assert.equal(externalCalls, 0);
-});
-
 test("forced model tests reject lease-only connections before any model dispatch", async () => {
   const connection = await seedConnection("model-test-lease-only");
   await markLeaseOnly(connection.id);
@@ -174,19 +162,3 @@ test("forced model tests reject ACTIVE leased connections before any model dispa
   assert.equal(externalCalls, 0);
 });
 
-test("browser-login harvest rejects ACTIVE leased connections before credential mutation", async () => {
-  const connection = await seedConnection("vnc-active-lease");
-  const acquired = leases.acquireExclusiveConnectionLease({
-    leaseOwnerId: OWNER,
-    apiKeyId: "managed-key",
-    provider: "openai",
-    connectionId: connection.id,
-  });
-  assert.equal(acquired.kind, "ACQUIRED");
-
-  await assert.rejects(
-    vnc.harvestSession(connection.id, "missing-session"),
-    /unavailable for managed lease connections/
-  );
-  assert.equal(externalCalls, 0);
-});

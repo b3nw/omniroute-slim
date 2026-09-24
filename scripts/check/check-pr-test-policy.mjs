@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-const SOURCE_ROOTS = ["src/", "open-sse/", "electron/", "bin/"];
+const SOURCE_ROOTS = ["src/", "open-sse/", "bin/"];
 const TEST_PATTERNS = [/^tests\//, /(?:^|\/)__tests__\//, /\.(?:test|spec)\.[cm]?[jt]sx?$/];
 // Test files that satisfy the policy for a specific source prefix. The i18n
 // entry is gone: the Python validators it named (validate_translation.py,
@@ -116,7 +116,7 @@ if (hasRequiredTests) {
   reportLines.push(
     "Result: FAIL",
     "",
-    "This PR changes production code under `src/`, `open-sse/`, `electron/`, or `bin/` but does not add or update automated tests."
+    "This PR changes production code under `src/`, `open-sse/`, or `bin/` but does not add or update automated tests."
   );
 }
 

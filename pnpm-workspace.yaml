@@ -1,5 +1,4 @@
 packages:
-  - "packages/*"
   - "open-sse"
 # Match `.npmrc`'s legacy-peer-deps posture. OmniRoute imports only the deep
 # icon modules from @lobehub/icons; auto-installing its unused @lobehub/ui peer

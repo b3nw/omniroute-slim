@@ -78,7 +78,8 @@ vi.mock("@/store/notificationStore", () => ({
 
 vi.mock("@/shared/hooks/useElectron", () => ({
   useIsElectron: () => false,
-  useOpenExternal: () => ({ openExternal: vi.fn() }),
+  useOpenExternal: () => vi.fn(),
+  usePlatform: () => "web",
 }));
 
 vi.mock("@/shared/utils/clipboard", () => ({

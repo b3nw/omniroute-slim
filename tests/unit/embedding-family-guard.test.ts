@@ -11,9 +11,6 @@ process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "omniroute-embed-family-"));
 const { getEmbeddingDimension, detectEmbeddingDimensionConflict } = await import(
   "../../open-sse/config/embeddingRegistry.ts"
 );
-const { findEmbeddingComboDimensionConflict } = await import(
-  "../../src/lib/embeddings/familyGuard.ts"
-);
 
 test("getEmbeddingDimension resolves known dimensions from the registry", () => {
   assert.equal(getEmbeddingDimension("openai/text-embedding-3-small"), 1536);
@@ -66,41 +63,3 @@ test("detectEmbeddingDimensionConflict is a no-op for empty / all-unknown lists"
   );
 });
 
-test("findEmbeddingComboDimensionConflict flags a mixed-dimension embedding combo", () => {
-  const combo = {
-    name: "mixed-embeds",
-    models: [
-      { model: "openai/text-embedding-3-small" }, // 1536
-      { model: "nebius/Qwen/Qwen3-Embedding-8B" }, // 4096
-    ],
-  };
-  const res = findEmbeddingComboDimensionConflict(combo, [combo]);
-  assert.equal(res.conflict, true);
-  assert.deepEqual(res.distinct, [1536, 4096]);
-});
-
-test("findEmbeddingComboDimensionConflict passes a uniform embedding combo", () => {
-  const combo = {
-    name: "uniform-embeds",
-    models: [
-      { model: "openai/text-embedding-3-small" }, // 1536
-      { model: "openrouter/openai/text-embedding-3-small" }, // 1536
-    ],
-  };
-  const res = findEmbeddingComboDimensionConflict(combo, [combo]);
-  assert.equal(res.conflict, false);
-});
-
-test("findEmbeddingComboDimensionConflict expands nested combos before checking", () => {
-  const child = {
-    name: "child-embeds",
-    models: [
-      { model: "openai/text-embedding-3-small" }, // 1536
-      { model: "nebius/Qwen/Qwen3-Embedding-8B" }, // 4096
-    ],
-  };
-  const parent = { name: "parent-embeds", models: [{ model: "child-embeds" }] };
-  const res = findEmbeddingComboDimensionConflict(parent, [parent, child]);
-  assert.equal(res.conflict, true);
-  assert.deepEqual(res.distinct, [1536, 4096]);
-});

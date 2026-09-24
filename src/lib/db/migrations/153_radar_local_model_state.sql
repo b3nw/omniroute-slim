@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 -- 153_radar_local_model_state.sql
 -- Operator-owned Radar catalog state.
 --

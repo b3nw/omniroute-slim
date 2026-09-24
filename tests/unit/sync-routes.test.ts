@@ -16,7 +16,6 @@ process.env.INITIAL_PASSWORD = "sync-routes-password";
 
 const core = await import("../../src/lib/db/core.ts");
 const apiKeysDb = await import("../../src/lib/db/apiKeys.ts");
-const compliance = await import("../../src/lib/compliance/index.ts");
 const syncTokensRoute = await import("../../src/app/api/sync/tokens/route.ts");
 const syncTokenByIdRoute = await import("../../src/app/api/sync/tokens/[id]/route.ts");
 const syncBundleRoute = await import("../../src/app/api/sync/bundle/route.ts");
@@ -163,8 +162,4 @@ test("sync token routes issue, list, use and revoke dedicated tokens", async () 
     })
   );
   assert.equal(revokedBundleResponse.status, 401);
-
-  const auditActions = compliance.getAuditLog().map((entry) => entry.action);
-  assert.equal(auditActions.includes("sync.token.created"), true);
-  assert.equal(auditActions.includes("sync.token.revoked"), true);
 });

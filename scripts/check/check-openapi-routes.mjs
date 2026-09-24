@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // scripts/check/check-openapi-routes.mjs
-// Gate anti-alucinação (docs): toda `path` documentada em docs/openapi.yaml
-// deve resolver para um route.ts real em src/app/api/. Pega endpoint INVENTADO/obsoleto
-// na spec (a IA escreve docs descrevendo rota que não existe). Complementa
-// check-openapi-coverage.mjs (que mede a direção inversa: % de rotas documentadas).
-// Stale-enforcement (6A.3): entrada em KNOWN_STALE_SPEC que não suprime nenhum path
-// órfão real → gate falha com instrução de remoção (evita furo de regressão silencioso).
+// Anti-hallucination gate (docs): every `path` documented in docs/openapi.yaml
+// must resolve to a real route.ts under src/app/api/. Catches INVENTED/obsolete
+// endpoints in the spec (docs describing a route that does not exist). Complements
+// check-openapi-coverage.mjs (which measures the inverse direction: % of routes documented).
+// Stale-enforcement (6A.3): an entry in KNOWN_STALE_SPEC that suppresses no real
+// orphan path → the gate fails with a removal instruction (prevents silent regression gaps).
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -16,18 +16,15 @@ import { apiRoot, collectApiRouteUrlPaths } from "./lib/apiRoutes.mjs";
 const ROOT = process.cwd();
 const OPENAPI_PATH = path.join(ROOT, "docs", "openapi.yaml");
 
-// Entradas da spec sem rota real, congeladas para triagem (catraca: bloqueia NOVAS).
-export const KNOWN_STALE_SPEC = new Set([
-  // openapi.yaml documenta um state por-agente, mas a rota real é o state GLOBAL
-  // (/api/tools/agent-bridge/state); por-agente só há /{id}, /{id}/detect, /mappings, /dns.
-]);
+// Spec entries without a real route, frozen for triage (ratchet: blocks NEW ones).
+export const KNOWN_STALE_SPEC = new Set([]);
 
-/** Normaliza qualquer {param} para {} para casar independente do nome do parâmetro. */
+/** Normalizes any {param} to {} so matching is independent of the parameter name. */
 export function normalizeParams(p) {
   return p.replace(/\{[^}]+\}/g, "{}");
 }
 
-/** Paths da spec que não casam com nenhuma rota implementada (param-insensitive). */
+/** Spec paths that match no implemented route (param-insensitive). */
 export function findSpecPathsWithoutRoute(specPaths, implPaths) {
   const impl = new Set(implPaths.map(normalizeParams));
   return specPaths.filter((p) => !impl.has(normalizeParams(p)));
@@ -44,7 +41,7 @@ export function runOpenapiRoutesCheck(opts = {}) {
     return {
       ok: false,
       exitCode: 1,
-      message: `[openapi-routes] FAIL — openapi.yaml não encontrado: ${openapiPath}`,
+      message: `[openapi-routes] FAIL — openapi.yaml not found: ${openapiPath}`,
     };
   }
   if (!fs.existsSync(apiRoot(root))) {
@@ -66,16 +63,16 @@ export function runOpenapiRoutesCheck(opts = {}) {
   const parts = [];
   if (stale.length) {
     parts.push(
-      `[openapi-routes] ${stale.length} entrada(s) obsoleta(s) na allowlist ` +
-        `— a violação foi corrigida; REMOVA a entrada para travar a correção:\n` +
+      `[openapi-routes] ${stale.length} obsolete allowlist entry(ies) ` +
+        `— the violation was fixed; REMOVE the entry to lock the fix in:\n` +
         stale.map((e) => `  ✗ ${e}`).join("\n")
     );
   }
   if (orphans.length) {
     parts.push(
-      `[openapi-routes] ${orphans.length} path(s) documentado(s) sem rota real:\n` +
+      `[openapi-routes] ${orphans.length} documented path(s) without a real route:\n` +
         orphans.map((p) => "  ✗ " + p).join("\n") +
-        `\n  → crie a rota, corrija/remova a entrada na spec, ou adicione a KNOWN_STALE_SPEC com justificativa.`
+        `\n  → create the route, fix/remove the spec entry, or add it to KNOWN_STALE_SPEC with a justification.`
     );
   }
   if (parts.length) {
@@ -84,7 +81,7 @@ export function runOpenapiRoutesCheck(opts = {}) {
   return {
     ok: true,
     exitCode: 0,
-    message: `[openapi-routes] OK — ${specPaths.length} paths na spec, todos com rota real (${implPaths.length} rotas)`,
+    message: `[openapi-routes] OK — ${specPaths.length} paths in the spec, all with a real route (${implPaths.length} routes)`,
   };
 }
 

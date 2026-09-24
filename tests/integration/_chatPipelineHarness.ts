@@ -25,17 +25,24 @@ export async function createChatPipelineHarness(prefix) {
   const callLogsDb = await import("../../src/lib/usage/callLogs.ts");
   const modelComboMappingsDb = await import("../../src/lib/db/modelComboMappings.ts");
   const readCacheDb = await import("../../src/lib/db/readCache.ts");
-  const memoryStore = await import("../../src/lib/memory/store.ts");
-  const memoryToolsModule = await import("../../open-sse/mcp-server/tools/memoryTools.ts");
-  const { invalidateMemorySettingsCache } = await import("../../src/lib/memory/settings.ts");
-  const { skillRegistry } = await import("../../src/lib/skills/registry.ts");
-  const { skillExecutor } = await import("../../src/lib/skills/executor.ts");
-  const builtinsModule = await import("../../src/lib/skills/builtins.ts");
-  const sandboxModule = await import("../../src/lib/skills/sandbox.ts");
-  const skillsRouteModule = await import("../../src/app/api/skills/route.ts");
-  const skillByIdRouteModule = await import("../../src/app/api/skills/[id]/route.ts");
+  // Memory / skills / semantic-cache subsystems are excised in OmniRoute-Slim.
+  // Inert stubs keep the harness shape stable for retained tests that destructure
+  // these properties without reintroducing the deleted modules.
+  const memoryStore = {};
+  const memoryToolsModule = { memoryTools: [] };
+  const invalidateMemorySettingsCache = () => {};
+  const skillRegistry = {
+    clear: () => {},
+    registeredSkills: new Map(),
+    versionCache: new Map(),
+  };
+  const skillExecutor = {};
+  const builtinsModule = {};
+  const sandboxModule = {};
+  const skillsRouteModule = {};
+  const skillByIdRouteModule = {};
   const idempotencyLayerModule = await import("../../src/lib/idempotencyLayer.ts");
-  const semanticCacheModule = await import("../../src/lib/semanticCache.ts");
+  const semanticCacheModule = { clearCache: () => {} };
   const { handleChat } = await import("../../src/sse/handlers/chat.ts");
   const { initTranslators } = await import("../../open-sse/translator/index.ts");
   const { clearInflight } = await import("../../open-sse/services/requestDedup.ts");

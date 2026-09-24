@@ -10,7 +10,6 @@ export * from "./schemas/routing";
 export * from "./schemas/apiV1";
 export * from "./schemas/gemini";
 export * from "./schemas/cli";
-export * from "./schemas/evals";
 export * from "./schemas/translator";
 export * from "./schemas/cloud";
 export * from "./schemas/misc";

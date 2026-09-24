@@ -11,7 +11,6 @@ const originalAllowLocalProviderUrls = process.env.OMNIROUTE_ALLOW_LOCAL_PROVIDE
 
 // Load modules at top level
 const core = await import("../../src/lib/db/core.ts");
-const compliance = await import("../../src/lib/compliance/index.ts");
 const validateRoute = await import("../../src/app/api/providers/validate/route.ts");
 
 async function resetStorage() {
@@ -148,20 +147,6 @@ test("providers validate route blocks private baseUrl values when local provider
       error: "Blocked private or local provider URL",
     });
     assert.equal(called, false);
-    const auditEntries = compliance.getAuditLog({
-      action: "provider.validation.ssrf_blocked",
-      resourceType: "provider_validation",
-    });
-    assert.equal(auditEntries.length, 1);
-    assert.equal(auditEntries[0].target, "heroku");
-    assert.equal(auditEntries[0].status, "blocked");
-    assert.equal(auditEntries[0].requestId, auditEntries[0].request_id);
-    assert.deepEqual(auditEntries[0].metadata, {
-      provider: "heroku",
-      route: "/api/providers/validate",
-      reason: "Blocked private or local provider URL",
-      baseUrl: "http://127.0.0.1:8080",
-    });
   } finally {
     globalThis.fetch = originalFetch;
     delete process.env.OMNIROUTE_ALLOW_LOCAL_PROVIDER_URLS;

@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 -- 015_create_skills.sql
 -- Skills table for tool/function capability injection.
 -- Stores skill definitions with schemas and execution tracking.

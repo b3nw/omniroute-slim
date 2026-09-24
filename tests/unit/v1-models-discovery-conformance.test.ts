@@ -186,7 +186,7 @@ test("6. a DB-state change drops the cache outright — the next response is a f
 test("7. the 500 error path is sanitized — no stack trace or absolute source path leaks into the body", async () => {
   const request = new Request("http://localhost/v1/models?prefix=alias&__d1_err_test=1");
   const rawMessage =
-    "Query failed at /home/diegosouzapw/dev/proxys/OmniRoute-Enterprise/secret/catalog.ts:42:1";
+    "Query failed at /home/user/dev/proxys/OmniRoute-Enterprise/secret/catalog.ts:42:1";
   const err = new Error(rawMessage);
   v1ModelsCatalog.__forceCatalogInFlightRejectionForTest(request, err);
 

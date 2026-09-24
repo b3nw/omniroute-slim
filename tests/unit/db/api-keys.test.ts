@@ -19,7 +19,6 @@ process.env.API_KEY_SECRET = "test-api-key-secret";
 
 const core = await import("../../../src/lib/db/core.ts");
 const apiKeysDb = await import("../../../src/lib/db/apiKeys.ts");
-const compliance = await import("../../../src/lib/compliance/index.ts");
 const { hasManageScope } = await import("../../../src/shared/constants/managementScopes.ts");
 
 const MACHINE_ID = "machine1234567890";
@@ -104,24 +103,14 @@ test("legacy rows with NULL scopes parse to an empty array and never hold manage
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// updateApiKeyPermissions — audit events for scope changes
+// updateApiKeyPermissions — scope changes
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("updateApiKeyPermissions granting manage emits apiKey.scopes.grant", async () => {
+test("updateApiKeyPermissions granting manage adds the manage scope", async () => {
   const created = await apiKeysDb.createApiKey("for-grant", MACHINE_ID);
-
-  const before = compliance.getAuditLog({ limit: 100 });
-  const beforeGrant = before.filter(
-    (e) => e.action === "apiKey.scopes.grant" && e.target === created.id
-  );
-  assert.equal(beforeGrant.length, 0);
 
   const ok = await apiKeysDb.updateApiKeyPermissions(created.id, { scopes: ["manage"] });
   assert.equal(ok, true);
-
-  const after = compliance.getAuditLog({ limit: 100 });
-  const grants = after.filter((e) => e.action === "apiKey.scopes.grant" && e.target === created.id);
-  assert.equal(grants.length, 1, "expected exactly one grant audit event");
 
   // Confirm the round-trip — manage should now be on the key.
   const meta = await apiKeysDb.getApiKeyMetadata(created.key);
@@ -129,55 +118,15 @@ test("updateApiKeyPermissions granting manage emits apiKey.scopes.grant", async 
   assert.equal(hasManageScope(meta!.scopes), true);
 });
 
-test("updateApiKeyPermissions revoking manage emits apiKey.scopes.revoke", async () => {
+test("updateApiKeyPermissions revoking manage removes the manage scope", async () => {
   const created = await apiKeysDb.createApiKey("for-revoke", MACHINE_ID, ["manage"]);
 
   const ok = await apiKeysDb.updateApiKeyPermissions(created.id, { scopes: [] });
   assert.equal(ok, true);
 
-  const after = compliance.getAuditLog({ limit: 100 });
-  const revokes = after.filter(
-    (e) => e.action === "apiKey.scopes.revoke" && e.target === created.id
-  );
-  assert.equal(revokes.length, 1, "expected exactly one revoke audit event");
-
   const meta = await apiKeysDb.getApiKeyMetadata(created.key);
   assert.ok(meta);
   assert.equal(hasManageScope(meta!.scopes), false);
-});
-
-test("updateApiKeyPermissions setting same manage scope does not emit duplicate audit events", async () => {
-  const created = await apiKeysDb.createApiKey("idempotent-manage", MACHINE_ID, ["manage"]);
-
-  const ok = await apiKeysDb.updateApiKeyPermissions(created.id, { scopes: ["manage"] });
-  assert.equal(ok, true);
-
-  const after = compliance.getAuditLog({ limit: 100 });
-  const scopeEvents = after.filter(
-    (e) =>
-      (e.action === "apiKey.scopes.grant" ||
-        e.action === "apiKey.scopes.revoke" ||
-        e.action === "apiKey.scopes.update") &&
-      e.target === created.id
-  );
-  assert.equal(
-    scopeEvents.length,
-    0,
-    "no-op scope update should not emit grant/revoke/update events"
-  );
-});
-
-test("updateApiKeyPermissions changing non-manage scopes emits apiKey.scopes.update", async () => {
-  const created = await apiKeysDb.createApiKey("non-manage-update", MACHINE_ID, []);
-
-  const ok = await apiKeysDb.updateApiKeyPermissions(created.id, { scopes: ["read:logs"] });
-  assert.equal(ok, true);
-
-  const after = compliance.getAuditLog({ limit: 100 });
-  const updates = after.filter(
-    (e) => e.action === "apiKey.scopes.update" && e.target === created.id
-  );
-  assert.equal(updates.length, 1, "expected exactly one non-manage scope update event");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -224,19 +173,3 @@ test("toggling isBanned does not touch scopes", async () => {
   assert.equal(meta2!.isBanned, false);
 });
 
-test("updateApiKeyPermissions without scopes field does not emit any scope audit event", async () => {
-  const created = await apiKeysDb.createApiKey("no-scope-change", MACHINE_ID);
-
-  const ok = await apiKeysDb.updateApiKeyPermissions(created.id, { name: "renamed" });
-  assert.equal(ok, true);
-
-  const after = compliance.getAuditLog({ limit: 100 });
-  const scopeEvents = after.filter(
-    (e) =>
-      (e.action === "apiKey.scopes.grant" ||
-        e.action === "apiKey.scopes.revoke" ||
-        e.action === "apiKey.scopes.update") &&
-      e.target === created.id
-  );
-  assert.equal(scopeEvents.length, 0);
-});

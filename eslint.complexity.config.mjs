@@ -18,7 +18,6 @@ const complexityConfig = [
     files: [
       "src/**/*.{ts,tsx}",
       "open-sse/**/*.{ts,tsx}",
-      "electron/**/*.{ts,tsx}",
       "bin/**/*.{ts,tsx}",
     ],
     languageOptions: {
@@ -46,7 +45,7 @@ const complexityConfig = [
       "max-lines-per-function": ["error", { max: 80, skipBlankLines: true, skipComments: true }],
     },
   },
-  // Ignore everything that is not first-party src/open-sse/electron/bin production code so
+  // Ignore everything that is not first-party src/open-sse/bin production code so
   // the count is not polluted by tests, type declarations, or build output.
   {
     ignores: [
@@ -55,8 +54,6 @@ const complexityConfig = [
       "**/__tests__/**",
       "**/*.d.ts",
       "node_modules/**",
-      "electron/node_modules/**",
-      "electron/dist-electron/**",
       ".next/**",
       ".build/**",
       "dist/**",

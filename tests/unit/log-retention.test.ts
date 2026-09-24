@@ -12,7 +12,7 @@ process.env.CALL_LOGS_TABLE_MAX_ROWS = "5";
 process.env.PROXY_LOGS_TABLE_MAX_ROWS = "5";
 
 const core = await import("../../src/lib/db/core.ts");
-const compliance = await import("../../src/lib/compliance/index.ts");
+const compliance = await import("../../src/lib/db/logRetention.ts");
 
 function resetStorage() {
   core.resetDbInstance();
@@ -29,7 +29,6 @@ test.after(() => {
 });
 
 test("cleanupExpiredLogs uses separate APP and CALL retention windows", async () => {
-  compliance.initAuditLog();
   const db = core.getDbInstance();
 
   const oldCallTs = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
@@ -95,17 +94,6 @@ test("cleanupExpiredLogs uses separate APP and CALL retention windows", async ()
     1
   );
 
-  db.prepare("INSERT INTO audit_log (timestamp, action, actor) VALUES (?, ?, ?)").run(
-    oldAppTs,
-    "old-audit",
-    "system"
-  );
-  db.prepare("INSERT INTO audit_log (timestamp, action, actor) VALUES (?, ?, ?)").run(
-    freshAppTs,
-    "fresh-audit",
-    "system"
-  );
-
   db.prepare("INSERT INTO mcp_tool_audit (tool_name, success, created_at) VALUES (?, ?, ?)").run(
     "old-tool",
     1,
@@ -123,7 +111,6 @@ test("cleanupExpiredLogs uses separate APP and CALL retention windows", async ()
   assert.equal(result.deletedCallLogs, 1);
   assert.equal(result.deletedProxyLogs, 1);
   assert.equal(result.deletedRequestDetailLogs, 1);
-  assert.equal(result.deletedAuditLogs, 1);
   assert.equal(result.deletedMcpAuditLogs, 1);
   assert.deepEqual(compliance.getRetentionDays(), { app: 2, call: 1 });
 
@@ -131,7 +118,6 @@ test("cleanupExpiredLogs uses separate APP and CALL retention windows", async ()
   assert.equal((db.prepare("SELECT COUNT(*) AS cnt FROM call_logs").get() as any).cnt, 1);
   assert.equal((db.prepare("SELECT COUNT(*) AS cnt FROM proxy_logs").get() as any).cnt, 1);
   assert.equal((db.prepare("SELECT COUNT(*) AS cnt FROM request_detail_logs").get() as any).cnt, 1);
-  assert.equal((db.prepare("SELECT COUNT(*) AS cnt FROM audit_log").get() as any).cnt, 2);
   assert.equal((db.prepare("SELECT COUNT(*) AS cnt FROM mcp_tool_audit").get() as any).cnt, 1);
 });
 
@@ -143,7 +129,6 @@ test("cleanupExpiredLogs honors the dashboard usageHistory retention when env is
   delete process.env.CALL_LOG_RETENTION_DAYS;
   delete process.env.APP_LOG_RETENTION_DAYS;
   try {
-    compliance.initAuditLog();
     const db = core.getDbInstance();
 
     const { updateDatabaseSettings } = await import("../../src/lib/db/databaseSettings.ts");
@@ -173,7 +158,6 @@ test("cleanupExpiredLogs honors the dashboard usageHistory retention when env is
 });
 
 test("cleanupExpiredLogs enforces row count limits", async () => {
-  compliance.initAuditLog();
   const db = core.getDbInstance();
 
   const now = new Date().toISOString();

@@ -50,7 +50,7 @@ async function readErrorMessage(res) {
 export async function runConnectCommand(host, opts = {}) {
   const baseUrl = normalizeBaseUrl(host, opts.port || "20128");
   if (!baseUrl) {
-    printError("A host is required, e.g. omniroute connect 192.168.0.15");
+    printError("A host is required, e.g. omniroute connect <host-or-ip>");
     return 2;
   }
   const name = opts.name || hostLabel(host);

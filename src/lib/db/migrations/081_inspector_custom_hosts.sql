@@ -1,3 +1,6 @@
+-- [OmniRoute-Slim Historical Migration]
+-- Schema for excised subsystem retained for database migration continuity.
+
 CREATE TABLE IF NOT EXISTS inspector_custom_hosts (
   host TEXT PRIMARY KEY,
   enabled INTEGER NOT NULL DEFAULT 1,

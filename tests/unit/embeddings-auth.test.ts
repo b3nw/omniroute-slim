@@ -1,6 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert";
-import { POST } from "../../src/app/api/v1/embeddings/route";
 import { extractApiKey, isValidApiKey } from "../../src/sse/services/auth";
 
 test("extractApiKey", async (t) => {
@@ -49,88 +48,3 @@ test("isValidApiKey", async (t) => {
   process.env.OMNIROUTE_API_KEY = originalEnv;
 });
 
-test("POST /v1/embeddings authentication", async (t) => {
-  const originalRequireApiKey = process.env.REQUIRE_API_KEY;
-  const originalOmniKey = process.env.OMNIROUTE_API_KEY;
-
-  await t.test(
-    "should return 401 when an invalid API key is provided and REQUIRE_API_KEY is true",
-    async () => {
-      process.env.REQUIRE_API_KEY = "true";
-      process.env.OMNIROUTE_API_KEY = "valid-key";
-      const req = new Request("http://localhost/v1/embeddings", {
-        method: "POST",
-        headers: { Authorization: "Bearer invalid-key" },
-        body: JSON.stringify({ model: "mistral/mistral-embed", input: "test" }),
-      });
-      const res = await POST(req);
-      assert.strictEqual(res.status, 401);
-      delete process.env.OMNIROUTE_API_KEY;
-      delete process.env.REQUIRE_API_KEY;
-    }
-  );
-
-  await t.test(
-    "should NOT return 401 when an invalid API key is provided and REQUIRE_API_KEY is false (#7785)",
-    async () => {
-      process.env.REQUIRE_API_KEY = "false";
-      process.env.OMNIROUTE_API_KEY = "valid-key";
-      const req = new Request("http://localhost/v1/embeddings", {
-        method: "POST",
-        headers: { Authorization: "Bearer invalid-key" },
-        body: JSON.stringify({ model: "mistral/mistral-embed", input: "test" }),
-      });
-      const res = await POST(req);
-      assert.notStrictEqual(
-        res.status,
-        401,
-        "an invalid presented key must not 401 when REQUIRE_API_KEY=false (anonymous access)"
-      );
-      delete process.env.OMNIROUTE_API_KEY;
-      delete process.env.REQUIRE_API_KEY;
-    }
-  );
-
-  await t.test(
-    "should return 401 when no API key is provided and REQUIRE_API_KEY is true",
-    async () => {
-      process.env.REQUIRE_API_KEY = "true";
-      const req = new Request("http://localhost/v1/embeddings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "mistral/mistral-embed", input: "test" }),
-      });
-      const res = await POST(req);
-      assert.strictEqual(res.status, 401);
-      delete process.env.REQUIRE_API_KEY;
-    }
-  );
-
-  await t.test("should NOT return 401 when a valid API key is provided", async () => {
-    process.env.OMNIROUTE_API_KEY = "valid-key";
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async () => new Response(JSON.stringify({ data: [] }), { status: 200 });
-
-    try {
-      const req = new Request("http://localhost/v1/embeddings", {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer valid-key",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ model: "mistral/mistral-embed", input: "test" }),
-      });
-      const res = await POST(req);
-      const body = await res.text();
-      // It might be 400, 404, etc. because of downstream failure, but NOT 401.
-      assert.notStrictEqual(res.status, 401, "Should not be 401 Unauthorized");
-    } finally {
-      globalThis.fetch = originalFetch;
-      delete process.env.OMNIROUTE_API_KEY;
-    }
-  });
-
-  // Restore original env in case of failure
-  process.env.REQUIRE_API_KEY = originalRequireApiKey;
-  process.env.OMNIROUTE_API_KEY = originalOmniKey;
-});

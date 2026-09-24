@@ -85,7 +85,7 @@ jobs:
     # stays meaningful), and with USE_VPS_RUNNER=true it produced NO signal at all here.
     # Measured 2026-08-14 over the last 25
     # quality.yml runs: not one Build (advisory) reached a conclusion. Every sample was either
-    # queued on the self-hosted pool (2 runners, `omniroute-113-6/7`, both permanently busy — one
+    # queued on the self-hosted pool (2 runners, generic self-hosted labels, both permanently busy — one
     # job sat queued 2h+ and was still unclaimed) or, when it did land, killed mid-build by this
     # workflow's own `cancel-in-progress` concurrency. 6/6 sampled "failures" are exit 143 /
     # "The runner has received a shutdown signal" at ~3.5 min into `npm run build` — zero OOM,
@@ -93,7 +93,7 @@ jobs:
     # reporting a permanent red on every PR.
     #
     # Gap 19 left USE_VPS_RUNNER governing build-like jobs on the premise that "the build needs
-    # the .113's RAM". That premise no longer holds: `Fast Production Build` (build.yml) runs
+    # the self-hosted box's RAM". That premise no longer holds: `Fast Production Build` (build.yml) runs
     # `build:release` — a SUPERSET of this job's `npm run build`, plus the CLI bundle — on plain
     # ubuntu-latest and passed 24/25 of its last runs in ~15 min. What it has and this job did
     # not is memory PROVISIONING: a 10 GB swapfile plus a 12 GB V8 heap. That matters because
@@ -167,11 +167,11 @@ jobs:
     # PINNED to hosted (gap 19). This job carried the USE_VPS_RUNNER expression, and that
     # expression was DEAD CONFIGURATION: across 160 quality.yml runs the job never once landed on
     # a self-hosted runner — every non-skipped sample is `GitHub Actions NNNN`. The classifier is
-    # not at fault: in the same window ci.yml's Build demonstrably ran on omniroute-113-7 and
-    # omniroute-113-6, so self-hosted runs are visible when they happen.
+    # not at fault: in the same window ci.yml's Build demonstrably ran on the self-hosted
+    # runners, so self-hosted runs are visible when they happen.
     #
     # And if it ever HAD fired it would have inherited the measured penalty, because this job's
-    # first two steps are exactly the bottleneck: actions/setup-node + npm ci took 20m06s on .113
+    # first two steps are exactly the bottleneck: actions/setup-node + npm ci took 20m06s self-hosted
     # with 4 concurrent runners versus 16s hosted (npm cache restore saturating the link). Median
     # here is 5.6 min hosted across 72 successful runs.
     #
@@ -428,8 +428,8 @@ jobs:
     # Dynamic runner — see fast-gates (own-origin + flag; fork/unset → ubuntu-latest).
     # PINNED to hosted, deliberately not on the USE_VPS_RUNNER switch (gap 19). One variable
     # governed the build and the test jobs, which want OPPOSITE machines: the build needs the
-    # .113's RAM, the tests need the hosted runner's link. Measured on 2026-07-29 —
-    # actions/setup-node took 20m06s on .113 with 4 concurrent runners versus 16s hosted (npm
+    # the self-hosted box's RAM, the tests need the hosted runner's link. Measured on 2026-07-29 —
+    # actions/setup-node took 20m06s on the self-hosted box with 4 concurrent runners versus 16s hosted (npm
     # cache restore saturating the link), while the tests themselves tied, 2m54 vs 2m31. So
     # self-hosted is strictly worse here and there is nothing to configure.
     runs-on: ubuntu-latest
@@ -470,8 +470,8 @@ jobs:
     # this matrix and the TEST_SHARD env below encode the shard count.
     # PINNED to hosted, deliberately not on the USE_VPS_RUNNER switch (gap 19). One variable
     # governed the build and the test jobs, which want OPPOSITE machines: the build needs the
-    # .113's RAM, the tests need the hosted runner's link. Measured on 2026-07-29 —
-    # actions/setup-node took 20m06s on .113 with 4 concurrent runners versus 16s hosted (npm
+    # the self-hosted box's RAM, the tests need the hosted runner's link. Measured on 2026-07-29 —
+    # actions/setup-node took 20m06s on the self-hosted box with 4 concurrent runners versus 16s hosted (npm
     # cache restore saturating the link), while the tests themselves tied, 2m54 vs 2m31. So
     # self-hosted is strictly worse here and there is nothing to configure.
     runs-on: ubuntu-latest
@@ -498,32 +498,34 @@ jobs:
           node-version: ${{ env.CI_NODE_VERSION }}
           cache: npm
       - uses: ./.github/actions/npm-ci-retry
-      # QW-d: fonte única — o mesmo npm script do CI pesado/local. Fecha dois drifts do
-      # comando inline antigo: os dirs `memory` e `usage` estavam FORA do glob (testes
-      # silenciosamente não rodavam no fast path) e o setupPolyfill não era importado.
+      # Single source of truth — the same npm script the heavy CI and local runs use.
+      # This closes two drifts in the old inline command: the `memory` and `usage` dirs
+      # were OUTSIDE the glob (those tests silently never ran on the fast path) and
+      # setupPolyfill was not imported.
       - run: npm run test:unit:ci:shard
         env:
           TEST_SHARD: ${{ matrix.shard }}/4
 
-  # ── Pacote 4 (plano mestre testes+CI, aprovado 2026-07-04) ─────────────────────────
-  # No-new-warnings por PR via ESLint bulk suppressions nativo (>=9.24). O baseline
-  # config/quality/eslint-suppressions.json congela as violações EXISTENTES por
-  # arquivo+regra; qualquer warning NOVO aparece e o --max-warnings 0 falha o job — o
-  # drift de +41/+88 warnings por ciclo passa a morrer no PR que o introduz, em vez de
-  # ser rebaselinado às cegas na release. Aperto do baseline (na reconciliação da
-  # release): npx eslint . --prune-suppressions --suppressions-location config/quality/eslint-suppressions.json
+  # ── No-new-warnings gate ───────────────────────────────────────────────────────────
+  # Per-PR no-new-warnings enforcement via native ESLint bulk suppressions (>=9.24).
+  # The baseline config/quality/eslint-suppressions.json freezes the EXISTING violations
+  # per file+rule; any NEW warning surfaces and --max-warnings 0 fails the job — so the
+  # +41/+88 warnings-per-cycle drift dies in the PR that introduces it instead of being
+  # blindly rebaselined at release time. To tighten the baseline (during release
+  # reconciliation):
+  #   npx eslint . --prune-suppressions --suppressions-location config/quality/eslint-suppressions.json
   #
-  # Princípio Zero: bloqueante SÓ para branches internas (as campanhas/sessões são a
-  # origem do drift). PR de FORK roda em modo report (continue-on-error → o job fica
-  # verde com anotação; a campanha /green-prs aplica o fix via co-autoria — o
-  # contribuidor NUNCA é bloqueado nem cobrado).
+  # Blocking for internal branches ONLY (that is where the drift originates). A FORK PR
+  # runs in report mode (continue-on-error → the job stays green with an annotation, and
+  # maintainers apply the fix via co-authorship) — an outside contributor is NEVER
+  # blocked by it.
   lint-guard:
     name: No new ESLint warnings
     needs: changes
     if: ${{ github.event_name != 'pull_request' || ((github.event.pull_request.draft == false || startsWith(github.head_ref, 'mergify/merge-queue/')) && needs.changes.outputs.code == 'true') }}
     runs-on: ubuntu-latest
     continue-on-error: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true }}
-    # G0 (trilho .50): security-events:read lets the CodeQL ratchet below read open
+    # security-events:read lets the CodeQL ratchet below read open
     # code-scanning alerts via `gh api .../code-scanning/alerts` (same as ci.yml's
     # quality-gate job). contents: read keeps checkout working.
     permissions:
@@ -550,10 +552,10 @@ jobs:
           # stale per-file verdicts, which is exactly how 215 pre-existing errors stayed
           # invisible for a whole cycle. Exact key or a cold full lint (~13 min) — never a
           # partial cache from another configuration.
-      - name: ESLint (baseline congelado — warning novo = vermelho)
+      - name: ESLint (frozen baseline — a new warning is a red)
         # lint:json writes the report; --max-warnings 0 keeps no-new-warnings policy.
         run: npm run lint:json -- --max-warnings 0
-      # ── G0 (trilho .50): motor de ratchet também no trilho B ─────────────────────
+      # ── Ratchet engine on this rail too ──────────────────────────────────────────
       # This job just wrote .artifacts/eslint-results.json — collect-metrics prefers
       # that file, so the ratchet engine lands here at ZERO extra ESLint cost (one
       # inventory, two consumers; same reason ci.yml chains lint → quality-gate).
@@ -577,20 +579,18 @@ jobs:
         if: always()
         run: cat .artifacts/quality-ratchet.md >> "$GITHUB_STEP_SUMMARY" || true
 
-  # Merge-integrity: pega no PR os dois vazamentos crônicos de merge que hoje só
-  # explodem na release-PR. (1) CHANGELOG-eat — o auto-resolve do merge come
-  # bullets vizinhos/seções inteiras (incidente #6193, 2026-07-05: 212 linhas /
-  # 130 bullets); o checkout de PR é refs/pull/N/merge, então comparar contra a
-  # base detecta o eat ANTES do merge. (2) SKILL.md gerado stale vs o catálogo de
-  # agent-skills (#6186 mergeou um id de catálogo sem rodar o gerador → 8 reds de
-  # integration invisíveis até a release).
+  # Merge integrity: catches on the PR the chronic merge leak that otherwise only blows
+  # up in the release PR — CHANGELOG-eat, where the merge auto-resolve swallows
+  # neighbouring bullets or whole sections (incident #6193, 2026-07-05: 212 lines /
+  # 130 bullets). A PR checkout is refs/pull/N/merge, so diffing against the base
+  # detects the eat BEFORE the merge lands.
   #
-  # Princípio Zero: bloqueante SÓ para branches internas; PR de FORK roda em modo
-  # report (continue-on-error) — a campanha corrige via co-autoria, o contribuidor
-  # nunca é bloqueado.
+  # Blocking for internal branches ONLY; a FORK PR runs in report mode
+  # (continue-on-error) — maintainers fix it via co-authorship, an outside contributor
+  # is never blocked.
   merge-integrity:
-    name: Merge integrity (changelog + generated skills)
-    # Always on non-draft PRs — CHANGELOG/skills can break on docs-only merges too.
+    name: Merge integrity (changelog)
+    # Always on non-draft PRs — the CHANGELOG can break on docs-only merges too.
     if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false || startsWith(github.head_ref, 'mergify/merge-queue/')) }}
     runs-on: ubuntu-latest
     continue-on-error: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true }}
@@ -608,7 +608,5 @@ jobs:
           node-version: ${{ env.CI_NODE_VERSION }}
           cache: npm
       - uses: ./.github/actions/npm-ci-retry
-      - name: CHANGELOG integrity (nenhum bullet da base pode sumir no merge-result)
+      - name: CHANGELOG integrity (no base bullet may vanish in the merge result)
         run: npm run check:changelog-integrity
-      - name: Agent-skills generator sync (SKILL.md gerado ≡ catálogo)
-        run: npm run check:agent-skills-sync

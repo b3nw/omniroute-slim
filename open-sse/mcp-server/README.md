@@ -181,14 +181,6 @@ mistake metadata shrink estimates for provider token receipts.
 | `omniroute_web_fetch`   | `execute:search` | Fetch and extract a URL's content through the web-fetch gateway (Firecrawl, Jina Reader, Tavily, TinyFish) with automatic failover   |
 | `omniroute_web_search`  | `execute:search` | Web search through the search gateway (Serper, Brave, Perplexity, Exa, Tavily, Google PSE, Linkup, SearchAPI, SearXNG) with failover |
 
-### Skills & Catalog Tools
-
-| Tool                              | Scopes         | Description                                                                                              |
-| --------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------- |
-| `omniroute_agent_skills_list`     | `read:catalog` | List all 42 agent skills with optional `category` (`api`\|`cli`) and `area` filters; metadata + coverage |
-| `omniroute_agent_skills_get`      | `read:catalog` | Full metadata + SKILL.md content for a single skill by canonical `id`                                    |
-| `omniroute_agent_skills_coverage` | `read:catalog` | Coverage stats: how many of the 22 API and 20 CLI skills have SKILL.md files on disk vs catalog totals   |
-
 ### Proxy, Pricing & Data Tools
 
 | Tool                        | Scopes                            | Description                                                                                |

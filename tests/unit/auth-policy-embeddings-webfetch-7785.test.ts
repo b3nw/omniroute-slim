@@ -31,7 +31,6 @@ delete process.env.ROUTER_API_KEY;
 
 const core = await import("../../src/lib/db/core.ts");
 const { createProviderNode } = await import("../../src/lib/db/providers/nodes.ts");
-const { POST: embeddingsPOST } = await import("../../src/app/api/v1/embeddings/route.ts");
 const { POST: webFetchPOST } = await import("../../src/app/api/v1/web/fetch/route.ts");
 
 const INVALID_BEARER = "Bearer sk-invalid-key-that-does-not-exist-7785";
@@ -64,42 +63,6 @@ function webFetchRequest(): Request {
 }
 
 // ── Embeddings route ──────────────────────────────────────────────────────
-
-test("#7785 embeddings: REQUIRE_API_KEY=false + invalid key → not 401", async () => {
-  process.env.REQUIRE_API_KEY = "false";
-
-  await createProviderNode({
-    type: "openai-compatible-embeddings",
-    name: "LAN Embed 7785",
-    prefix: "lanembed7785",
-    apiType: "embeddings",
-    baseUrl: "http://10.10.0.182:11434/v1",
-  });
-
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () =>
-    new Response(
-      JSON.stringify({
-        data: [{ object: "embedding", embedding: [0.1, 0.2], index: 0 }],
-        usage: { prompt_tokens: 3, total_tokens: 3 },
-      }),
-      { status: 200, headers: { "content-type": "application/json" } }
-    );
-
-  try {
-    const res = await embeddingsPOST(embeddingsRequest(), {});
-    assert.notEqual(res.status, 401, "invalid key must NOT cause 401 when REQUIRE_API_KEY=false");
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("#7785 embeddings: REQUIRE_API_KEY=true + invalid key → 401", async () => {
-  process.env.REQUIRE_API_KEY = "true";
-
-  const res = await embeddingsPOST(embeddingsRequest(), {});
-  assert.equal(res.status, 401, "invalid key must cause 401 when REQUIRE_API_KEY=true");
-});
 
 // ── Web-fetch route ───────────────────────────────────────────────────────
 
