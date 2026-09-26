@@ -26,16 +26,15 @@ The CI source of truth is `.github/workflows/ci.yml`.
 branches moving with path-filtered fast gates, plus one advisory production-build signal for code
 changes:
 
-| Job                                              | Scope                                                                                                                                                                                                            | Blocking                                                                                  |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `Build (advisory)`                               | Non-draft code PRs and Mergify queue branches; Node 24, `npm-ci-retry`, `check:node-runtime`, `npm run build` with `OMNIROUTE_USE_TURBOPACK=1`; no artifact upload because no downstream quality job consumes it | **Advisory** (`continue-on-error: true`; remove after one week of stable release-PR runs) |
-| `Docs Gates (fast-path)`                         | Docs/code PRs; API docs refs and docs-all                                                                                                                                                                        | Yes                                                                                       |
-| `Fast Quality Gates`                             | Code PRs; static checks, typecheck, dashboard typecheck, impacted unit tests                                                                                                                                     | Yes                                                                                       |
-| `Forgotten sibling tests`                        | Code PRs; changed modules traced to static consumers and candidate sibling tests; barrel and dynamic-import paths are reported as advisory diagnostics, with referenced allowlist exceptions                     | **Advisory**                                                                              |
-| `Vitest (fast-path)`                             | Code PRs; fast vitest suite                                                                                                                                                                                      | Yes                                                                                       |
-| `Unit Tests fast-path`                           | Code PRs; 4-shard unit suite                                                                                                                                                                                     | Yes                                                                                       |
-| `No new ESLint warnings`                         | Code PRs; suppressions-aware lint guard                                                                                                                                                                          | Yes for own-origin, advisory for forks                                                    |
-| `Merge integrity (changelog + generated skills)` | Non-draft PRs; changelog and generated skill sync                                                                                                                                                                | Yes for own-origin, advisory for forks                                                    |
+| Job                           | Scope                                                                                                                                                                                        | Blocking                               |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `Docs Gates (fast-path)`      | Docs/code PRs; API docs refs and docs-all                                                                                                                                                    | Yes                                    |
+| `Fast Quality Gates`          | Code PRs; static checks, typecheck, dashboard typecheck, impacted unit tests                                                                                                                 | Yes                                    |
+| `Forgotten sibling tests`     | Code PRs; changed modules traced to static consumers and candidate sibling tests; barrel and dynamic-import paths are reported as advisory diagnostics, with referenced allowlist exceptions | **Advisory**                           |
+| `Vitest (fast-path)`          | Code PRs; fast vitest suite                                                                                                                                                                  | Yes                                    |
+| `Unit Tests fast-path`        | Code PRs; 4-shard unit suite                                                                                                                                                                 | Yes                                    |
+| `No new ESLint warnings`      | Code PRs; suppressions-aware lint guard                                                                                                                                                      | Yes for own-origin, advisory for forks |
+| `Merge integrity (changelog)` | Non-draft PRs; CHANGELOG integrity across the merge result                                                                                                                                   | Yes for own-origin, advisory for forks |
 
 #### Forgotten sibling tests report
 
@@ -53,176 +52,105 @@ closed. Exceptions cannot suppress a deleted candidate test or a diff that adds 
 assertion weakening and other masking remain owned by the independently blocking
 `check:test-masking` gate.
 
-### Job: `lint`
+### Public CI (`.github/workflows/ci.yml`)
 
-Runs on every PR to `main`. Blocks merge on failure.
+`ci.yml` runs on pushes to `main`, on pull requests into `main`, and on manual
+dispatch. Every job runs on GitHub-hosted `ubuntu-latest` and needs no repository
+secret beyond the default `GITHUB_TOKEN`, so it works unchanged on forks and on
+pull requests from forks.
 
-| Script (`npm run ...`)         | Validates                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Blocking                                 |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `check:node-runtime`           | Node.js version is within the supported range                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Yes                                      |
-| `check:cycles`                 | Circular imports — all `src/` + `open-sse/` modules                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Yes                                      |
-| `check:route-validation:t06`   | Zod schemas present on all routes (Tier 6 policy)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Yes                                      |
-| `check:any-budget:t11`         | `@ts-expect-error // any` count does not exceed budget (Tier 11 catraca)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Yes                                      |
-| `check:provider-consistency`   | Every provider in `providers.ts` has a matching entry in `providerRegistry.ts` (and vice-versa, within the allowlist)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Yes                                      |
-| `check:model-lifecycle`        | The two hand-maintained routing tables do not point at retired models (#11503): `FITNESS_TABLE` (`taskFitness.ts`) scores no routable retired id, every `BUILT_IN_ALIASES` target is a live catalog model, and every retired id the catalog still routes is either forwarded or listed in `allowedRetiredInCatalog`. Offline — compares against the vendor snapshot `config/quality/model-lifecycle.json`, refreshed by hand with `npm run quality:refresh-model-lifecycle` (network; not wired into CI). `allowedRetiredInCatalog` is a burn-down ratchet: add an entry only with a tracking issue.                    | Yes                                      |
-| `check:fetch-targets`          | Every `fetch("/api/...")` in client-side `src/` resolves to a real `route.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Yes                                      |
-| `check:deps`                   | All `npm install`-able deps across every `package.json` in the repo are in `dependency-allowlist.json`; new unpinned or slopsquatted packages flagged                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Yes                                      |
-| `audit:deps`                   | `npm audit` (root + electron) — no high/critical advisories (overlaps osv `check:vuln-ratchet`; see Rationalization Backlog)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Yes                                      |
-| `check:lockfile`               | `package-lock.json` integrity — https registry, integrity hashes, no host overrides                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Yes                                      |
-| `check:licenses`               | SPDX license allowlist for production dependencies                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Yes                                      |
-| `check:tracked-artifacts`      | No build artifacts / committed `node_modules` symlinks (also runs in husky pre-commit; pre-push is intentionally light — #6716)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Yes                                      |
-| `check:file-size`              | No source file exceeds the per-extension cap (ratchet: frozen large files in `frozen` list)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Yes                                      |
-| `check:error-helper`           | Error responses in executors/handlers use `buildErrorBody()` / `sanitizeErrorMessage()` (Hard Rule #12)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Yes                                      |
-| `check:migration-numbering`    | Migration SQL files are sequentially numbered, no gaps or duplicates                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Yes                                      |
-| `check:public-creds`           | No literal OAuth `client_id`/`client_secret` or Firebase Web keys outside `publicCreds.ts` (Hard Rule #11)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Yes                                      |
-| `check:db-rules`               | No raw SQL outside `src/lib/db/` modules; no barrel-imports from `localDb.ts` (Hard Rules #2/#5)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Yes                                      |
-| `check:known-symbols`          | Provider executors, routing strategies, and translators registered in their dispatch tables match the files on disk — no orphaned or undeclared symbols                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Yes                                      |
-| `check:route-guard-membership` | Every route that spawns a child process is classified by `isLocalOnlyPath()` (Hard Rules #15/#17)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Yes                                      |
-| `check:test-discovery`         | Every `*.test.ts` / `*.spec.ts` file in the repo is collected by at least one test runner (ratchet: orphan list in `test-discovery-baseline.json` can only shrink)                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Yes                                      |
-| `check:docs-sync`              | CHANGELOG version, OpenAPI version, and `llm.txt` are in sync                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Yes                                      |
-| `typecheck:core`               | TypeScript compilation without errors (advisory warnings only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Yes                                      |
-| `typecheck:noimplicit:core`    | Strict `noImplicitAny` — forward-looking; many pre-existing call sites still need annotations                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | **Advisory** (`continue-on-error: true`) |
-| `check:dashboard-typecheck`    | `tsc` scoped to `src/app/(dashboard)/**` (#7033) — `typecheck:core`'s curated 27-file allowlist does not include any dashboard TSX, and `next build` never type-checks it either (`next.config.mjs` sets `ignoreBuildErrors: true`), so orphaned-identifier regressions there (#6625/#6909) were invisible to CI. Diffs against a frozen per-file/per-TS-code count baseline (`config/quality/dashboard-typecheck-baseline.json`, same stale-enforcement pattern as `check:known-symbols`) — only NEW errors beyond the baselined count fail the gate; ratchet down with `--update` when a pre-existing error is fixed. | Yes                                      |
+A `changes` job classifies the diff first, so a docs-only pull request skips the
+code jobs without skipping the docs job.
 
-### Job: `quality-gate`
+| Job                           | Scope                                                                           | Blocking                 |
+| ----------------------------- | ------------------------------------------------------------------------------- | ------------------------ |
+| `Lint & Format`               | Code PRs; ESLint, Prettier (changed files), hadolint on the `Dockerfile`        | Yes                      |
+| `Typecheck (core + open-sse)` | Code PRs; `typecheck:core`, `check:open-sse-typecheck`, dashboard ratchet       | Yes                      |
+| `Security & SSRF Tests`       | Code PRs; outbound-guard SSRF suite, security unit tests, secret scan           | Yes                      |
+| `Env / Docs Sync`             | Docs or code PRs; env-var and docs contract                                     | Yes                      |
+| `Unit Tests (n/4)`            | Code PRs; 4-shard `node --test` unit suite                                      | **Advisory** — see below |
+| `CI Summary`                  | Always; renders a per-job result table and fails if any **blocking** job failed | Yes                      |
 
-Runs after `test-coverage`. Blocks merge on failure.
+#### Job: `Lint & Format`
 
-| Script                       | Validates                                                                                                                      | Blocking                  |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------- |
-| `quality:collect`            | Emits `quality-metrics.json` (ESLint warning count, coverage from merged shard report)                                         | Yes (upstream of ratchet) |
-| `quality:ratchet`            | Each metric in `quality-baseline.json` has not regressed (ESLint warnings ≤ baseline; coverage ≥ baseline)                     | Yes                       |
-| `check:duplication`          | Code duplication (jscpd@4) does not exceed baseline in `quality-baseline.json`                                                 | Yes                       |
-| `check:complexity`           | File-level cyclomatic complexity does not exceed the cap (core ESLint `complexity` + `max-lines-per-function`)                 | Yes                       |
-| `check:cognitive-complexity` | Cognitive complexity ratchet (`eslint-plugin-sonarjs`) — separate ESLint pass; mergeable with `check:complexity` (see Backlog) | Yes                       |
-| `check:dead-code`            | Unused exports / files ratchet (knip) does not regress vs baseline                                                             | Yes                       |
-| `check:type-coverage`        | Percent-typed ratchet (`type-coverage`) does not regress; largely subsumes `typecheck:noimplicit:core`                         | Yes                       |
-| `check:codeql-ratchet`       | Open CodeQL alert count does not regress (reads via `gh api`; graceful-skip without token)                                     | Yes                       |
+| Script (`npm run ...`) | Validates                                                                                                                                                                                                                                        | Blocking                                                                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `check:node-runtime`   | Node.js version is within the supported range                                                                                                                                                                                                    | Yes                                                                                                                               |
+| `lint`                 | ESLint across the tree, suppressions-aware                                                                                                                                                                                                       | **Advisory** (`continue-on-error: true`) — 111 pre-existing errors and a drifted suppressions file; flip to blocking once cleared |
+| `format:check`         | Prettier — **scoped to files changed in the PR**, because the tree carries a large unformatted legacy baseline and Prettier has only ever run through `lint-staged`. The npm script itself checks the full tree for the eventual one-time sweep. | Yes                                                                                                                               |
+| hadolint (inline)      | `Dockerfile` lint, `--failure-threshold error`                                                                                                                                                                                                   | Yes                                                                                                                               |
 
-### Job: `quality-extended`
+#### Job: `Typecheck (core + open-sse)`
 
-Entire job is advisory (`continue-on-error: true`). The npm-based ratchets run for
-real; the external scanners install via `gh release download` and self-skip (exit 0)
-when a binary is still absent.
+| Script (`npm run ...`)      | Validates                                                                                                                                                                                                    | Blocking |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| `typecheck:core`            | TypeScript compilation of the curated core file set                                                                                                                                                          | Yes      |
+| `check:open-sse-typecheck`  | TypeScript compilation of the `open-sse/` tree                                                                                                                                                               | Yes      |
+| `check:dashboard-typecheck` | `tsc` scoped to `src/app/(dashboard)/**` — `typecheck:core`'s allowlist covers no dashboard TSX and `next.config.mjs` sets `ignoreBuildErrors: true`. Diffs against a frozen baseline; only NEW errors fail. | Yes      |
 
-| Script                   | Validates                                                                                                                                                                | Blocking     |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------ |
-| `check:circular-deps`    | No circular dependencies (dpdm)                                                                                                                                          | **Advisory** |
-| `check:bundle-size`      | Bundle size does not exceed the cap                                                                                                                                      | **Advisory** |
-| `check:secrets`          | Secret scanning (gitleaks) — skips if binary absent                                                                                                                      | **Advisory** |
-| `check:vuln-ratchet`     | Dependency vulnerabilities (osv-scanner) do not regress — skips if binary absent                                                                                         | **Advisory** |
-| `check:workflows`        | Workflow lint (actionlint + zizmor) — skips if binaries absent                                                                                                           | **Advisory** |
-| `check:openapi-breaking` | Breaking changes to the public API contract (`openapi.yaml`) vs the base branch (oasdiff) — emits `openapiBreaking=N`; skips if oasdiff absent or base spec unresolvable | **Advisory** |
+#### Job: `Security & SSRF Tests`
 
-### Job: `docs-sync-strict`
+| Script                                               | Validates                                           | Blocking |
+| ---------------------------------------------------- | --------------------------------------------------- | -------- |
+| `node --test tests/unit/outbound-guard-ssrf.test.ts` | Outbound request guard rejects SSRF targets         | Yes      |
+| `test:security`                                      | Security unit suite (`security-fase01`)             | Yes      |
+| `check:secrets`                                      | Secret scanning (gitleaks) — skips if binary absent | Yes      |
 
-Runs on every PR to `main`. Blocks merge on failure.
+#### Job: `Env / Docs Sync`
 
-| Script                         | Validates                                                                                                                                         | Blocking                   |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| `check:docs-all`               | Meta-gate that runs the 6 sub-gates below sequentially                                                                                            | Yes                        |
-| ↳ `check:docs-sync`            | CHANGELOG / OpenAPI / llm.txt version consistency                                                                                                 | Yes                        |
-| ↳ `check:docs-counts`          | Counts in prose (provider count, migration count, etc.) are within the ratchet window of the real counts                                          | Yes                        |
-| ↳ `check:env-doc-sync`         | Every env var in `.env.example` is documented in a docs table, and vice versa                                                                     | Yes                        |
-| ↳ `check:deprecated-versions`  | No deprecated version strings in docs                                                                                                             | Yes                        |
-| ↳ `check:doc-links`            | Internal markdown links in docs resolve to real files (`[text]`/`(path)` form)                                                                    | Yes                        |
-| ↳ `check:fabricated-docs`      | Routes, env vars, CLI commands, hook names, and file paths cited in docs exist in the codebase. Hard gate via `--strict`; soft-fail without flag. | Yes (via `--strict` in CI) |
-| `check:cli-i18n`               | CLI command strings are present in all i18n locale files                                                                                          | Yes                        |
-| `check:openapi-coverage`       | OpenAPI spec covers at least a ratcheted floor of real routes                                                                                     | Yes                        |
-| `check:openapi-security-tiers` | Security tier annotations in `openapi.yaml` are consistent with `routeGuard.ts` classifications                                                   | **Advisory**               |
-| `check:openapi-routes`         | Every path in `openapi.yaml` resolves to a real `route.ts` (anti-hallucination)                                                                   | Yes                        |
-| `check:docs-symbols`           | Every `/api/...` reference in `docs/**/*.md` resolves to a real `route.ts` (anti-hallucination)                                                   | Yes                        |
-| `i18n translation drift`       | Untranslated keys in i18n locale files — warn only                                                                                                | **Advisory**               |
+| Script (`npm run ...`) | Validates                                                                                                          | Blocking |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------ | -------- |
+| `check:env-doc-sync`   | Every env var referenced in code is in `.env.example` and `docs/reference/ENVIRONMENT.md`, and the two files agree | Yes      |
+| `check:docs-sync`      | CHANGELOG version, OpenAPI version, and `llm.txt` are in sync                                                      | Yes      |
 
-### Job: `i18n-ui-coverage`
+#### Why `Unit Tests` is advisory
 
-| Script                            | Validates                                                        | Blocking |
-| --------------------------------- | ---------------------------------------------------------------- | -------- |
-| `check-ui-keys-coverage` (inline) | UI i18n key coverage is ≥ 65%                                    | Yes      |
-| `check-ui-value-drift` (inline)   | A rewritten English **value** leaves no stale translation behind | Yes      |
+The unit suite is red on the pre-existing tree — 38 test files fail in shard 1/4
+alone. A large share are leftovers that still assert on subsystems this fork
+excised, or on parent-repo workflows that do not exist here:
 
-Needs `fetch-depth: 0` — the value-drift gate diffs `en.json` against the merge base.
+| Test                                 | Asserts on                                       |
+| ------------------------------------ | ------------------------------------------------ |
+| `mitm-passthrough-real-host-10479`   | the excised MITM local-cert proxy                |
+| `docs/skillManifestsLint`            | the excised generated-skills subsystem           |
+| `v388-phase3-memory`                 | the excised vector memory / RAG store            |
+| `router-eval-search`                 | the excised eval surface                         |
+| `nightly-compat-node26-webpack-8090` | `nightly-*.yml`, which this fork does not have   |
+| `npm-publish-artifact-provenance`    | `npm-publish.yml`, which this fork does not have |
+| `vps-runner-variable-scope`          | the `USE_VPS_RUNNER` internal-runner variable    |
 
-#### `check-ui-value-drift` — stale-translation gate
+Delete or port those, get the suite green, then remove `continue-on-error: true`
+from the `test-unit` job so a real regression is a red.
 
-Catches the one i18n regression the other gates structurally cannot see: an English value
-is rewritten and the translations derived from the _previous_ English stay behind, so
-non-English users keep reading confidently-worded, now-wrong copy.
+### Gates that exist but are not wired into CI
 
-This shipped for real. `oauthModal.googleOAuthWarning` was rewritten when the Antigravity
-login helper landed (#5203); **39 of 43 locales** kept text telling operators to "copy the
-full URL and paste it below" — a flow that cannot complete for that provider. It went
-unnoticed until #8463 because:
+These scripts are maintained and runnable locally, but are **not** steps in any
+workflow because they currently fail on the pre-existing tree. Fix the underlying
+violation first, then add the step — a permanently red gate produces no signal.
 
-- `sync-ui-keys` only backfills keys that are **absent**, never ones that are **stale**;
-- `check-ui-keys-coverage` counts key _presence_, so a stale translation scores as covered;
-- `check-translation-drift` tracks the `docs/i18n/<locale>/**.md` documentation mirrors —
-  it never reads `src/i18n/messages/*.json`.
+| Script (`npm run ...`) | Why it is unwired                                                                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `check:public-creds`   | `open-sse/executors/zcodeProtocol.ts` builds a literal `clientId` instead of going through `resolvePublicCred()` (Hard Rule #11).        |
+| `check:doc-links`      | Dead internal links to files this fork excised — `src/lib/a2a/README.md` and the removed locale READMEs.                                 |
+| `check:api-docs-refs`  | `docs/openapi.yaml` documents paths with no `route.ts`, including excised surfaces such as `/api/evals` and `/api/compliance/audit-log`. |
 
-**Diff-aware, not baseline-backed.** It compares `en.json` at the merge base against the
-working tree; for every key whose English value changed, any locale still holding an
-untouched translation is stale. This deliberately **freezes pre-existing debt** — a diff
-cannot reveal which old English a long-standing translation came from, so the gate judges
-only what the current change touches. The alternative (a per-key hash baseline) would cost
-a ~600 KB generated file, 3× the largest existing baseline, churning on every i18n PR.
+The broader ratchet engine (`quality:collect` / `quality:ratchet`,
+`check:duplication`, `check:complexity`, `check:dead-code`, `check:type-coverage`,
+`check:codeql-ratchet`) and the extended scanners (`check:circular-deps`,
+`check:bundle-size`, `check:vuln-ratchet`, `check:workflows`,
+`check:openapi-breaking`) remain available as npm scripts and still run on the
+release fast-path via `quality.yml`. They are not part of the public `ci.yml`.
 
-Two ways to satisfy it:
+### Standalone workflows
 
-1. update the affected translations, or
-2. set them to `__MISSING__:<new english>` — the runtime then serves the corrected English
-   (`src/i18n/request.ts::deepMergeFallback`, #7258) and the key queues for translation.
-
-If the string's **meaning** changed, prefer **renaming the key**: a new key cannot inherit
-a stale translation. That is the pattern #8463 used.
-
-```bash
-npm run i18n:check-value-drift          # strict (what CI runs)
-npm run i18n:check-value-drift:warn     # report only
-BASE_REF=origin/release/vX.Y.Z npm run i18n:check-value-drift
-```
-
-Exits 0 with `SKIP reason=base-unresolved` when the base catalog cannot be read (shallow
-clone without the base ref), mirroring `check-openapi-breaking`.
-
-### Job: `i18n`
-
-Full i18n validation matrix (one job per locale). Entire job is advisory.
-
-| Script                          | Validates                           | Blocking                                              |
-| ------------------------------- | ----------------------------------- | ----------------------------------------------------- |
-| `validate_translation.py quick` | Translation completeness per locale | **Advisory** (`continue-on-error: true` on whole job) |
-
-### Job: `pr-test-policy`
-
-Runs on pull requests only.
-
-| Script                 | Validates                                                                                                                  | Blocking |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------- |
-| `check:pr-test-policy` | PRs that change production code in `src/`, `open-sse/`, `electron/`, or `bin/` must include or update tests (Hard Rule #8) | Yes      |
-| `check:test-masking`   | Changed test files do not reduce net assert count or add `assert.ok(true)` tautologies                                     | Yes      |
-| `check:pr-evidence`    | PR body cites test/VPS evidence for the change (mechanizes Hard Rule #18 by grepping PR prose — fragile, see Backlog)      | Yes      |
-
-### Job: `test-vitest`
-
-Runs after `build`. Blocks merge on failure.
-
-| Suite            | Validates                                                | Blocking                                                                                                      |
-| ---------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `test:vitest`    | MCP server (109 tools), autoCombo, cache — vitest runner | Yes                                                                                                           |
-| `test:vitest:ui` | UI component tests — vitest runner                       | **Blocking** — pre-existing failures are explicitly excluded in `vitest.config.ts`; new failures fail the job |
-
-### Nightly workflows (scheduled, advisory)
-
-These run on a cron schedule (and `workflow_dispatch`), never on PRs. All are advisory.
-
-| Workflow               | Validates                                                                                                                                           | Blocking     |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| `nightly-property`     | fast-check property tests with a random seed + high run count                                                                                       | **Advisory** |
-| `nightly-resilience`   | heap-growth gate, chaos fault-injection, k6 load/soak                                                                                               | **Advisory** |
-| `nightly-llm-security` | promptfoo injection guard (block mode) + garak probes (skipped without a provider secret)                                                           | **Advisory** |
-| `nightly-schemathesis` | OpenAPI contract fuzzing (schemathesis) against a live OmniRoute using `docs/openapi.yaml` — surfaces spec violations / unhandled 500s (Fase 8 B.4) | **Advisory** |
-
----
+| Workflow                       | Trigger                        | Purpose                                                                       |
+| ------------------------------ | ------------------------------ | ----------------------------------------------------------------------------- |
+| `api-route-typecheck.yml`      | PRs into `main` / `release/**` | Rejects new API-route TypeScript diagnostics                                  |
+| `docker-publish.yml`           | `main`, `v*` tags, dispatch    | Builds and publishes the runtime image to GHCR (and Docker Hub if configured) |
+| `build.yml`                    | Manual dispatch                | Raw (non-Docker) production build artefact                                    |
+| `dast-smoke.yml`               | PRs into `main`, dispatch      | Schemathesis + promptfoo smoke against a live server (advisory)               |
+| `codeql.yml`                   | Manual dispatch                | CodeQL analysis (advanced config; see the note in the workflow)               |
+| `semgrep.yml`, `scorecard.yml` | Scheduled / PR                 | Static analysis and OpenSSF Scorecard                                         |
 
 ## Ratchet Baseline (`quality-baseline.json`)
 
@@ -368,7 +296,8 @@ allowlist is a false sense of quality.
    Ratchet-style gates emit a metric to `quality-metrics.json` via `collect-metrics.mjs`.
 2. Add `"check:<name>": "node scripts/check/check-<name>.mjs"` to `package.json`.
 3. Wire it in `.github/workflows/ci.yml` under the appropriate job
-   (policy → `lint` or `docs-sync-strict`; ratchet → `quality-gate`).
+   (policy → `Lint & Format` or `Env / Docs Sync`; ratchet → the `quality.yml`
+   fast-path). Confirm the gate is green on the current tree first.
 4. If it has an allowlist, apply `reportStaleEntries()` from
    `scripts/check/lib/allowlist.mjs` so stale entries are detected automatically.
 5. Write a test in `tests/unit/build/` covering the gate's detection logic.
@@ -398,10 +327,9 @@ identified the following rationalization candidates. **The merges are mechanical
 changes; the flips/drops are policy decisions reserved for the operator.** Nothing below
 is applied yet.
 
-**Also undocumented above** (advisory, low signal): the `docs-lint` job
-(markdownlint + Vale, whole job `continue-on-error`) and the standalone scanner workflows
+**Also undocumented above** (advisory, low signal): the standalone scanner workflows
 `semgrep.yml` / `codeql.yml` / `scorecard.yml`. `semgrepFindings: 0` is in
-`quality-baseline.json` but is not wired to a blocking ratchet in `ci.yml` — the metric is
+`quality-baseline.json` but is not wired to a blocking ratchet — the metric is
 currently orphaned.
 
 ### Merge / dedup (mechanical, lower risk)
@@ -409,7 +337,7 @@ currently orphaned.
 Each candidate was validated against the live gate state on 2026-06-17 (trust-but-verify);
 several "obvious" merges turned out to hide debt and are **not** clean drop-ins.
 
-- **`check:docs-sync` runs twice** — standalone in the `lint` job and again inside `check:docs-all` (`docs-sync-strict`) and the husky pre-commit hook. ✅ **DONE** — standalone `lint` invocation removed.
+- **`check:docs-sync` runs twice** — in the `Env / Docs Sync` job and again inside `check:docs-all` on the `quality.yml` fast-path, plus the husky pre-commit hook. ✅ **DONE** — the duplicate `lint` invocation was removed.
 - **CVE scanning** — ❌ **NOT a clean merge.** `audit:deps` hard-fails on any high/critical CVE; `check:vuln-ratchet` (osv) only fails on a _regression_ vs baseline (currently 1 MODERATE). Different semantics — dropping `audit:deps` would lose the absolute high/critical gate. Keep both.
 - **Cycle detection** — ❌ **NOT a clean merge.** `check:circular-deps` (dpdm) reports **91 cycles** (that is why it is advisory); it cannot be promoted to blocking without first resolving them, and it has a broader scope than the green, curated `check:cycles`. Keep `check:cycles` blocking; resolving the 91 dpdm cycles is its own backlog.
 - **Complexity** — ✅ **DONE** (`check:complexity-ratchets` / `eslint.complexity-ratchets.config.mjs`): one ESLint walk, counts by ruleId so cyclomatic+max-lines and cognitive baselines stay independent; individual `check:complexity` / `check:cognitive-complexity` remain for local `--update`.

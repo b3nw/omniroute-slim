@@ -18,7 +18,6 @@ Vitest, the 60% coverage gate, and the production build all run in CI on this PR
 - [ ] `npm run lint`
 - [ ] Reconciled with the current active release base; focused checks rerun afterward
 - [ ] Production-code changes include a new or updated automated test in this PR
-- SonarQube is temporarily opt-in while the private project has no quota; it is not a PR gate.
 
 ## Tests Added Or Updated
 
