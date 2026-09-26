@@ -852,6 +852,11 @@ export function translateResponse(targetFormat, sourceFormat, chunk, state) {
     }
   }
 
+  // A flush (chunk === null) through a pair with no registered translator falls through
+  // with the seed `[null]`; never hand that null back as an item — stream consumers
+  // dereference every item (e.g. `item.choices`) and the throw aborts flush().
+  results = results.filter((item) => item != null);
+
   // Attach OpenAI intermediate results for logging
   if (openaiResults && sourceFormat !== FORMATS.OPENAI && targetFormat !== FORMATS.OPENAI) {
     (results as { _openaiIntermediate?: unknown })._openaiIntermediate = openaiResults;
