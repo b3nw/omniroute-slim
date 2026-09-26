@@ -10,6 +10,8 @@ import {
   GEMINI_CLI_NODE_CLIENT_VERSION,
   GEMINI_CLI_GL_NODE_VERSION,
   GEMINI_CLI_PLATFORM_ARCH,
+  isGeminiCliCapacityExhausted,
+  withGeminiCliSurface,
 } from "../../open-sse/executors/geminiCli.ts";
 import { handleReasoningParameters } from "../../open-sse/translator/request/geminiCli.ts";
 import {
@@ -26,7 +28,7 @@ import type { ProviderCredentials } from "../../open-sse/executors/base.ts";
 
 test("Tier 1: buildGeminiCliHeaders constructs standard emulation headers", () => {
   const headers = buildGeminiCliHeaders("ya29.sample-token-123", "gemini-3.5-flash", {
-    uaVersion: "0.31.0",
+    uaVersion: "0.61.0",
     nodeClientVersion: "10.6.1",
     glNodeVersion: "22.17.1",
     platformArch: "linux; x64",
@@ -37,12 +39,94 @@ test("Tier 1: buildGeminiCliHeaders constructs standard emulation headers", () =
   // Wire model for gemini-3.5-flash should be remapped to gemini-3-flash
   assert.equal(
     headers["User-Agent"],
-    "GeminiCLI/0.31.0/gemini-3-flash (linux; x64) google-api-nodejs-client/10.6.1"
+    "GeminiCLI/0.61.0/gemini-3-flash (linux; x64; terminal) google-api-nodejs-client/10.6.1"
   );
   assert.equal(headers["X-Goog-Api-Client"], "gl-node/22.17.1");
   assert.equal(headers.Accept, "*/*");
   assert.equal(headers["Accept-Encoding"], "gzip, deflate, br");
   assert.equal(headers.Connection, "close");
+});
+
+function withEnv(vars: Record<string, string | undefined>, fn: () => void) {
+  const saved: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(vars)) {
+    saved[key] = process.env[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    fn();
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+test("Tier 1: GEMINI_CLI_UA_VERSION defaults to 0.61.0 with win32/x64/terminal UA", () => {
+  assert.equal(GEMINI_CLI_UA_VERSION, "0.61.0");
+  withEnv(
+    {
+      GEMINI_CLI_UA_VERSION: undefined,
+      GEMINI_CLI_CLIENT_VERSION: undefined,
+      GEMINI_CLI_PLATFORM_ARCH: undefined,
+      GEMINI_CLI_SURFACE: undefined,
+    },
+    () => {
+      const headers = buildGeminiCliHeaders("tok", "gemini-3.8-flash");
+      assert.ok(
+        headers["User-Agent"].startsWith(
+          "GeminiCLI/0.61.0/gemini-3.8-flash (win32; x64; terminal) "
+        )
+      );
+    }
+  );
+});
+
+test("Tier 1: GEMINI_CLI_UA_VERSION and GEMINI_CLI_CLIENT_VERSION env overrides", () => {
+  withEnv({ GEMINI_CLI_UA_VERSION: undefined, GEMINI_CLI_CLIENT_VERSION: "0.70.1" }, () => {
+    const headers = buildGeminiCliHeaders("tok", "gemini-3-flash");
+    assert.ok(headers["User-Agent"].startsWith("GeminiCLI/0.70.1/gemini-3-flash "));
+  });
+  // GEMINI_CLI_UA_VERSION takes precedence over GEMINI_CLI_CLIENT_VERSION
+  withEnv({ GEMINI_CLI_UA_VERSION: "0.72.0", GEMINI_CLI_CLIENT_VERSION: "0.70.1" }, () => {
+    const headers = buildGeminiCliHeaders("tok", "gemini-3-flash");
+    assert.ok(headers["User-Agent"].startsWith("GeminiCLI/0.72.0/gemini-3-flash "));
+  });
+  // Explicit option beats both env vars
+  withEnv({ GEMINI_CLI_UA_VERSION: "0.72.0", GEMINI_CLI_CLIENT_VERSION: "0.70.1" }, () => {
+    const headers = buildGeminiCliHeaders("tok", "gemini-3-flash", { uaVersion: "0.99.0" });
+    assert.ok(headers["User-Agent"].startsWith("GeminiCLI/0.99.0/gemini-3-flash "));
+  });
+});
+
+test("Tier 1: withGeminiCliSurface appends terminal only when no surface is present", () => {
+  assert.equal(withGeminiCliSurface("win32; x64"), "win32; x64; terminal");
+  assert.equal(withGeminiCliSurface("linux;x64"), "linux; x64; terminal");
+  assert.equal(withGeminiCliSurface("linux; x64; terminal"), "linux; x64; terminal");
+  assert.equal(withGeminiCliSurface("darwin; arm64; vscode"), "darwin; arm64; vscode");
+  assert.equal(withGeminiCliSurface("win32; x64", ""), "win32; x64");
+});
+
+test("Tier 1: isGeminiCliCapacityExhausted distinguishes capacity from quota 429s", () => {
+  assert.equal(
+    isGeminiCliCapacityExhausted(
+      '{"error":{"code":429,"message":"No capacity available for model gemini-3.8-flash on the server"}}'
+    ),
+    true
+  );
+  assert.equal(
+    isGeminiCliCapacityExhausted('{"error":{"details":[{"reason":"MODEL_CAPACITY_EXHAUSTED"}]}}'),
+    true
+  );
+  assert.equal(
+    isGeminiCliCapacityExhausted(
+      "You have exhausted your capacity on this model. Your quota will reset after 2s."
+    ),
+    false
+  );
+  assert.equal(isGeminiCliCapacityExhausted(""), false);
 });
 
 test("Tier 1: parseGeminiCliResetDuration handles seconds, compound durations and text", () => {
@@ -77,8 +161,8 @@ test("Tier 1: parseGeminiCliResetDuration handles seconds, compound durations an
 test("Tier 1: sanitizeGeminiCliError redacts stack traces, paths, tokens and secrets", () => {
   const rawError = [
     "Error: Upstream request failed for token Bearer ya29.a0AfH6SMD_secret123 with client secret GOCSPX-secret_xyz",
-    "    at Object.execute (/home/user/projects/core/llm-proxy/OmniRoute/open-sse/executors/geminiCli.ts:145:12)",
-    "    at async handleChatCore (/home/user/projects/core/llm-proxy/OmniRoute/open-sse/handlers/chatCore.ts:89:9)",
+    "    at Object.execute (/home/runner/projects/core/llm-proxy/OmniRoute/open-sse/executors/geminiCli.ts:145:12)",
+    "    at async handleChatCore (/home/runner/projects/core/llm-proxy/OmniRoute/open-sse/handlers/chatCore.ts:89:9)",
   ].join("\n");
 
   const sanitized = sanitizeGeminiCliError(rawError);
@@ -88,7 +172,7 @@ test("Tier 1: sanitizeGeminiCliError redacts stack traces, paths, tokens and sec
   assert.ok(!sanitized.includes("handleChatCore"));
 
   // Paths redacted
-  assert.ok(!sanitized.includes("/home/user"));
+  assert.ok(!sanitized.includes("/home/runner"));
 
   // Sensitive credentials redacted
   assert.ok(!sanitized.includes("ya29.a0AfH6SMD_secret123"));
@@ -394,6 +478,191 @@ test("Tier 2: 429 Rate Limit halts endpoint cycling immediately and extracts Ret
   assert.equal(result.response.headers.get("Retry-After"), "2");
 });
 
+function capacityExhausted429(model: string): Response {
+  return new Response(
+    JSON.stringify({
+      error: {
+        code: 429,
+        message: `No capacity available for model ${model} on the server`,
+        status: "RESOURCE_EXHAUSTED",
+        details: [
+          {
+            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+            reason: "MODEL_CAPACITY_EXHAUSTED",
+            domain: "cloudcode-pa.googleapis.com",
+          },
+        ],
+      },
+    }),
+    { status: 429, headers: { "Content-Type": "application/json" } }
+  );
+}
+
+test("Tier 2: 429 MODEL_CAPACITY_EXHAUSTED on gemini-3.8-flash falls back to gemini-3-flash", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const executor = new GeminiCliExecutor();
+  const calls: Array<{ url: string; model: string; ua: string }> = [];
+
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body));
+    const ua = (init?.headers as Record<string, string>)["User-Agent"];
+    calls.push({ url: String(input), model: body.model, ua });
+    if (body.model === "gemini-3.8-flash") return capacityExhausted429(body.model);
+    const sse =
+      'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"from fallback"}]},"finishReason":"STOP"}]}}\n\n';
+    return new Response(sse, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+  }) as typeof fetch;
+
+  const logged: string[] = [];
+  const result = await executor.execute({
+    model: "gemini-3.8-flash",
+    body: { model: "gemini-3.8-flash", messages: [{ role: "user", content: "hi" }] },
+    stream: false,
+    credentials: { apiKey: "capacity-key" },
+    signal: null,
+    log: {
+      warn: (tag) => logged.push(`warn:${tag}`),
+      info: (tag) => logged.push(`info:${tag}`),
+    },
+  });
+
+  assert.equal(result.response.status, 200);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].model, "gemini-3.8-flash");
+  assert.equal(calls[1].model, "gemini-3-flash");
+  // Same endpoint is retried with the fallback model
+  assert.equal(calls[0].url, calls[1].url);
+  assert.ok(calls[1].ua.includes("/gemini-3-flash "));
+  assert.equal((result.transformedBody as Record<string, unknown>).model, "gemini-3-flash");
+  const completion = (await result.response.json()) as {
+    choices: Array<{ message: { content: string } }>;
+  };
+  assert.equal(completion.choices[0].message.content, "from fallback");
+  assert.deepEqual(logged, [
+    "warn:GEMINI_CLI_CAPACITY_FALLBACK",
+    "info:GEMINI_CLI_CAPACITY_FALLBACK",
+  ]);
+});
+
+test("Tier 2: capacity fallback is attempted only once and quota 429s never fall back", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const executor = new GeminiCliExecutor();
+  const models: string[] = [];
+
+  // Both the requested and the fallback model are out of capacity: stop after one retry.
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body));
+    models.push(body.model);
+    return capacityExhausted429(body.model);
+  }) as typeof fetch;
+
+  const exhausted = await executor.execute({
+    model: "gemini-3.8-flash",
+    body: { model: "gemini-3.8-flash", messages: [{ role: "user", content: "hi" }] },
+    stream: true,
+    credentials: { apiKey: "capacity-key" },
+    signal: null,
+    log: null,
+  });
+  assert.equal(exhausted.response.status, 429);
+  assert.deepEqual(models, ["gemini-3.8-flash", "gemini-3-flash"]);
+
+  // A true quota limit on gemini-3.8-flash halts immediately without fallback.
+  models.length = 0;
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    models.push(JSON.parse(String(init?.body)).model);
+    return new Response(
+      JSON.stringify({
+        error: {
+          code: 429,
+          message:
+            "You have exhausted your capacity on this model. Your quota will reset after 2s.",
+          status: "RESOURCE_EXHAUSTED",
+        },
+      }),
+      { status: 429, headers: { "Content-Type": "application/json" } }
+    );
+  }) as typeof fetch;
+
+  const quota = await executor.execute({
+    model: "gemini-3.8-flash",
+    body: { model: "gemini-3.8-flash", messages: [{ role: "user", content: "hi" }] },
+    stream: true,
+    credentials: { apiKey: "capacity-key" },
+    signal: null,
+    log: null,
+  });
+  assert.equal(quota.response.status, 429);
+  assert.deepEqual(models, ["gemini-3.8-flash"]);
+
+  // Capacity exhaustion on a model without a fallback mapping halts immediately.
+  models.length = 0;
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body));
+    models.push(body.model);
+    return capacityExhausted429(body.model);
+  }) as typeof fetch;
+  const noMapping = await executor.execute({
+    model: "gemini-3-flash",
+    body: { model: "gemini-3-flash", messages: [{ role: "user", content: "hi" }] },
+    stream: true,
+    credentials: { apiKey: "capacity-key" },
+    signal: null,
+    log: null,
+  });
+  assert.equal(noMapping.response.status, 429);
+  assert.deepEqual(models, ["gemini-3-flash"]);
+});
+
+test("Tier 2: execute omits project when credentials carry no project or 'default'", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const executor = new GeminiCliExecutor();
+  const bodies: Array<Record<string, unknown>> = [];
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return new Response("data: [DONE]\n\n", {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  }) as typeof fetch;
+
+  const credentialSets: ProviderCredentials[] = [
+    { apiKey: "k" },
+    { apiKey: "k", projectId: "default" },
+    { apiKey: "k", providerSpecificData: { projectId: "default" } },
+    { apiKey: "k", providerSpecificData: { projectId: "real-proj-123" } },
+    { apiKey: "k", projectId: "default", providerSpecificData: { projectId: "real-proj-456" } },
+  ];
+  for (const credentials of credentialSets) {
+    await executor.execute({
+      model: "gemini-3-flash",
+      body: { model: "gemini-3-flash", messages: [{ role: "user", content: "hi" }] },
+      stream: false,
+      credentials,
+      signal: null,
+      log: null,
+    });
+  }
+
+  assert.equal("project" in bodies[0], false);
+  assert.equal("project" in bodies[1], false);
+  assert.equal("project" in bodies[2], false);
+  assert.equal(bodies[3].project, "real-proj-123");
+  assert.equal(bodies[4].project, "real-proj-456");
+});
+
 // ============================================================================
 // TIER 3: Reasoning & Thinking Configuration
 // ============================================================================
@@ -403,7 +672,6 @@ test("Tier 3: handleReasoningParameters default behavior for Gemini 2.5 and Gemi
   const gem25Default = handleReasoningParameters({}, "gemini-2.5-pro");
   assert.deepEqual(gem25Default, {
     thinkingBudget: -1,
-    includeThoughts: true,
     include_thoughts: true,
   });
 
@@ -411,7 +679,6 @@ test("Tier 3: handleReasoningParameters default behavior for Gemini 2.5 and Gemi
   const gem3FlashDefault = handleReasoningParameters({}, "gemini-3-flash");
   assert.deepEqual(gem3FlashDefault, {
     thinkingLevel: "high",
-    includeThoughts: true,
     include_thoughts: true,
   });
 
@@ -419,37 +686,33 @@ test("Tier 3: handleReasoningParameters default behavior for Gemini 2.5 and Gemi
   const gem3ProDefault = handleReasoningParameters({}, "gemini-3-pro-preview");
   assert.deepEqual(gem3ProDefault, {
     thinkingLevel: "high",
-    includeThoughts: true,
     include_thoughts: true,
   });
 });
 
 test("Tier 3: handleReasoningParameters OpenAI reasoning_effort mapping", () => {
-  // Effort: none/disable -> budget 0 / minimal with includeThoughts: false
+  // Effort: none/disable -> budget 0 / minimal
   const gem25Disabled = handleReasoningParameters({ reasoning_effort: "none" }, "gemini-2.5-pro");
   assert.deepEqual(gem25Disabled, {
     thinkingBudget: 0,
-    includeThoughts: false,
     include_thoughts: false,
   });
 
   const gem3Disabled = handleReasoningParameters({ reasoning_effort: "disable" }, "gemini-3-flash");
   assert.deepEqual(gem3Disabled, {
     thinkingLevel: "minimal",
-    includeThoughts: false,
-    include_thoughts: false,
+    include_thoughts: true,
   });
 
   // Effort: low / medium / high
   const gem25Low = handleReasoningParameters({ reasoning_effort: "low" }, "gemini-2.5-flash");
   assert.equal(gem25Low?.thinkingBudget, 6144);
-  assert.equal(gem25Low?.includeThoughts, true);
   assert.equal(gem25Low?.include_thoughts, true);
+  assert.equal((gem25Low as Record<string, unknown>)?.includeThoughts, undefined);
 
   const gem3FlashMed = handleReasoningParameters({ reasoning_effort: "medium" }, "gemini-3-flash");
   assert.deepEqual(gem3FlashMed, {
     thinkingLevel: "medium",
-    includeThoughts: true,
     include_thoughts: true,
   });
 });
@@ -462,7 +725,6 @@ test("Tier 3: handleReasoningParameters Anthropic Claude thinking object mapping
   );
   assert.deepEqual(claudeBudget, {
     thinkingBudget: 8192,
-    includeThoughts: true,
     include_thoughts: true,
   });
 
@@ -473,7 +735,6 @@ test("Tier 3: handleReasoningParameters Anthropic Claude thinking object mapping
   );
   assert.deepEqual(claudeDisabled, {
     thinkingBudget: 0,
-    includeThoughts: false,
     include_thoughts: false,
   });
 });
@@ -536,7 +797,9 @@ test("Tier 3: Response translation extracts reasoning_content for streaming and 
     "gemini-2.5-pro"
   );
 
-  const message = (reassembled.choices as Array<{ message: { content: string; reasoning_content: string } }>)[0].message;
+  const message = (
+    reassembled.choices as Array<{ message: { content: string; reasoning_content: string } }>
+  )[0].message;
   assert.equal(message.reasoning_content, "Thought part 1. Thought part 2.");
   assert.equal(message.content, "Final answer.");
 });
@@ -551,4 +814,3 @@ test("Tier 3: Executor registry resolves gemini_cli and gcli aliases to GeminiCl
   const exDash = await getExecutor("gemini-cli");
   assert.ok(exDash instanceof GeminiCliExecutor);
 });
-
