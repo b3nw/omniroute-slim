@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  CCPA_AI_MODEL_MAPPINGS,
+  GEMINI_CLI_CAPACITY_FALLBACKS,
+  getGeminiCliCapacityFallbackModel,
+  sanitizeGeminiCliProjectId,
+  GEMINI3_TOOL_PREFIX,
+  DEFAULT_GEMINI3_SYSTEM_INSTRUCTION,
+  DEFAULT_SAFETY_SETTINGS,
   mapModelToGeminiCliWire,
   isGemini3,
   needsThoughtSignature,
@@ -10,19 +17,30 @@ import {
   inlineSchemaRefs,
   cleanGeminiCliSchema,
   enforceStrictSchema,
+  formatTypeHint,
+  injectSignatureIntoDescription,
   transformToolSchemas,
+  parseContentParts,
   fixToolResponseGrouping,
   _fix_tool_response_grouping,
   handleReasoningParameters,
+  translateToolChoice,
+  transformMessages,
   translateChatRequestToGeminiCli,
+  type OpenAIChatRequest,
 } from "../../open-sse/translator/request/geminiCli.ts";
 import {
+  FINISH_REASON_MAP,
+  stripGemini3Prefix,
+  buildUsageBlock,
   translateGeminiCliChunkToOpenAI,
   translateGeminiCliResponseToOpenAI,
   reassembleGeminiCliChunks,
 } from "../../open-sse/translator/response/geminiCli.ts";
 import {
   storeGeminiThoughtSignature,
+  getGeminiThoughtSignature,
+  clearGeminiThoughtSignatures,
   clearGeminiThoughtSignatureMemoryForTests,
 } from "../../open-sse/services/geminiThoughtSignatureStore.ts";
 
@@ -48,6 +66,38 @@ test("Tier 1: Wire Model Remapping and Model Helpers", () => {
   assert.equal(needsThoughtSignature("gemini-3-flash"), true);
   assert.equal(needsThoughtSignature("gemini-2.5-flash"), true);
   assert.equal(needsThoughtSignature("gemini-1.5-pro"), false);
+});
+
+test("Tier 1: Capacity fallback mapping for gemini-3.8-flash", () => {
+  assert.equal(GEMINI_CLI_CAPACITY_FALLBACKS["gemini-3.8-flash"], "gemini-3-flash");
+  // Not a wire remap: gemini-3.8-flash is sent as-is on the first attempt.
+  assert.equal(CCPA_AI_MODEL_MAPPINGS["gemini-3.8-flash"], undefined);
+  assert.equal(mapModelToGeminiCliWire("gemini-3.8-flash"), "gemini-3.8-flash");
+
+  assert.equal(getGeminiCliCapacityFallbackModel("gemini-3.8-flash"), "gemini-3-flash");
+  assert.equal(getGeminiCliCapacityFallbackModel("gemini-cli/gemini-3.8-flash"), "gemini-3-flash");
+  assert.equal(getGeminiCliCapacityFallbackModel("gemini-3.8-flash:thinking"), "gemini-3-flash");
+  assert.equal(getGeminiCliCapacityFallbackModel("gemini-3-flash"), null);
+  assert.equal(getGeminiCliCapacityFallbackModel("gemini-2.5-pro"), null);
+});
+
+test("Tier 1: project is omitted when missing, empty or 'default'", () => {
+  assert.equal(sanitizeGeminiCliProjectId("default"), undefined);
+  assert.equal(sanitizeGeminiCliProjectId(""), undefined);
+  assert.equal(sanitizeGeminiCliProjectId("   "), undefined);
+  assert.equal(sanitizeGeminiCliProjectId(undefined), undefined);
+  assert.equal(sanitizeGeminiCliProjectId(42), undefined);
+  assert.equal(sanitizeGeminiCliProjectId(" gcp-proj "), "gcp-proj");
+
+  const req = { model: "gemini-3.8-flash", messages: [{ role: "user", content: "hi" }] };
+  for (const connection of [{ projectId: "default" }, { projectId: "" }, {}, null, undefined]) {
+    const translated = translateChatRequestToGeminiCli(req, connection);
+    assert.equal("project" in translated.body, false);
+    assert.equal(translated.body.model, "gemini-3.8-flash");
+  }
+
+  const withProject = translateChatRequestToGeminiCli(req, { projectId: "gcp-proj-beta" });
+  assert.equal(withProject.body.project, "gcp-proj-beta");
 });
 
 test("Tier 1: Fingerprinting & Client Metadata Generation", () => {
@@ -87,7 +137,7 @@ test("Tier 1: Fingerprinting & Client Metadata Generation", () => {
 });
 
 test("Tier 1: Message & Multipart Translation into CCPA Contents Envelope", () => {
-  const req: Record<string, unknown> = {
+  const req: OpenAIChatRequest = {
     model: "gemini-3-flash",
     messages: [
       { role: "system", content: "You are an expert fullstack software architect." },
@@ -517,7 +567,7 @@ test("Tier 2: Thought Signature Caching & Single-Signature Cardinality", () => {
   clearGeminiThoughtSignatureMemoryForTests();
   storeGeminiThoughtSignature("call_primary", "sig_verified_primary_123");
 
-  const req: Record<string, unknown> = {
+  const req: OpenAIChatRequest = {
     model: "gemini-3-flash",
     messages: [
       { role: "user", content: "Execute batch operations" },
@@ -643,7 +693,7 @@ test("Tier 3: Combinatorial Matrix Across Models, Tools and Reasoning Configurat
   for (const model of models) {
     for (const effort of reasoningEfforts) {
       for (const tools of toolOptions) {
-        const req: Record<string, unknown> = {
+        const req: OpenAIChatRequest = {
           model,
           reasoning_effort: effort,
           messages: [{ role: "user", content: "Combinatorial test prompt" }],

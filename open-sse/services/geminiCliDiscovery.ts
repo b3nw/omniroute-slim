@@ -27,21 +27,28 @@ export const ONBOARD_USER_ENDPOINTS = [
   "https://cloudcode-pa.googleapis.com/v1internal:onboardUser",
 ] as const;
 
+import { withGeminiCliSurface } from "../executors/geminiCli.ts";
+
 const SERVICE_USAGE_API = "https://serviceusage.googleapis.com/v1";
 const CRM_PROJECTS_URL = "https://cloudresourcemanager.googleapis.com/v1/projects";
 
-const DEFAULT_UA_VERSION = "0.31.0";
+const DEFAULT_UA_VERSION = "0.61.0";
 const DEFAULT_NODE_CLIENT_VERSION = "10.6.1";
 const DEFAULT_GL_NODE_VERSION = "22.17.1";
-const DEFAULT_PLATFORM_ARCH = "win32; x64";
+const DEFAULT_PLATFORM_ARCH = "win32; x64; terminal";
 const DEFAULT_ACCEPT_ENCODING = "gzip, deflate, br";
 
 export function getGeminiCliAuthHeaders(accessToken: string): Record<string, string> {
-  const uaVersion = process.env.GEMINI_CLI_UA_VERSION || DEFAULT_UA_VERSION;
+  const uaVersion =
+    process.env.GEMINI_CLI_UA_VERSION ||
+    process.env.GEMINI_CLI_CLIENT_VERSION ||
+    DEFAULT_UA_VERSION;
   const nodeClientVersion =
     process.env.GEMINI_CLI_NODE_CLIENT_VERSION || DEFAULT_NODE_CLIENT_VERSION;
   const glNodeVersion = process.env.GEMINI_CLI_GL_NODE_VERSION || DEFAULT_GL_NODE_VERSION;
-  const platformArch = process.env.GEMINI_CLI_PLATFORM_ARCH || DEFAULT_PLATFORM_ARCH;
+  const platformArch = withGeminiCliSurface(
+    process.env.GEMINI_CLI_PLATFORM_ARCH || DEFAULT_PLATFORM_ARCH
+  );
   const acceptEncoding = process.env.GEMINI_CLI_ACCEPT_ENCODING || DEFAULT_ACCEPT_ENCODING;
 
   return {
