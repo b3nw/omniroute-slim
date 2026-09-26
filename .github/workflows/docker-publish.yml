@@ -1,0 +1,266 @@
+name: Docker Publish
+
+# Builds the OmniRoute-Slim runtime image and publishes it to the GitHub
+# Container Registry. Docker Hub is published to as well, but only when the
+# DOCKER_HUB_USERNAME / DOCKER_HUB_TOKEN secrets are configured — the workflow
+# is fully functional on a fork with no secrets beyond the default GITHUB_TOKEN.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to tag the image with (e.g. 3.9.0). Empty = derive from the ref."
+        required: false
+        default: ""
+      platforms:
+        description: "Comma-separated build platforms (add linux/arm64 for a multi-arch release)."
+        required: false
+        default: "linux/amd64"
+      target:
+        description: "Dockerfile target (runner-base | runner-web | runner-cli)."
+        required: false
+        default: "runner-base"
+      dry_run:
+        description: "Build only, do not push."
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  DOCKERHUB_IMAGE: b3nw/omniroute-slim
+
+jobs:
+  build:
+    name: Build & Publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+      # Required by the build provenance attestation step.
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # `next build` is the memory-hungry step. The hosted runner has ~16 GB of
+      # RAM but only ~4 GB of swap; a single-worker webpack build plus extra swap
+      # is what reliably fits. See the build args passed to buildx below.
+      - name: Expand swap for the Next.js build
+        run: |
+          set -eux
+          sudo swapoff -a || true
+          sudo rm -f /mnt/swapfile /swapfile
+          sudo fallocate -l 10G /mnt/swapfile || \
+            sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=10240
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
+      - name: Resolve build configuration
+        id: cfg
+        env:
+          IN_VERSION: ${{ inputs.version }}
+          IN_PLATFORMS: ${{ inputs.platforms }}
+          IN_TARGET: ${{ inputs.target }}
+          IN_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+
+          # amd64 by default. node:26-trixie-slim is multi-arch, so linux/arm64
+          # builds correctly, but the builder stage runs a full `next build` plus
+          # native module compilation; under QEMU emulation on a hosted runner
+          # that takes hours rather than minutes. Request arm64 explicitly via
+          # workflow_dispatch when cutting a multi-arch release, and expect a
+          # long run.
+          platforms="${IN_PLATFORMS:-linux/amd64}"
+          target="${IN_TARGET:-runner-base}"
+
+          # A dry run, or a pull request from a fork, must never push.
+          push=true
+          if [ "${IN_DRY_RUN:-false}" = "true" ]; then push=false; fi
+
+          # Version: explicit input > git tag > package.json.
+          version="${IN_VERSION:-}"
+          if [ -z "$version" ] && [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          if [ -z "$version" ]; then
+            version="$(node -p "require('./package.json').version")"
+          fi
+
+          # ghcr.io requires an all-lowercase path, and a fork must publish to its
+          # own namespace rather than failing against the upstream one.
+          image_name="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+
+          {
+            echo "image_name=$image_name"
+            echo "platforms=$platforms"
+            echo "target=$target"
+            echo "push=$push"
+            echo "version=$version"
+            echo "created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "revision=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+
+          cat "$GITHUB_OUTPUT"
+
+      # A v* tag is only `latest` when it is the highest semver tag in the repo,
+      # so re-tagging an old patch release cannot move `latest` backwards.
+      - name: Decide whether this tag is `latest`
+        id: latest
+        if: ${{ github.ref_type == 'tag' }}
+        env:
+          VERSION: ${{ steps.cfg.outputs.version }}
+        run: |
+          set -euo pipefail
+          highest="$(
+            git tag --list 'v*' \
+              | sed 's/^v//' \
+              | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sort -V \
+              | tail -n1
+          )"
+          if [ "$VERSION" = "$highest" ]; then
+            echo "is_latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_latest=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$VERSION highest=$highest"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: ${{ steps.cfg.outputs.push == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for Docker Hub credentials
+        id: dockerhub
+        env:
+          DH_USER: ${{ secrets.DOCKER_HUB_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
+        run: |
+          if [ -n "${DH_USER:-}" ] && [ -n "${DH_TOKEN:-}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Docker Hub secrets not configured — publishing to ghcr.io only."
+          fi
+
+      - name: Log in to Docker Hub
+        if: ${{ steps.cfg.outputs.push == 'true' && steps.dockerhub.outputs.enabled == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Derive image tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ steps.cfg.outputs.image_name }}
+            name=docker.io/${{ env.DOCKERHUB_IMAGE }},enable=${{ steps.dockerhub.outputs.enabled == 'true' }}
+          # edge  → every push to main
+          # 3.9.0 / 3.9 / v3.9.0 → v* tags
+          # latest → only the highest semver tag
+          tags: |
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=v${{ steps.cfg.outputs.version }},enable=${{ github.ref_type == 'tag' }}
+            type=semver,pattern=v{{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && steps.latest.outputs.is_latest == 'true' }}
+            type=sha,format=long
+          labels: |
+            org.opencontainers.image.title=omniroute-slim
+            org.opencontainers.image.description=Streamlined AI gateway and intelligent model proxy — route any LLM through one endpoint
+            org.opencontainers.image.url=https://github.com/b3nw/OmniRoute-Slim
+            org.opencontainers.image.source=https://github.com/b3nw/OmniRoute-Slim
+            org.opencontainers.image.documentation=https://github.com/b3nw/OmniRoute-Slim/blob/main/README.md
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ steps.cfg.outputs.version }}
+            org.opencontainers.image.revision=${{ steps.cfg.outputs.revision }}
+            org.opencontainers.image.created=${{ steps.cfg.outputs.created }}
+          annotations: |
+            org.opencontainers.image.title=omniroute-slim
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: ${{ steps.cfg.outputs.target }}
+          platforms: ${{ steps.cfg.outputs.platforms }}
+          push: ${{ steps.cfg.outputs.push == 'true' }}
+          # `load` is unavailable for a multi-platform build, so a dry run stops
+          # at the build and produces no local image.
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: false
+          sbom: false
+          build-args: |
+            OMNIROUTE_BUILD_WORKERS=1
+            OMNIROUTE_USE_TURBOPACK=0
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Attest build provenance
+        if: ${{ steps.cfg.outputs.push == 'true' }}
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ steps.cfg.outputs.image_name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Summary
+        if: ${{ always() }}
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          PUSHED: ${{ steps.cfg.outputs.push }}
+          TARGET: ${{ steps.cfg.outputs.target }}
+          PLATFORMS: ${{ steps.cfg.outputs.platforms }}
+        run: |
+          {
+            echo "## Docker Publish"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Pushed | \`${PUSHED}\` |"
+            echo "| Target | \`${TARGET}\` |"
+            echo "| Platforms | \`${PLATFORMS}\` |"
+            echo "| Digest | \`${DIGEST:-n/a}\` |"
+            echo ""
+            echo "### Tags"
+            echo '```'
+            echo "${TAGS}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

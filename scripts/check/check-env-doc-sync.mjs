@@ -215,10 +215,12 @@ const IGNORE_FROM_CODE = new Set([
   // (platform, node version, discovered project) with working defaults —
   // internal overrides, never user-facing product config.
   "GEMINI_CLI_ACCEPT_ENCODING",
+  "GEMINI_CLI_CLIENT_VERSION",
   "GEMINI_CLI_GL_NODE_VERSION",
   "GEMINI_CLI_NODE_CLIENT_VERSION",
   "GEMINI_CLI_PLATFORM_ARCH",
   "GEMINI_CLI_PROJECT_ID",
+  "GEMINI_CLI_SURFACE",
   "GEMINI_CLI_UA_VERSION",
   // Setup-recipe only: optional 5dive binary override read by the
   // `omniroute setup-5dive` CLI recipe (bin/cli/commands/setup-5dive.mjs).
