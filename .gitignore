@@ -267,3 +267,8 @@ docker-compose.yml.bak
 /scratch/
 /state/
 
+# Local pre-push gate scripts (never committed to avoid leaking scanner rules/hosts)
+scripts/dev/github-pre-push-gate.sh
+scripts/dev/pre-push-allowlist.txt
+
+
