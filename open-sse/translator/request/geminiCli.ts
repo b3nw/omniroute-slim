@@ -1,9 +1,37 @@
 import { createHash, randomBytes, randomUUID } from "crypto";
 import { getGeminiThoughtSignature } from "../../services/geminiThoughtSignatureStore.ts";
 
+export type OpenAIChatRequest = Record<string, unknown>;
+
 export const CCPA_AI_MODEL_MAPPINGS: Record<string, string> = {
   "gemini-3.5-flash": "gemini-3-flash",
 };
+
+/**
+ * Wire-model fallbacks used when Code Assist answers 429 MODEL_CAPACITY_EXHAUSTED.
+ * Mirrors upstream gemini-cli, which falls back to gemini-3-flash when the newer
+ * Flash model has no server capacity. Not applied to the initial request.
+ */
+export const GEMINI_CLI_CAPACITY_FALLBACKS: Record<string, string> = {
+  "gemini-3.8-flash": "gemini-3-flash",
+};
+
+export function getGeminiCliCapacityFallbackModel(model: string): string | null {
+  const wireModel = mapModelToGeminiCliWire(model);
+  const fallback = GEMINI_CLI_CAPACITY_FALLBACKS[wireModel];
+  return fallback && fallback !== wireModel ? fallback : null;
+}
+
+/**
+ * Upstream gemini-cli omits `project` when :loadCodeAssist assigned none. The legacy
+ * "default" placeholder routes to an unprovisioned bucket, so treat it as absent.
+ */
+export function sanitizeGeminiCliProjectId(projectId: unknown): string | undefined {
+  if (typeof projectId !== "string") return undefined;
+  const trimmed = projectId.trim();
+  if (!trimmed || trimmed === "default") return undefined;
+  return trimmed;
+}
 
 export const GEMINI3_TOOL_PREFIX = "gemini3_";
 
@@ -694,8 +722,7 @@ export function handleReasoningParameters(
 
   // 2. Check Claude / Anthropic thinking parameter: { type: "enabled" | "adaptive" | "disabled", budget_tokens?: number }
   const claudeThinking = (payload.thinking ?? genConfig.thinking) as
-    | { type?: string; budget_tokens?: number; budgetTokens?: number }
-    | undefined;
+    { type?: string; budget_tokens?: number; budgetTokens?: number } | undefined;
 
   let effort = "auto";
   let explicitDisabled = false;
@@ -709,7 +736,10 @@ export function handleReasoningParameters(
     ) {
       explicitDisabled = true;
       effort = "disable";
-    } else if (typeof claudeThinking.budget_tokens === "number" && claudeThinking.budget_tokens > 0) {
+    } else if (
+      typeof claudeThinking.budget_tokens === "number" &&
+      claudeThinking.budget_tokens > 0
+    ) {
       customBudget = claudeThinking.budget_tokens;
       effort = customBudget <= 4096 ? "low" : customBudget <= 16384 ? "medium" : "high";
     } else if (typeof claudeThinking.budgetTokens === "number" && claudeThinking.budgetTokens > 0) {
@@ -736,20 +766,17 @@ export function handleReasoningParameters(
     if (isGem3Flash) {
       return {
         thinkingLevel: "minimal",
-        includeThoughts: false,
-        include_thoughts: false,
+        include_thoughts: true,
       };
     }
     if (isGem3) {
       return {
         thinkingLevel: "low",
-        includeThoughts: false,
-        include_thoughts: false,
+        include_thoughts: true,
       };
     }
     return {
       thinkingBudget: 0,
-      includeThoughts: false,
       include_thoughts: false,
     };
   }
@@ -766,7 +793,6 @@ export function handleReasoningParameters(
     }
     return {
       thinkingLevel,
-      includeThoughts: true,
       include_thoughts: true,
     };
   }
@@ -781,7 +807,6 @@ export function handleReasoningParameters(
     }
     return {
       thinkingLevel,
-      includeThoughts: true,
       include_thoughts: true,
     };
   }
@@ -790,15 +815,16 @@ export function handleReasoningParameters(
   if (customBudget !== null && customBudget > 0) {
     return {
       thinkingBudget: customBudget,
-      includeThoughts: true,
       include_thoughts: true,
     };
   }
 
-  if (effort === "auto" || (reasoningEffort === undefined && !claudeThinking && !hasThinkingSuffix)) {
+  if (
+    effort === "auto" ||
+    (reasoningEffort === undefined && !claudeThinking && !hasThinkingSuffix)
+  ) {
     return {
       thinkingBudget: -1,
-      includeThoughts: true,
       include_thoughts: true,
     };
   }
@@ -816,7 +842,6 @@ export function handleReasoningParameters(
     };
     return {
       thinkingBudget: budgets[effort] || 12288,
-      includeThoughts: true,
       include_thoughts: true,
     };
   } else {
@@ -832,7 +857,6 @@ export function handleReasoningParameters(
     };
     return {
       thinkingBudget: budgets[effort] || 16384,
-      includeThoughts: true,
       include_thoughts: true,
     };
   }
@@ -1048,7 +1072,7 @@ export function translateChatRequestToGeminiCli(
   const model = String(request.model || "gemini-3-flash");
   const wireModel = mapModelToGeminiCliWire(model);
   const isGem3 = isGemini3(model);
-  const projectId = connection?.projectId || "";
+  const projectId = sanitizeGeminiCliProjectId(connection?.projectId);
 
   const genConfig: Record<string, unknown> = {
     maxOutputTokens: typeof request.max_tokens === "number" ? request.max_tokens : 64000,
@@ -1127,7 +1151,7 @@ export function translateChatRequestToGeminiCli(
 
   const body: Record<string, unknown> = {
     model: wireModel,
-    project: projectId,
+    ...(projectId ? { project: projectId } : {}),
     user_prompt_id: userPromptId,
     request: requestPayload,
   };
