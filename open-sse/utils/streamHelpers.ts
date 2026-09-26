@@ -213,7 +213,9 @@ export function createSSEDataLineNormalizer(): SSEDataLineNormalizer {
   };
 }
 
-export function createSSEEventPrefixBuffer(options?: { forwardEvent?: boolean }): SSEEventPrefixBuffer {
+export function createSSEEventPrefixBuffer(options?: {
+  forwardEvent?: boolean;
+}): SSEEventPrefixBuffer {
   let lines: string[] = [];
   let emitted = false;
   // The `event:` line is only part of the SSE framing for protocols that define
@@ -377,6 +379,7 @@ export function isKnownNonClaudeStreamPayload(
 
 // Check if chunk has valuable content (not empty)
 export function hasValuableContent(chunk: Record<string, unknown>, format: string): boolean {
+  if (!isRecord(chunk)) return false;
   // OpenAI format
   if (format === FORMATS.OPENAI) {
     const choices = Array.isArray(chunk.choices) ? chunk.choices : [];
