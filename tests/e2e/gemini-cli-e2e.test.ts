@@ -2,18 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { GeminiCliExecutor } from "../../open-sse/executors/geminiCli.ts";
 import {
-  translateChatRequestToGeminiCli,
-  mapModelToGeminiCliWire,
-} from "../../open-sse/translator/request/geminiCli.ts";
-import {
-  translateGeminiCliChunkToOpenAI,
-  translateGeminiCliResponseToOpenAI,
-  reassembleGeminiCliChunks,
-} from "../../open-sse/translator/response/geminiCli.ts";
-import {
-  storeGeminiThoughtSignature,
   getGeminiThoughtSignature,
-  clearGeminiThoughtSignatures,
   clearGeminiThoughtSignatureMemoryForTests,
 } from "../../open-sse/services/geminiThoughtSignatureStore.ts";
 

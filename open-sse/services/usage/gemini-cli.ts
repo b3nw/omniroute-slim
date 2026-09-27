@@ -118,7 +118,7 @@ export async function fetchGeminiCliUsage(
       },
   optionsOrProviderSpecificData?: { forceRefresh?: boolean } | Record<string, unknown>,
   connectionProjectId?: string,
-  connectionId?: string,
+  _connectionId?: string,
   options?: { forceRefresh?: boolean }
 ): Promise<UsageSnapshot | { message: string }> {
   let accessToken: string | undefined;
