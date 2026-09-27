@@ -23,13 +23,14 @@ current `HEAD`. Line counts cover git-tracked files only, excluding lockfiles an
 | ---------------------------------------------------------- | ------------------------------ | ---------------------------- | --------------------------- |
 | **All tracked text lines**                                 | ~3.58M lines (3,583,374)       | **~1.77M lines (1,766,748)** | **-1.82M lines (-50.7%)**   |
 | **Core `src/` + `open-sse/` TypeScript** _(`.ts`/`.tsx`)_  | ~861k lines (860,803)          | **~713k lines (713,109)**    | **-148k lines (-17.2%)**    |
-| **Localization assets** _(42 non-English locales removed)_ | 606,078 lines (37.0 MB)        | **15,292 lines (773 KB)**    | **-590,786 lines (-97.5%)** |
-| **Disk footprint** _(excl. `node_modules`, `.git`)_        | —                              | **~74 MB on disk**           | —                           |
+| **Localization assets** _(Tier 1 retained, peripheral excised)_ | 606,078 lines (37.0 MB)        | **86,804 lines (4.9 MB)**    | **-519,274 lines (-85.7%)** |
+| **Disk footprint** _(excl. `node_modules`, `.git`)_        | —                              | **~78 MB on disk**           | —                           |
 | **Third-party dependencies**                               | 77 runtime / 55 dev            | **71 runtime / 54 dev**      | **-6 runtime / -1 dev**     |
 
-Localization figures span both dictionary sets — `src/i18n/messages/` and `bin/cli/locales/`. Each
-retains only `en.json` (723 KB and 49 KB respectively); the 42 non-English locales were dropped from
-both, eliminating 84 JSON files.
+Localization figures span both dictionary sets — `src/i18n/messages/` and `bin/cli/locales/`. The WebUI
+dashboard retains 7 Tier 1 locales (`en`, `zh-CN`, `es`, `ja`, `de`, `fr`, `pt-BR`) filtered strictly to
+the 11,421 keys of retained proxy features (~85.7k lines); the CLI retains an English-only catalog (`en.json`,
+37 KB). 36 non-Tier-1 upstream locales were removed.
 
 ---
 
@@ -50,7 +51,7 @@ both, eliminating 84 JSON files.
                                                │
                EXCISED SUBSYSTEMS              ▼
        ┌───────────────────────────────────────────────────────────────┐
-       │ ❌ 42 Non-English Locales (-591k LOC across both dict sets)   │
+       │ ❌ 36 Peripheral Locales (-519k LOC across dictionaries)      │
        │ ❌ MITM Transparent CA Generator & Tunnels (Tailscale/ngrok)  │
        │ ❌ IDE/CLI Helpers & Config Injectors (Cursor/VSCode)         │
        │ ❌ Autonomous Agent Frameworks (A2A, Conductor, Skills)       │
@@ -106,7 +107,7 @@ enabling the flag cannot silently alter proxied traffic (`open-sse/utils/proxyFe
 
 | Excised Subsystem                    | Location(s) Removed                                                                  | Why Excised & Operational Impact                                                                                                                                                                                                                                                 |
 | ------------------------------------ | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **42 Non-English Locales**           | `src/i18n/messages/*.json`, `bin/cli/locales/*.json`                                 | Static JSON dictionaries accounted for ~591k lines (97.5% of all localization content). Standardized on an English-only runtime (`en.json` in both dictionary sets).                                                                                                             |
+| **36 Peripheral Locales**           | `src/i18n/messages/*.json`, `bin/cli/locales/*.json`                                 | Static JSON dictionaries accounted for ~591k lines. Excised 36 non-Tier-1 upstream locales while retaining a streamlined Tier 1 set (English default + German, Spanish, French, Japanese, Brazilian Portuguese, and Simplified Chinese) filtered strictly to features kept in OmniRoute-Slim. |
 | **MITM Transparent Proxy & Tunnels** | `src/mitm/`, `tailscaleTunnel.ts`, `cloudflaredTunnel.ts`, `ngrokTunnel.ts`          | Local root CA generation and OS DNS hijacking require high privileges and are fragile in server environments. Upstream forward proxying is preserved.                                                                                                                            |
 | **CLI Helpers & IDE Injectors**      | `src/lib/cli-helper/`, `src/lib/cursor/`, `src/lib/vscode/`                          | External editor configuration injectors are outside the scope of dedicated proxy infrastructure.                                                                                                                                                                                 |
 | **Autonomous Agent Systems**         | `src/lib/a2a/`, `src/lib/conductor/`, `src/lib/skills/`, `src/lib/acp/`              | Agent-to-agent protocols and background issue-fixing bots add complex state machines unrelated to low-latency proxying.                                                                                                                                                          |

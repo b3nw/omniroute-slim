@@ -23,7 +23,8 @@ Anthropic or Gemini model without changing a line of code.
 
 OmniRoute-Slim is a fork of [OmniRoute](https://github.com/b3nw/OmniRoute) with the peripheral
 subsystems removed: the desktop (Electron) shell, agent-to-agent frameworks, vector memory and local
-RAG, MITM certificate interception, gamification, and 42 non-English dictionary bundles. What remains
+RAG, MITM certificate interception, gamification, and peripheral translations (standardizing on a
+streamlined Tier 1 set: English, Chinese, Spanish, Japanese, German, French, and Portuguese). What remains
 is focused entirely on fast, dependable, low-latency API routing and proxying.
 
 The measured footprint reduction and the full per-subsystem rationale live in
