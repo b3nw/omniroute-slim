@@ -12,6 +12,14 @@ import {
   discoverGeminiCliProjectAndTier,
   type CanonicalTier,
 } from "../geminiCliDiscovery.ts";
+import {
+  getGeminiCliQuotaTier,
+  GEMINI_CLI_TIER_DISPLAY_NAMES,
+  GEMINI_CLI_TIER_QUOTA_KEYS,
+  type GeminiCliQuotaTier,
+} from "../geminiCliQuotaTier.ts";
+
+export { getGeminiCliQuotaTier, type GeminiCliQuotaTier };
 
 export interface GeminiCliBucket {
   modelId?: string;
@@ -50,47 +58,76 @@ const GEMINI_CLI_QUOTA_CACHE_TTL_MS = 60 * 1000; // 1 minute
 
 /**
  * Normalizes a :retrieveUserQuota API response into a structured UsageSnapshot.
+ *
+ * Cloud Code PA shares the daily request pool (and reset timer) across every
+ * model of the same tier, so `quotas` holds one entry per tier
+ * (`gemini_cli_pro`, `gemini_cli_flash`, `gemini_cli_flash_lite`) instead of
+ * one duplicate card per model. Per-model telemetry stays in `models`.
  */
 export function parseGeminiCliQuotaResponse(
   quotaData: GeminiCliQuotaResponse,
   tier: CanonicalTier = "PRO"
 ): UsageSnapshot {
-  const buckets = quotaData.buckets || [];
+  const buckets = Array.isArray(quotaData?.buckets) ? quotaData.buckets : [];
   const tierMaxRpd = tier === "ULTRA" ? 2000 : tier === "PRO" ? 1500 : 1000;
   const costPerRequestPercent = 100 / tierMaxRpd;
 
   const modelUsage: Record<string, { remainingFraction: number; resetTime?: string }> = {};
-  const quotas: Record<string, UsageQuota> = {};
+  const groups = new Map<
+    GeminiCliQuotaTier,
+    { remainingFraction: number; resetTime?: string; fractionReported: boolean }
+  >();
 
   for (const b of buckets) {
+    if (!b || typeof b !== "object") continue;
     const modelId = b.modelId || b.model_id;
-    if (modelId) {
-      const rawRemaining = b.remainingFraction ?? b.remaining_fraction;
-      const remainingFraction =
-        rawRemaining !== undefined ? Math.max(0, Math.min(1, rawRemaining)) : 1.0;
-      const resetTime = b.resetTime || b.reset_time;
-      const resetAt = parseResetTime(resetTime);
+    if (!modelId) continue;
 
-      modelUsage[modelId] = {
-        remainingFraction,
-        resetTime,
-      };
+    const rawRemaining = b.remainingFraction ?? b.remaining_fraction;
+    const fractionReported = typeof rawRemaining === "number" && Number.isFinite(rawRemaining);
+    const remainingFraction = fractionReported ? Math.max(0, Math.min(1, rawRemaining)) : 1.0;
+    const resetTime = b.resetTime || b.reset_time;
 
-      const total = tierMaxRpd;
-      const remaining = Math.round(total * remainingFraction);
-      const used = Math.max(0, total - remaining);
+    modelUsage[modelId] = { remainingFraction, resetTime };
 
-      quotas[modelId] = {
-        used,
-        total,
-        remaining,
-        remainingPercentage: remainingFraction * 100,
-        resetAt,
-        unlimited: false,
-        fractionReported: rawRemaining !== undefined,
-        quotaSource: "retrieveUserQuota",
-      };
+    const quotaTier = getGeminiCliQuotaTier(modelId);
+    if (!quotaTier) continue;
+
+    // Shared pool: the most-depleted reported bucket is the tier's truth. A
+    // bucket without a reported fraction never overrides one that has it.
+    const current = groups.get(quotaTier);
+    const replaces =
+      !current ||
+      (fractionReported && !current.fractionReported) ||
+      (fractionReported === current.fractionReported &&
+        (remainingFraction < current.remainingFraction ||
+          (remainingFraction === current.remainingFraction &&
+            !current.resetTime &&
+            Boolean(resetTime))));
+    if (replaces) {
+      groups.set(quotaTier, { remainingFraction, resetTime, fractionReported });
     }
+  }
+
+  const quotas: Record<string, UsageQuota> = {};
+  for (const quotaTier of Object.keys(GEMINI_CLI_TIER_QUOTA_KEYS) as GeminiCliQuotaTier[]) {
+    const group = groups.get(quotaTier);
+    if (!group) continue;
+    const total = tierMaxRpd;
+    const remaining = Math.round(total * group.remainingFraction);
+    const used = Math.max(0, total - remaining);
+
+    quotas[GEMINI_CLI_TIER_QUOTA_KEYS[quotaTier]] = {
+      used,
+      total,
+      remaining,
+      remainingPercentage: group.remainingFraction * 100,
+      resetAt: parseResetTime(group.resetTime),
+      unlimited: false,
+      fractionReported: group.fractionReported,
+      quotaSource: "retrieveUserQuota",
+      displayName: GEMINI_CLI_TIER_DISPLAY_NAMES[quotaTier],
+    };
   }
 
   return {

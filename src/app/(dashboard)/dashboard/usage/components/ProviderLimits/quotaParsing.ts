@@ -12,10 +12,11 @@ const CODEX_QUOTA_ORDER: Record<string, number> = {
 const GLM_FAMILY_PROVIDERS = ["glm", "glm-cn", "glmt", "opencode-go"];
 const KIMI_CODING_PROVIDERS = ["kimi-coding", "kimi-coding-apikey"];
 const ANTIGRAVITY_PROVIDERS = ["antigravity", "agy"];
+const GEMINI_CLI_PROVIDERS = ["gemini-cli", "gemini_cli", "gcli"];
 
 /**
  * Providers whose quotas already get a deterministic fixed-window order below
- * (Codex, GLM family, Kimi Coding, Antigravity/Agy). Display layers (e.g. QuotaCardExpanded)
+ * (Codex, GLM family, Kimi Coding, Antigravity/Agy, Gemini CLI). Display layers (e.g. QuotaCardExpanded)
  * must not re-sort these by remaining percentage, or they undo this order (#6687).
  */
 export function hasFixedQuotaOrder(providerId: string | undefined): boolean {
@@ -24,7 +25,8 @@ export function hasFixedQuotaOrder(providerId: string | undefined): boolean {
     id === "codex" ||
     GLM_FAMILY_PROVIDERS.includes(id) ||
     KIMI_CODING_PROVIDERS.includes(id) ||
-    ANTIGRAVITY_PROVIDERS.includes(id)
+    ANTIGRAVITY_PROVIDERS.includes(id) ||
+    GEMINI_CLI_PROVIDERS.includes(id)
   );
 }
 
@@ -384,6 +386,19 @@ function sortAntigravityOrder(providerId: string, quotas: any[]) {
   });
 }
 
+function geminiCliTierRank(name: string): number {
+  const key = name.toLowerCase();
+  if (/^(?:gemini_cli_|gemini_)?pro$/.test(key)) return 0;
+  if (/^(?:gemini_cli_|gemini_)?flash$/.test(key)) return 1;
+  if (/^(?:gemini_cli_|gemini_)?(?:flash_lite|lite)$/.test(key)) return 2;
+  return 10;
+}
+
+function sortGeminiCliOrder(providerId: string, quotas: any[]) {
+  if (!GEMINI_CLI_PROVIDERS.includes(providerId)) return;
+  quotas.sort((a, b) => geminiCliTierRank(String(a.name)) - geminiCliTierRank(String(b.name)));
+}
+
 export function parseQuotaData(provider: string | undefined, data: any) {
   if (!data || typeof data !== "object") return [];
   const providerId = String(provider || "").toLowerCase();
@@ -395,6 +410,7 @@ export function parseQuotaData(provider: string | undefined, data: any) {
     sortCodexOrder(providerId, normalizedQuotas);
     sortKimiOrder(providerId, normalizedQuotas);
     sortAntigravityOrder(providerId, normalizedQuotas);
+    sortGeminiCliOrder(providerId, normalizedQuotas);
     return normalizedQuotas;
   } catch (error) {
     console.error(`Error parsing quota data for ${provider}:`, error);

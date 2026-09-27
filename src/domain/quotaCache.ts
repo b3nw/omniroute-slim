@@ -12,6 +12,7 @@
  *
  * @changes
  * - [2026-07-24] [Composer] - Scope Antigravity per-model exhaustion to exact model + family weekly windows
+ * - [2026-09-27] - Scope Gemini CLI per-model exhaustion to its shared tier window (pro/flash/flash_lite)
  *
  * @module domain/quotaCache
  */
@@ -39,6 +40,11 @@ import {
   type CodexPersistedQuotaState,
 } from "@omniroute/open-sse/services/codexAccount/index.ts";
 import { getAntigravityQuotaFamily } from "@omniroute/open-sse/services/antigravityQuotaFamily.ts";
+import {
+  getGeminiCliQuotaTier,
+  getGeminiCliTierForQuotaKey,
+  isGeminiCliProvider,
+} from "@omniroute/open-sse/services/geminiCliQuotaTier.ts";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -304,9 +310,7 @@ function resolveAntigravityQuotaWindowsForModel(
   // For Claude family, all models share the single aggregate quota pool if mapped under Claude model names.
   // For Gemini family, individual models have separate buckets and MUST NOT fall back to unrelated sibling models.
   if (requestedFamily === "claude") {
-    return quotaNames.filter(
-      (windowName) => getAntigravityQuotaFamily(windowName) === "claude"
-    );
+    return quotaNames.filter((windowName) => getAntigravityQuotaFamily(windowName) === "claude");
   }
 
   return [];
@@ -329,6 +333,85 @@ function isAntigravityQuotaExhausted(
           ?.reachedThreshold
     )
   );
+}
+
+/**
+ * Gemini CLI (Cloud Code PA) shares one daily request pool per model tier, so a
+ * request only depends on its own tier's window: an exhausted Pro pool must not
+ * block Flash / Flash Lite. When a tier window (canonical or alias) is cached it
+ * is authoritative and legacy per-model windows (e.g. a stale pre-upgrade
+ * `gemini-2.5-pro` snapshot row) are ignored; legacy windows are only matched
+ * exactly when no tier window exists for the requested tier.
+ */
+export function resolveGeminiCliQuotaWindowsForModel(
+  quotaNames: string[],
+  requestedModel: string
+): string[] {
+  const bareModel = requestedModel.trim().replace(/^.*\//, "").toLowerCase();
+  const requestedTier = getGeminiCliQuotaTier(bareModel);
+  if (requestedTier) {
+    const tierWindows = quotaNames.filter(
+      (windowName) => getGeminiCliTierForQuotaKey(windowName) === requestedTier
+    );
+    if (tierWindows.length > 0) return tierWindows;
+  }
+  return quotaNames.filter(
+    (windowName) =>
+      !getGeminiCliTierForQuotaKey(windowName) &&
+      windowName.replace(/^.*\//, "").toLowerCase() === bareModel
+  );
+}
+
+/** A single window is exhausted only while its own reset time is still in the future. */
+function isGeminiCliWindowExhausted(quota: QuotaInfo | undefined, now: number): boolean {
+  if (!quota) return false;
+  // #10095 — an unreported fraction is "unknown", never exhaustion.
+  if (quota.fractionReported === false) return false;
+  if (quota.resetAt) {
+    const resetMs = parseDate(quota.resetAt);
+    if (resetMs !== null && resetMs <= now) return false;
+  }
+  const remaining = clampPercent(quota.remainingPercentage);
+  return remaining <= 0 || 100 - remaining >= DEFAULT_QUOTA_THRESHOLD_PERCENT;
+}
+
+function isGeminiCliQuotaExhausted(
+  entry: QuotaCacheEntry,
+  requestedModel: string | null,
+  now: number
+): boolean {
+  const quotaNames = Object.keys(entry.quotas || {});
+  // No window data (e.g. a 429-sourced mark): fall back to the connection-wide
+  // flag, which may self-clear once its reset passes.
+  if (quotaNames.length === 0) {
+    if (advancedWindowResetAt(entry, now)) {
+      entry.exhausted = false;
+      return false;
+    }
+    return isStandardQuotaExhausted(entry, now);
+  }
+
+  if (requestedModel?.trim()) {
+    const matchingWindows = resolveGeminiCliQuotaWindowsForModel(quotaNames, requestedModel);
+    if (matchingWindows.length > 0) {
+      return matchingWindows.some((windowName) =>
+        isGeminiCliWindowExhausted(entry.quotas[windowName], now)
+      );
+    }
+    // A recognized tier with no cached window of its own is unmeasured, not
+    // exhausted — another tier's windows must not block it. Only unknown models
+    // fall through to the connection-wide view.
+    if (getGeminiCliQuotaTier(requestedModel) !== null) return false;
+  }
+
+  // Connection-wide view: exhausted only while EVERY window is still exhausted.
+  // One tier resetting early must not unblock the tiers whose reset is later.
+  if (!entry.exhausted) return false;
+  const stillExhausted = quotaNames.every((windowName) =>
+    isGeminiCliWindowExhausted(entry.quotas[windowName], now)
+  );
+  if (!stillExhausted) entry.exhausted = false;
+  return stillExhausted;
 }
 
 function remainingPercent(usage: unknown, limit: unknown): number | null {
@@ -449,6 +532,13 @@ export function isQuotaExhaustedForRequest(
   if (!entry) return false;
 
   const now = Date.now();
+
+  // Gemini CLI tiers reset independently; the connection-wide `nextResetAt`
+  // (earliest tier reset) must not clear every tier's exhaustion at once.
+  if (isGeminiCliProvider(provider)) {
+    return isGeminiCliQuotaExhausted(entry, requestedModel, now);
+  }
+
   const advanced = advancedWindowResetAt(entry, now);
   if (advanced) {
     entry.exhausted = false;

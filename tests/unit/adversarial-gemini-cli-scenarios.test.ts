@@ -5,28 +5,18 @@ import {
   normalizeTierName,
   isFreeTier,
   getTierFullName,
-  extractProjectId,
   tryLoadCodeAssist,
   tryOnboardUser,
-  scanGcpProjectsForCodeAssist,
-  listFirstActiveGcpProject,
   discoverGeminiCliProjectAndTier,
-  getGeminiCliAuthHeaders,
   clearGeminiCliProjectCache,
 } from "../../open-sse/services/geminiCliDiscovery.ts";
 
 import {
   parseGeminiCliQuotaResponse,
-  fetchGeminiCliUsage,
   type GeminiCliQuotaResponse,
 } from "../../open-sse/services/usage/gemini-cli.ts";
 
-import {
-  resolvePublicCred,
-  resolvePublicCredMulti,
-  decodePublicCred,
-  decodePublicCredBytes,
-} from "../../open-sse/utils/publicCreds.ts";
+import { resolvePublicCred } from "../../open-sse/utils/publicCreds.ts";
 
 import { GEMINI_CLI_CONFIG } from "../../src/lib/oauth/constants/oauth.ts";
 import { geminiCli } from "../../src/lib/oauth/providers/gemini-cli.ts";
@@ -39,7 +29,7 @@ import {
 // CHALLENGE SCENARIO 1: Free-Tier Accounts 412 Prevention
 // ============================================================================
 
-test("Scenario 1: Free-Tier Accounts - cloudaicompanionProject and duetProject are strictly omitted in loadCodeAssist and onboardUser", async (t) => {
+test("Scenario 1: Free-Tier Accounts - cloudaicompanionProject and duetProject are strictly omitted in loadCodeAssist and onboardUser", async () => {
   clearGeminiCliProjectCache();
 
   // Test 1A: tryLoadCodeAssist without configured project
@@ -254,7 +244,7 @@ test("Scenario 2: Project Discovery Fallbacks - Disabled service usage falls thr
 
   const auditLog: string[] = [];
 
-  const mockDiscoveryFetch = (async (url: string, init?: RequestInit) => {
+  const mockDiscoveryFetch = (async (url: string, _init?: RequestInit) => {
     const urlStr = String(url);
 
     if (urlStr.includes(":loadCodeAssist")) {
@@ -513,19 +503,26 @@ test("Scenario 4: Quota Payload Parsing - Valid, Fractional, and Snake_Case Buck
   assert.equal(snap.models["gemini-3-flash"].remainingFraction, 0.75);
   assert.equal(snap.models["gemini-2.5-pro"].remainingFraction, 0.5);
 
+  // Quotas are grouped by shared model tier, never per model.
+  assert.deepEqual(Object.keys(snap.quotas).sort(), ["gemini_cli_flash", "gemini_cli_pro"]);
+  assert.equal(snap.quotas["gemini-3-flash"], undefined);
+  assert.equal(snap.quotas["gemini-2.5-pro"], undefined);
+
   // Check quota structure for PRO (1500 total)
-  const qFlash = snap.quotas["gemini-3-flash"];
+  const qFlash = snap.quotas["gemini_cli_flash"];
   assert.equal(qFlash.total, 1500);
   assert.equal(qFlash.remaining, 1125); // 1500 * 0.75
   assert.equal(qFlash.used, 375); // 1500 - 1125
   assert.equal(qFlash.remainingPercentage, 75);
   assert.equal(qFlash.fractionReported, true);
+  assert.equal(qFlash.displayName, "Gemini Flash Models");
 
-  const qPro = snap.quotas["gemini-2.5-pro"];
+  const qPro = snap.quotas["gemini_cli_pro"];
   assert.equal(qPro.total, 1500);
   assert.equal(qPro.remaining, 750); // 1500 * 0.5
   assert.equal(qPro.used, 750);
   assert.equal(qPro.remainingPercentage, 50);
+  assert.equal(qPro.displayName, "Gemini Pro Models");
 });
 
 test("Scenario 4: Quota Payload Parsing - Adversarially Corrupted & Boundary Payloads", () => {
@@ -535,9 +532,10 @@ test("Scenario 4: Quota Payload Parsing - Adversarially Corrupted & Boundary Pay
   };
   const snapA = parseGeminiCliQuotaResponse(negPayload, "FREE");
   assert.equal(snapA.models["gemini-3-flash"].remainingFraction, 0);
-  assert.equal(snapA.quotas["gemini-3-flash"].remaining, 0);
-  assert.equal(snapA.quotas["gemini-3-flash"].used, 1000);
-  assert.equal(snapA.quotas["gemini-3-flash"].remainingPercentage, 0);
+  assert.equal(snapA.quotas["gemini-3-flash"], undefined);
+  assert.equal(snapA.quotas["gemini_cli_flash"].remaining, 0);
+  assert.equal(snapA.quotas["gemini_cli_flash"].used, 1000);
+  assert.equal(snapA.quotas["gemini_cli_flash"].remainingPercentage, 0);
 
   // Case B: Overflow remaining fraction (> 1.0) -> clamped to 1.0
   const overflowPayload: GeminiCliQuotaResponse = {
@@ -545,9 +543,9 @@ test("Scenario 4: Quota Payload Parsing - Adversarially Corrupted & Boundary Pay
   };
   const snapB = parseGeminiCliQuotaResponse(overflowPayload, "ULTRA");
   assert.equal(snapB.models["gemini-3-flash"].remainingFraction, 1.0);
-  assert.equal(snapB.quotas["gemini-3-flash"].remaining, 2000);
-  assert.equal(snapB.quotas["gemini-3-flash"].used, 0);
-  assert.equal(snapB.quotas["gemini-3-flash"].remainingPercentage, 100);
+  assert.equal(snapB.quotas["gemini_cli_flash"].remaining, 2000);
+  assert.equal(snapB.quotas["gemini_cli_flash"].used, 0);
+  assert.equal(snapB.quotas["gemini_cli_flash"].remainingPercentage, 100);
 
   // Case C: Missing remainingFraction -> defaults to 1.0
   const missingFracPayload: GeminiCliQuotaResponse = {
@@ -555,7 +553,7 @@ test("Scenario 4: Quota Payload Parsing - Adversarially Corrupted & Boundary Pay
   };
   const snapC = parseGeminiCliQuotaResponse(missingFracPayload, "PRO");
   assert.equal(snapC.models["gemini-3-flash"].remainingFraction, 1.0);
-  assert.equal(snapC.quotas["gemini-3-flash"].fractionReported, false);
+  assert.equal(snapC.quotas["gemini_cli_flash"].fractionReported, false);
 
   // Case D: Empty / malformed buckets (missing modelId or empty bucket objects)
   const malformedPayload: GeminiCliQuotaResponse = {
@@ -606,7 +604,7 @@ test("Scenario 5: Public Credentials Validation - Zero Plaintext Client IDs or S
   assert.equal(GEMINI_CLI_CONFIG.clientSecret, decodedSecret);
 
   // Error Sanitizer Security Verification (CWE-209 / ERROR_SANITIZATION.md)
-  const rawLeakError = `Error: 400 Bad Request at /home/user/projects/OmniRoute/src/secret_handler.ts:42:15
+  const rawLeakError = `Error: 400 Bad Request at /home/b3nw/projects/OmniRoute/src/secret_handler.ts:42:15
     Authorization: Bearer ya29.a0AfH6SMDxyz123456789
     Client Secret: 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
     File: C:\\Users\\Administrator\\AppData\\Local\\Temp\\debug.log`;
@@ -615,7 +613,7 @@ test("Scenario 5: Public Credentials Validation - Zero Plaintext Client IDs or S
   // Must be single line (drops stack trace)
   assert.ok(!sanitized.includes("\n"), "Must drop multiline stack traces");
   // Must replace file paths
-  assert.ok(!sanitized.includes("/home/user"), "Must strip POSIX file path");
+  assert.ok(!sanitized.includes("/home/b3nw"), "Must strip POSIX file path");
   assert.ok(!sanitized.includes("C:\\Users"), "Must strip Windows file path");
   // Must redact bearer tokens & secrets
   assert.ok(!sanitized.includes("ya29.a0AfH6SMDxyz123456789"), "Must redact OAuth token");

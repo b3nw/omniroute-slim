@@ -35,6 +35,10 @@ import {
   getStoredAntigravityProjectId,
 } from "@omniroute/open-sse/services/antigravityProjectPersistence.ts";
 import { runWithProxyContext } from "@omniroute/open-sse/utils/proxyFetch.ts";
+import {
+  GEMINI_CLI_PROVIDERS,
+  isGeminiCliProvider,
+} from "@omniroute/open-sse/services/geminiCliQuotaTier.ts";
 import { onUsageRecorded } from "./usageEvents";
 import {
   isRecord,
@@ -163,12 +167,17 @@ function hasRetrieveUserQuotaSource(
   });
 }
 
-function sanitizeProviderLimitsCacheForConnection(
+/** Providers whose cached quota keys are rewritten/filtered by quotaNormalize. */
+function isQuotaKeySanitizedProvider(provider: string | null | undefined): boolean {
+  return provider === "antigravity" || provider === "agy" || isGeminiCliProvider(provider);
+}
+
+export function sanitizeProviderLimitsCacheForConnection(
   connection: ProviderConnectionLike | null | undefined,
   entry: ProviderLimitsCacheEntry | null
 ): ProviderLimitsCacheEntry | null {
   if (!connection || !entry || !entry.quotas) return entry;
-  if (connection.provider !== "antigravity" && connection.provider !== "agy") return entry;
+  if (!isQuotaKeySanitizedProvider(connection.provider)) return entry;
 
   const sanitizedQuotas = normalizeUsageQuotasForProvider(connection.provider, entry.quotas);
   return sanitizedQuotas === entry.quotas ? entry : { ...entry, quotas: sanitizedQuotas };
@@ -179,7 +188,7 @@ function shouldRefreshProviderLimitsCache(
   cache: ProviderLimitsCacheEntry | undefined
 ): boolean {
   if (!cache?.quotas) return true;
-  if (connection.provider !== "antigravity" && connection.provider !== "agy") return false;
+  if (!isQuotaKeySanitizedProvider(connection.provider)) return false;
 
   return (
     !hasRetrieveUserQuotaSource(connection.provider, cache) ||
@@ -522,7 +531,6 @@ export function shouldClearErrorStateOnValidProbe(
  * semantics.
  */
 
-
 /**
  * Is an explicit cooldown still in the future?
  *
@@ -822,16 +830,15 @@ export async function getSanitizedCachedProviderLimitsMap(): Promise<
   const connectionIds = Object.keys(caches);
   if (connectionIds.length === 0) return {};
 
-  const sanitizableConnections = [
-    ...((await getProviderConnections({
-      isActive: true,
-      provider: "antigravity",
-    })) as unknown as ProviderConnectionLike[]),
-    ...((await getProviderConnections({
-      isActive: true,
-      provider: "agy",
-    })) as unknown as ProviderConnectionLike[]),
-  ];
+  const sanitizableConnections: ProviderConnectionLike[] = [];
+  for (const provider of ["antigravity", "agy", ...GEMINI_CLI_PROVIDERS]) {
+    sanitizableConnections.push(
+      ...((await getProviderConnections({
+        isActive: true,
+        provider,
+      })) as unknown as ProviderConnectionLike[])
+    );
+  }
   if (sanitizableConnections.length === 0) {
     // No connection can change the cache → return the raw entries unchanged.
     return { ...caches };
