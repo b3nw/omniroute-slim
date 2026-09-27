@@ -5,6 +5,11 @@ import {
   type OperatorProviderErrorRule,
 } from "@omniroute/open-sse/config/providerErrorRules.ts";
 import { isAutomatedTestProcess } from "@/shared/utils/testProcess";
+import {
+  normalizeClientVersionModes,
+  setClientVersionModes,
+  type ClientVersionModesSettings,
+} from "@/lib/client-versions/registry";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -24,7 +29,8 @@ export type RuntimeReloadSection =
   | "systemTransforms"
   | "systemPrompt"
   | "authzBypass"
-  | "bannedSignals";
+  | "bannedSignals"
+  | "clientVersionModes";
 
 export interface RuntimeReloadChange {
   section: RuntimeReloadSection;
@@ -55,6 +61,7 @@ interface RuntimeSettingsSnapshot {
   authzBypass: AuthzBypassSnapshot;
   customBannedSignals: string[];
   providerErrorRules: Record<string, OperatorProviderErrorRule[]> | null;
+  clientVersionModes: ClientVersionModesSettings;
 }
 
 // Default bypass policy: kill-switch on, `/api/mcp/` bypassable. Mirrors the
@@ -84,6 +91,7 @@ const DEFAULT_RUNTIME_SETTINGS_SNAPSHOT: RuntimeSettingsSnapshot = {
   authzBypass: DEFAULT_AUTHZ_BYPASS_SNAPSHOT,
   customBannedSignals: [],
   providerErrorRules: null,
+  clientVersionModes: normalizeClientVersionModes(null),
 };
 
 let lastAppliedSnapshot: RuntimeSettingsSnapshot | null = null;
@@ -264,7 +272,9 @@ export function buildRuntimeSettingsSnapshot(
   return {
     payloadRules: normalizePayloadRules(settings.payloadRules),
     modelAliases: normalizeStringRecord(settings.modelAliases),
-    providerAliases: normalizeStringRecord(settings.providerAliases ?? settings.providerAliasOverrides),
+    providerAliases: normalizeStringRecord(
+      settings.providerAliases ?? settings.providerAliasOverrides
+    ),
     backgroundDegradation: normalizeBackgroundDegradation(settings.backgroundDegradation),
     cliCompatProviders: normalizeStringArray(settings.cliCompatProviders),
     alwaysPreserveClientCache:
@@ -288,6 +298,7 @@ export function buildRuntimeSettingsSnapshot(
     authzBypass: normalizeAuthzBypass(settings),
     customBannedSignals: normalizeStringArray(settings.customBannedSignals),
     providerErrorRules: normalizeOperatorProviderErrorRules(settings.providerErrorRules),
+    clientVersionModes: normalizeClientVersionModes(settings.clientVersionModes),
   };
 }
 
@@ -313,9 +324,8 @@ async function applyModelAliasesSection(modelAliases: Record<string, string>) {
 }
 
 async function applyProviderAliasesSection(providerAliases: Record<string, string>) {
-  const { setProviderAliasOverrides } = await import(
-    "@omniroute/open-sse/config/providerAliasOverrides.ts"
-  );
+  const { setProviderAliasOverrides } =
+    await import("@omniroute/open-sse/config/providerAliasOverrides.ts");
   setProviderAliasOverrides(providerAliases);
 }
 
@@ -435,6 +445,14 @@ async function applySystemPromptSection(systemPrompt: unknown) {
   }
 }
 
+async function applyClientVersionModesSection(clientVersionModes: ClientVersionModesSettings) {
+  setClientVersionModes(clientVersionModes);
+  // Only automatic mode ever reaches the network; with every product off the
+  // scheduler is stopped (or never started).
+  const { syncClientVersionScheduler } = await import("@/lib/client-versions/service");
+  syncClientVersionScheduler(clientVersionModes);
+}
+
 async function applyModelsDevSyncSection(
   previousSnapshot: RuntimeSettingsSnapshot,
   currentSnapshot: RuntimeSettingsSnapshot,
@@ -456,8 +474,7 @@ async function applyModelsDevSyncSection(
   }
 
   const wasEnabled = previousSnapshot.modelsDevSyncEnabled === true;
-  const isEnabled =
-    isModelsDevSyncEnvForcedOn() || currentSnapshot.modelsDevSyncEnabled === true;
+  const isEnabled = isModelsDevSyncEnvForcedOn() || currentSnapshot.modelsDevSyncEnabled === true;
   const intervalChanged =
     previousSnapshot.modelsDevSyncInterval !== currentSnapshot.modelsDevSyncInterval;
 
@@ -621,6 +638,14 @@ export async function applyRuntimeSettings(
     hasChanged(currentSnapshot.providerErrorRules, previousSnapshot.providerErrorRules)
   ) {
     setOperatorProviderErrorRules(currentSnapshot.providerErrorRules ?? undefined);
+  }
+
+  if (
+    force ||
+    hasChanged(currentSnapshot.clientVersionModes, previousSnapshot.clientVersionModes)
+  ) {
+    await applyClientVersionModesSection(currentSnapshot.clientVersionModes);
+    markChanged("clientVersionModes");
   }
 
   lastAppliedSnapshot = currentSnapshot;
