@@ -16,7 +16,7 @@ OmniRoute-Slim initial public release. A focused, lightweight distribution of Om
 - **Antigravity & Provider Family Quota Cutoffs**:
   - Enforced scope-aware quota cutoffs in the preflight evaluator (`quotaCutoffScope.ts`), preventing retry thrashing when model tiers are exhausted.
 - **Client Version Gating Overrides**:
-  - Added `CLAUDE_CODE_CLIENT_VERSION` and `GITHUB_COPILOT_CLI_VERSION` environment variable overrides to seamlessly adapt to upstream version gates.
+  - Added `CLAUDE_CODE_CLIENT_VERSION` (alongside `CODEX_CLIENT_VERSION`) environment variable overrides to seamlessly adapt to upstream Anthropic and OpenAI client-version gates without requiring proxy rebuilds.
 - **SSE Streaming & Pipeline Reliability**:
   - Fixed pending request leaks on SSE stream `flush()` errors.
   - Guarded against null chunks in translator streams and resolved an audit context error on authentication failure.
