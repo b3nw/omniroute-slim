@@ -14,14 +14,7 @@ import { PROVIDERS } from "../../config/constants.ts";
 import {
   ANTIGRAVITY_BOOTSTRAP_BASE_URLS,
   ANTIGRAVITY_RUNTIME_BASE_URLS,
-  getAntigravityFetchAvailableModelsUrls,
 } from "../../config/antigravityUpstream.ts";
-import {
-  isDiscoverableAntigravityModelId,
-  toClientAntigravityQuotaModelId,
-} from "../../config/antigravityModelAliases.ts";
-import { isUserCallableAgyModelId } from "../../config/agyModels.ts";
-import { getDbInstance } from "@/lib/db/core";
 import {
   applyAntigravityClientProfileHeaders,
   getAntigravityClientProfile,
@@ -42,7 +35,7 @@ import {
   extractCodeAssistSubscriptionTier,
 } from "../codeAssistSubscription.ts";
 import { toRecord, toNumber, getFieldValue } from "./scalars.ts";
-import { type UsageQuota, parseResetTime } from "./quota.ts";
+import { parseResetTime } from "./quota.ts";
 import { fetchAndParseAntigravityWeeklyQuotas } from "./antigravityWeeklyQuota.ts";
 import { getAntigravityQuotaFamily } from "../antigravityQuotaFamily.ts";
 
@@ -420,7 +413,7 @@ async function probeAntigravityCreditBalanceUncached(
  * models that have no retrieveUserQuota entry (for example Claude/GPT OSS buckets).
  */
 export async function getAntigravityUsage(
-  provider: "antigravity" | "agy",
+  _provider: "antigravity" | "agy",
   accessToken?: string,
   providerSpecificData?: JsonRecord,
   connectionProjectId?: string,

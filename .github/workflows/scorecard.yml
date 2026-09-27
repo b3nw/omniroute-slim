@@ -12,6 +12,7 @@ jobs:
   analysis:
     name: Scorecard analysis
     runs-on: ubuntu-latest
+    if: ${{ !github.event.repository.private }}
     permissions:
       # security-events: write removed — Scorecard findings are advisory and no longer
       # uploaded to the code-scanning Security tab (they are supply-chain/posture scores,
