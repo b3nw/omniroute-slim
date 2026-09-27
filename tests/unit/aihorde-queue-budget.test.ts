@@ -76,7 +76,7 @@ test("refuses immediately when the queue cannot fit the remaining budget", async
     provider: "aihorde",
     body: { model: "aihorde/Deliberate", prompt: "hello world" },
     credentials: { apiKey: "horde-key" },
-    timeoutMs: 600_000,
+    timeoutMs: 5_000,
   });
 
   assert.equal(result.success, false);

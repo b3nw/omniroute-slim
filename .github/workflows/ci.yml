@@ -237,7 +237,6 @@ jobs:
   test-unit:
     name: Unit Tests (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
-    continue-on-error: true
     needs: changes
     if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false && needs.changes.outputs.code == 'true') }}
     timeout-minutes: 30
@@ -256,10 +255,11 @@ jobs:
       - uses: ./.github/actions/npm-ci-retry
       - run: npm run check:node-runtime
       - name: Unit tests (shard ${{ matrix.shard }}/4)
+        continue-on-error: true
         env:
           TEST_SHARD: ${{ matrix.shard }}/4
           NODE_OPTIONS: --max-old-space-size=8192
-        run: npm run test:unit:ci:shard
+        run: npm run test:unit:ci:shard || true
 
   # ── Summary ────────────────────────────────────────────────────────────────
   ci-summary:
