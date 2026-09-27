@@ -66,7 +66,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install schemathesis
-      - name: Schemathesis smoke (high-risk endpoints, blocking)
+      - name: Schemathesis smoke (high-risk endpoints)
         run: |
           # /api/auth/oidc/* is a BROWSER redirect flow (302 to the IdP, 302 back to
           # /login?oidc_error=... on every failure), not a REST endpoint: Schemathesis reads
@@ -82,7 +82,7 @@ jobs:
             --request-timeout 20 --suppress-health-check all --no-color
       - name: Install promptfoo
         run: npm install -g promptfoo@0.122.0
-      - name: promptfoo injection-guard (blocking)
+      - name: promptfoo injection-guard
         env:
           OMNIROUTE_URL: http://localhost:20128
           OMNIROUTE_API_KEY: not-needed-blocked-before-upstream

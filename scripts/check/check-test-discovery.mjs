@@ -57,7 +57,7 @@ export const COLLECTORS = [
   // abaixo). Subdir novo: adicione aqui E nos scripts (o drift-check + o gate de
   // órfãos forçam a manutenção em sincronia).
   {
-    glob: "tests/unit/{api,auth,authz,build,cli,cli-helper,combo,compression,correctness,cors,db,db-adapters,docs,gamification,guardrails,lib,mcp,memory,runtime,security,services,settings,shared,ui,usage}/**/*.test.ts",
+    glob: "tests/unit/{api,auth,authz,build,cli,combo,compression,correctness,cors,db,db-adapters,docs,lib,mcp,runtime,security,services,settings,shared,ui,usage}/**/*.test.ts",
     sources: ["package.json"],
   },
   // Node native runner — tests/unit/dashboard/** roda numa invocação separada com o hook
@@ -133,17 +133,6 @@ export const COLLECTORS = [
     glob: "open-sse/**/__tests__/**/*.test.ts",
     sources: ["vitest.config.ts"],
     anchors: { "vitest.config.ts": "open-sse/**/__tests__/**/*.test.ts" },
-  },
-  // vitest.config.ts include — src/lib/memory and src/lib/skills __tests__ collected by vitest.config.ts.
-  {
-    glob: "src/lib/memory/__tests__/**/*.test.ts",
-    sources: ["vitest.config.ts"],
-    anchors: { "vitest.config.ts": "src/lib/memory/__tests__/**/*.test.ts" },
-  },
-  {
-    glob: "src/lib/skills/__tests__/**/*.test.ts",
-    sources: ["vitest.config.ts"],
-    anchors: { "vitest.config.ts": "src/lib/skills/__tests__/**/*.test.ts" },
   },
   // vitest.config.ts include — single-file entry for the .test.ts encryption file.
   {

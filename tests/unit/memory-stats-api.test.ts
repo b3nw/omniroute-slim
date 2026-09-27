@@ -1,14 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-// We import the pure function directly from the source module.
-// estimateTokens lives in src/lib/memory/retrieval.ts but the module
-// has heavy DB dependencies at the top level.  We replicate the pure
-// function here to test the exact algorithm used by the route handler.
+// estimateTokens was originally defined in the memory/RAG retrieval module,
+// which has since been excised from this fork. We keep a standalone replica
+// here so this test doesn't depend on that (now-deleted) DB/SQLite module.
 
 /**
- * Exact replica of estimateTokens from src/lib/memory/retrieval.ts:34-37
- * so the test does not pull in the full DB/SQLite dependency graph.
+ * Replica of the estimateTokens algorithm used by the memory stats route
+ * handler, kept dependency-free (no DB/SQLite imports).
  */
 function estimateTokens(text: string): number {
   if (!text || typeof text !== "string") return 0;

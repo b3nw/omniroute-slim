@@ -167,6 +167,8 @@ jobs:
       # pre-existing errors; only NEW errors fail it.
       - name: Dashboard typecheck (baseline ratchet)
         run: npm run check:dashboard-typecheck
+      - name: API route typecheck (baseline ratchet)
+        run: node scripts/check/check-api-typecheck.mjs
 
   # ── 3. Security & SSRF ─────────────────────────────────────────────────────
   security:
@@ -226,14 +228,13 @@ jobs:
       #   - run: npm run check:api-docs-refs
 
   # ── 5. Unit tests ──────────────────────────────────────────────────────────
-  # ADVISORY, not blocking (repo convention: advisory -> blocking). The unit
-  # suite is red on the pre-existing tree — 38 test files fail in shard 1/4
-  # alone. A large share are leftovers that still assert on subsystems this fork
-  # excised (mitm-passthrough-*, docs/skillManifestsLint, v388-phase3-memory,
-  # router-eval-search) or on parent-repo workflows that do not exist here
-  # (nightly-compat-node26-webpack-8090, npm-publish-artifact-provenance,
-  # vps-runner-variable-scope). Delete or port those, get the suite green, then
-  # remove continue-on-error so a real regression is a red.
+  # ADVISORY, not blocking (repo convention: advisory -> blocking). The 22
+  # known orphaned files that used to fail here (mitm-passthrough-*,
+  # docs/skillManifestsLint, v388-phase3-memory, router-eval-*, and several
+  # asserting on parent-repo-only workflows) were deleted in the CI trim pass.
+  # A full unsharded run still hasn't been done to confirm the remaining
+  # ~4,500 files are clean — do that, then remove continue-on-error so a real
+  # regression is a red.
   test-unit:
     name: Unit Tests (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest

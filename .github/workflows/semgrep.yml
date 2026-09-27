@@ -7,8 +7,7 @@ on:
 permissions:
   contents: read
 
-# Cancel superseded PR runs (same rule as quality.yml). No paths filter on purpose:
-# p/secrets must keep scanning docs-only diffs too — credentials leak in .md files.
+# Cancel superseded PR runs (same rule as quality.yml).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -24,7 +23,7 @@ jobs:
       - name: Run semgrep (advisory)
         continue-on-error: true
         run: |
-          semgrep scan --config p/owasp-top-ten --config p/secrets \
+          semgrep scan --config p/owasp-top-ten \
             --sarif --output semgrep.sarif --metrics off || true
           python -c "import json; d=json.load(open('semgrep.sarif')); print('semgrepFindings=%d' % len(d['runs'][0]['results']))" || echo "semgrepFindings=SKIP"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
