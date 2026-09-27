@@ -250,8 +250,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Artifact attestations are only available on public repos for GitHub
+      # Free/Pro/Team. User-owned private repos fail with:
+      #   Failed to persist attestation: Feature not available for user-owned
+      #   private repositories.
+      # Skip here so a successful GHCR push is not marked failed. The step
+      # re-enables automatically if the repository is made public.
+      # https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds
       - name: Attest build provenance
-        if: ${{ steps.cfg.outputs.push == 'true' }}
+        if: ${{ steps.cfg.outputs.push == 'true' && !github.event.repository.private }}
         uses: actions/attest-build-provenance@v2
         with:
           subject-name: ${{ env.REGISTRY }}/${{ steps.cfg.outputs.image_name }}
