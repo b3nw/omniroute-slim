@@ -4,11 +4,27 @@ All notable changes to OmniRoute-Slim are documented here.
 
 ## [Unreleased]
 
-- Excised dangling guardrails, purged dead UI routes, and aligned test globs (Phase 1-3).
+## [3.9.0] — 2026-09-27
 
-## [3.9.0] — TBD
+OmniRoute-Slim initial public release. A focused, lightweight distribution of OmniRoute preserving core proxy, routing, combo, quota, and compression engines while streamlining peripheral subsystems.
 
-_Living section — next-minor cycle opened at the v3.8.51 freeze. Bullets are aggregated from `changelog.d/` fragments at each `/generate-release` phase._
+### Features & Improvements
+- **Gemini CLI / Code Assist Revival**:
+  - Bumped client User-Agent to `0.61.0`.
+  - Added automatic 429 capacity exhaustion fallback routing to handle Google Cloud resource limits gracefully.
+  - Implemented model tier quota grouping and cache isolation (`geminiCliQuotaTier.ts`) across Flash, Pro, and Experimental tiers.
+- **Antigravity & Provider Family Quota Cutoffs**:
+  - Enforced scope-aware quota cutoffs in the preflight evaluator (`quotaCutoffScope.ts`), preventing retry thrashing when model tiers are exhausted.
+- **Client Version Gating Overrides**:
+  - Added `CLAUDE_CODE_CLIENT_VERSION` and `GITHUB_COPILOT_CLI_VERSION` environment variable overrides to seamlessly adapt to upstream version gates.
+- **SSE Streaming & Pipeline Reliability**:
+  - Fixed pending request leaks on SSE stream `flush()` errors.
+  - Guarded against null chunks in translator streams and resolved an audit context error on authentication failure.
+- **Localization**:
+  - Retained clean Tier 1 localizations (EN, ES, FR, DE, JA, ZH) for retained proxy features while pruning dead strings from excised modules.
+- **CI/CD & Packaging**:
+  - Multi-arch Docker publishing pipeline (`linux/amd64`, `linux/arm64`) to GitHub Container Registry (`ghcr.io/b3nw/omniroute-slim`).
+  - Swapped out heavy upstream CI steps for fast, public GitHub Actions workflows.
 
 ## [3.8.51] — 2026-09-07
 
