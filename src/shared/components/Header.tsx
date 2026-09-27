@@ -11,6 +11,7 @@ const getPlatformIsMac = () => {
 };
 const getPlatformIsMacServer = () => false;
 import ThemeToggle from "./ThemeToggle";
+import LanguageSelector from "./LanguageSelector";
 import TokenHealthBadge from "./TokenHealthBadge";
 import DegradationBadge from "./DegradationBadge";
 import ProviderIcon from "./ProviderIcon";
@@ -259,6 +260,7 @@ export default function Header({
             </button>
           </>
         )}
+        <LanguageSelector />
         <ThemeToggle />
         {!isE2EMode && <DegradationBadge />}
         {!isE2EMode && <TokenHealthBadge />}

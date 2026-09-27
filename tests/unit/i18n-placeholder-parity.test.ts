@@ -59,13 +59,11 @@ const shipped = readdirSync(messagesDir)
   .sort();
 const locales = shipped.filter((locale) => locale !== "en").map((locale) => `${locale}.json`);
 
-test("the runtime ships exactly one message catalog: en", () => {
-  // Without this, the sweep below is vacuous by construction: `locales` is
-  // empty on an English-only tree, so the drift loop never executes and the
-  // suite would go green even if en.json itself were emptied. Pin the shipped
-  // set explicitly — adding a catalog must be a deliberate, visible change
-  // that re-arms the parity sweep rather than silently widening it.
-  assert.deepEqual(shipped, ["en"]);
+test("the runtime ships exactly the Tier 1 message catalogs", () => {
+  // Pin the shipped set explicitly — adding or dropping a catalog must be a
+  // deliberate, visible change rather than silently widening or emptying the
+  // parity sweep below.
+  assert.deepEqual(shipped, ["de", "en", "es", "fr", "ja", "pt-BR", "zh-CN"]);
 });
 
 test("every locale keeps the placeholders its English source defines", () => {

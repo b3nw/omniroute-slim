@@ -2,8 +2,8 @@
   "$schema": "./i18n-schema.json",
   "default": "en",
   "rtl": [],
-  "uiOnly": ["en"],
-  "docsExcluded": ["en"],
+  "uiOnly": ["en", "zh-CN", "es", "ja", "de", "fr", "pt-BR"],
+  "docsExcluded": ["en", "zh-CN", "es", "ja", "de", "fr", "pt-BR"],
   "locales": [
     {
       "code": "en",
@@ -12,6 +12,54 @@
       "native": "English",
       "english": "English",
       "flag": "🇺🇸"
+    },
+    {
+      "code": "zh-CN",
+      "label": "ZH-CN",
+      "name": "中文 (简体)",
+      "native": "中文 (简体)",
+      "english": "Chinese (Simplified)",
+      "flag": "🇨🇳"
+    },
+    {
+      "code": "es",
+      "label": "ES",
+      "name": "Español",
+      "native": "Español",
+      "english": "Spanish",
+      "flag": "🇪🇸"
+    },
+    {
+      "code": "ja",
+      "label": "JA",
+      "name": "日本語",
+      "native": "日本語",
+      "english": "Japanese",
+      "flag": "🇯🇵"
+    },
+    {
+      "code": "de",
+      "label": "DE",
+      "name": "Deutsch",
+      "native": "Deutsch",
+      "english": "German",
+      "flag": "🇩🇪"
+    },
+    {
+      "code": "fr",
+      "label": "FR",
+      "name": "Français",
+      "native": "Français",
+      "english": "French",
+      "flag": "🇫🇷"
+    },
+    {
+      "code": "pt-BR",
+      "label": "PT-BR",
+      "name": "Português (Brasil)",
+      "native": "Português (Brasil)",
+      "english": "Portuguese (Brazil)",
+      "flag": "🇧🇷"
     }
   ]
 }
