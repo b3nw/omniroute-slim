@@ -253,7 +253,7 @@ jobs:
       - name: Attest build provenance
         if: ${{ !github.event.repository.private && steps.cfg.outputs.push == 'true' }}
         continue-on-error: true
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.REGISTRY }}/${{ steps.cfg.outputs.image_name }}
           subject-digest: ${{ steps.build.outputs.digest }}
