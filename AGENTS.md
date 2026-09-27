@@ -13,7 +13,7 @@
 1. **Never Re-introduce Excluded Subsystems**: Do not add back MITM root CA interception, multi-agent frameworks (A2A/Conductor/ACP), vector memory stores, or gamification.
 2. **Preserve Upstream Proxying & TLS Emulation**: Upstream forward proxies (HTTP, HTTPS, SOCKS5 with remote DNS), proxy pools, and TLS JA3/JA4 fingerprinting in `proxyFetch.ts` are core features.
 3. **Preserve Quota & Credential Health Systems**: Quota pools, spend limits, Antigravity dual-quota tracking, single-flight OAuth locks, and credential health probing are core features.
-4. **English-Only Localization**: Keep runtime strings in English; do not re-import non-English locale dictionaries.
+4. **Tier 1 Localization**: Maintain the streamlined Tier 1 localization runtime (English default + German, Spanish, French, Japanese, Brazilian Portuguese, and Simplified Chinese) strictly aligned to retained features; do not re-import unpruned or non-Tier-1 locale bundles.
 
 ---
 

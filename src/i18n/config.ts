@@ -1,6 +1,6 @@
 // SOURCE OF TRUTH: `config/i18n.json`. Keep this file as a thin typed adapter —
-// do NOT add hand-maintained locale lists here. The runtime is English-only, so
-// that JSON ships a single locale (`en`).
+// do NOT add hand-maintained locale lists here. The runtime ships the Tier 1
+// locales (en default + zh-CN, es, ja, de, fr, pt-BR).
 
 import i18nConfig from "../../config/i18n.json" with { type: "json" };
 

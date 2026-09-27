@@ -43,25 +43,43 @@ function collectPlaceholderLeaves(node: unknown, pathPrefix: string, out: string
 }
 
 // ---------------------------------------------------------------------------
-// 2. General regression: the shipped catalog carries no raw __MISSING__: leaf.
+// General regression: no shipped catalog carries a raw __MISSING__: leaf.
 // ---------------------------------------------------------------------------
 
-test("#7258: the shipped EN catalog has no raw __MISSING__: leaf", () => {
-  // The runtime is English-only, so there is no locale⟵EN merge left to check.
-  // What survives is the invariant that actually reaches the user: the shipped
-  // catalog must never render a raw sync-script sentinel.
-  const shipped = readdirSync(messagesDir)
-    .filter((f) => f.endsWith(".json"))
-    .map((f) => f.replace(/\.json$/, ""));
+const SHIPPED = readdirSync(messagesDir)
+  .filter((f) => f.endsWith(".json"))
+  .map((f) => f.replace(/\.json$/, ""))
+  .sort();
 
-  assert.deepEqual(shipped, ["en"], "expected an English-only message catalog");
+test("#7258: the Tier 1 catalogs are all shipped", () => {
+  assert.deepEqual(SHIPPED, ["de", "en", "es", "fr", "ja", "pt-BR", "zh-CN"]);
+});
 
-  const leaves: string[] = [];
-  collectPlaceholderLeaves(loadLocale("en"), "", leaves);
+for (const locale of SHIPPED) {
+  test(`#7258: ${locale}.json has no raw __MISSING__: leaf`, () => {
+    const leaves: string[] = [];
+    collectPlaceholderLeaves(loadLocale(locale), "", leaves);
 
-  assert.deepEqual(
-    leaves,
-    [],
-    `expected zero __MISSING__: leaves in en.json, found: ${JSON.stringify(leaves)}`
+    assert.deepEqual(
+      leaves,
+      [],
+      `expected zero __MISSING__: leaves in ${locale}.json, found: ${JSON.stringify(leaves)}`
+    );
+  });
+}
+
+// ---------------------------------------------------------------------------
+// deepMergeFallback treats a sentinel as absent so the English value wins.
+// ---------------------------------------------------------------------------
+
+test("#7258: deepMergeFallback replaces __MISSING__: sentinels and absent keys with EN", async () => {
+  const { deepMergeFallback } = await import("../../src/i18n/request.ts");
+  const merged = deepMergeFallback(
+    { a: { kept: "Traduit", stale: `${PLACEHOLDER_PREFIX}Stale` } },
+    { a: { kept: "Kept", stale: "Stale", added: "Added" }, b: "Top" }
   );
+  assert.deepEqual(merged, {
+    a: { kept: "Traduit", stale: "Stale", added: "Added" },
+    b: "Top",
+  });
 });

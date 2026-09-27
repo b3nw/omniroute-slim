@@ -177,7 +177,7 @@ Mermaid sources and exported SVG/PNG diagrams referenced from the docs above. Se
 
 ## i18n/
 
-Translated mirrors of the documentation in 43 locales. See [i18n/README.md](i18n/README.md) for the supported language list.
+Tier 1 localization for the UI dashboard supports 7 locales (English default, German, Spanish, French, Japanese, Brazilian Portuguese, and Simplified Chinese) defined in `config/i18n.json`.
 
 ## screenshots/
 

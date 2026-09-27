@@ -1,6 +1,52 @@
 import { getRequestConfig } from "next-intl/server";
-import { DEFAULT_LOCALE } from "./config";
+import { cookies, headers } from "next/headers";
+import { DEFAULT_LOCALE, LOCALES, LOCALE_COOKIE } from "./config";
+import type { Locale } from "./config";
 import enMessages from "./messages/en.json" with { type: "json" };
+
+/**
+ * Sentinel prefix written by `scripts/i18n/sync-ui-keys.mjs` when backfilling a
+ * locale file with an untranslated key: `__MISSING__:<english value>`.
+ */
+export const PLACEHOLDER_PREFIX = "__MISSING__:";
+
+function isUntranslatedPlaceholder(value: unknown): boolean {
+  return typeof value === "string" && value.startsWith(PLACEHOLDER_PREFIX);
+}
+
+/**
+ * Deep merge that mutates `target` with values from `source`.
+ * If both have an object at the same key, recurse.
+ * Otherwise prefer the existing value in `target` (locale-specific wins) —
+ * unless the target value is an untranslated `__MISSING__:` sentinel, in
+ * which case it is treated as absent so the clean English value wins (#7258).
+ */
+export function deepMergeFallback(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>
+): Record<string, unknown> {
+  for (const [key, sourceValue] of Object.entries(source)) {
+    // Guard against prototype pollution from a crafted locale message tree.
+    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+    const targetValue = target[key];
+    if (
+      sourceValue !== null &&
+      typeof sourceValue === "object" &&
+      !Array.isArray(sourceValue) &&
+      targetValue !== null &&
+      typeof targetValue === "object" &&
+      !Array.isArray(targetValue)
+    ) {
+      deepMergeFallback(
+        targetValue as Record<string, unknown>,
+        sourceValue as Record<string, unknown>
+      );
+    } else if (targetValue === undefined || isUntranslatedPlaceholder(targetValue)) {
+      target[key] = sourceValue;
+    }
+  }
+  return target;
+}
 
 function setNestedValue(target: Record<string, unknown>, dottedKey: string, value: unknown): void {
   const segments = dottedKey.split(".");
@@ -83,11 +129,43 @@ export function normalizeComplianceEventTypes(
 const NORMALIZED_EN_MESSAGES = normalizeComplianceEventTypes(enMessages as Record<string, unknown>);
 
 /**
- * English-only runtime: `config/i18n.json` ships a single locale, so there is
- * no cookie/header negotiation and no cross-locale fallback merge left to do —
- * every request resolves to `en` and serves `./messages/en.json` directly.
+ * Resolved (normalized + EN-merged) catalogs keyed by locale. Each catalog is
+ * built on first use and reused for the lifetime of the process, so the
+ * import/normalize/merge work is not repeated on every request.
  */
-export default getRequestConfig(async () => ({
-  locale: DEFAULT_LOCALE,
-  messages: NORMALIZED_EN_MESSAGES,
-}));
+const messagesCache = new Map<string, Record<string, unknown>>([
+  [DEFAULT_LOCALE, NORMALIZED_EN_MESSAGES],
+]);
+
+async function loadMessages(locale: Locale): Promise<Record<string, unknown>> {
+  const cached = messagesCache.get(locale);
+  if (cached) return cached;
+
+  // Clone before merging: `deepMergeFallback` mutates its target, and the
+  // imported JSON module object must stay pristine.
+  const imported = (await import(`./messages/${locale}.json`)).default;
+  const localeMessages = normalizeComplianceEventTypes(
+    structuredClone(imported) as Record<string, unknown>
+  );
+  const messages = deepMergeFallback(localeMessages, NORMALIZED_EN_MESSAGES);
+  messagesCache.set(locale, messages);
+  return messages;
+}
+
+async function resolveLocale(): Promise<Locale> {
+  const cookieStore = await cookies();
+  let locale = cookieStore.get(LOCALE_COOKIE)?.value || "";
+  if (!locale) {
+    const headerStore = await headers();
+    locale = headerStore.get("x-locale") || "";
+  }
+  return LOCALES.includes(locale) ? locale : DEFAULT_LOCALE;
+}
+
+export default getRequestConfig(async () => {
+  const locale = await resolveLocale();
+  return {
+    locale,
+    messages: await loadMessages(locale),
+  };
+});
