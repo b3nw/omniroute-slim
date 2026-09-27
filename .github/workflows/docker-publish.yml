@@ -58,20 +58,38 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      # Free up runner disk space before building. GitHub-hosted runners have
+      # ~35 GB of preinstalled SDKs/tools (.NET, Android, Haskell, CodeQL) taking
+      # up space on the root volume, leaving only ~14 GB free. Clearing those
+      # gives 40+ GB of headroom for multi-stage Docker builds and layers.
+      - name: Free runner disk space
+        run: |
+          set -eux
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/share/swift
+          sudo docker image prune --all --force || true
+          df -h
+
       # `next build` is the memory-hungry step. The hosted runner has ~16 GB of
-      # RAM but only ~4 GB of swap; a single-worker webpack build plus extra swap
-      # is what reliably fits. See the build args passed to buildx below.
-      - name: Expand swap for the Next.js build
+      # RAM; allocating 4 GB of swap on the freed root volume gives 20 GB of total
+      # virtual memory headroom without exhausting the root disk.
+      - name: Expand virtual memory (4 GB Swap)
         run: |
           set -eux
           sudo swapoff -a || true
           sudo rm -f /mnt/swapfile /swapfile
-          sudo fallocate -l 10G /mnt/swapfile || \
-            sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=10240
-          sudo chmod 600 /mnt/swapfile
-          sudo mkswap /mnt/swapfile
-          sudo swapon /mnt/swapfile
+          sudo fallocate -l 4G /swapfile || \
+            sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
           free -h
+          df -h
 
       - name: Resolve build configuration
         id: cfg

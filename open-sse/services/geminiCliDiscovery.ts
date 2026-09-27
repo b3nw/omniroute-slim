@@ -402,7 +402,7 @@ export async function tryOnboardUser(
         }
         return { projectId: effectiveProjectId, tierId };
       }
-    } catch (err) {
+    } catch {
       if (signal?.aborted) throw signal.reason;
       // Transient error, wait and retry
     }

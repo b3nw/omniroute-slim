@@ -336,8 +336,8 @@ export class GeminiCliExecutor extends BaseExecutor {
   }
 
   override buildUrl(
-    model: string,
-    stream: boolean,
+    _model: string,
+    _stream: boolean,
     urlIndex = 0,
     credentials: ProviderCredentials | null = null
   ): string {
@@ -354,8 +354,8 @@ export class GeminiCliExecutor extends BaseExecutor {
 
   override buildHeaders(
     credentials: ProviderCredentials,
-    stream = true,
-    clientHeaders?: Record<string, string> | null,
+    _stream = true,
+    _clientHeaders?: Record<string, string> | null,
     model?: string
   ): Record<string, string> {
     const accessToken = credentials.accessToken || credentials.apiKey || "";
@@ -364,9 +364,9 @@ export class GeminiCliExecutor extends BaseExecutor {
   }
 
   override async transformRequest(
-    model: string,
+    _model: string,
     body: unknown,
-    stream: boolean,
+    _stream: boolean,
     credentials: ProviderCredentials
   ): Promise<unknown> {
     const projectId =
@@ -496,7 +496,9 @@ export class GeminiCliExecutor extends BaseExecutor {
     const accessToken = activeCredentials.accessToken || activeCredentials.apiKey || "";
     const projectId =
       sanitizeGeminiCliProjectId(activeCredentials.projectId) ??
-      sanitizeGeminiCliProjectId(activeCredentials.providerSpecificData?.projectId as string | undefined);
+      sanitizeGeminiCliProjectId(
+        activeCredentials.providerSpecificData?.projectId as string | undefined
+      );
     const tier = (activeCredentials.providerSpecificData?.tier as string | undefined) || "FREE";
 
     let wireModel = mapModelToGeminiCliWire(model);
