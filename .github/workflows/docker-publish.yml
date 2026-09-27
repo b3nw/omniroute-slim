@@ -251,7 +251,8 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Attest build provenance
-        if: ${{ steps.cfg.outputs.push == 'true' }}
+        if: ${{ !github.event.repository.private && steps.cfg.outputs.push == 'true' }}
+        continue-on-error: true
         uses: actions/attest-build-provenance@v2
         with:
           subject-name: ${{ env.REGISTRY }}/${{ steps.cfg.outputs.image_name }}
