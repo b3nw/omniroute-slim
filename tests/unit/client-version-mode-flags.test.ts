@@ -1192,3 +1192,45 @@ test("a stale reload finishing late does not become the baseline that skips a ne
   assert.equal(registry.getActiveClientVersion("claude-code"), "1.0.0");
   service.stopClientVersionScheduler();
 });
+
+test("an unchanged newer reload still advances the registry past a paused older one", async () => {
+  const base = await settingsDb.getSettings();
+  const off = registry.createDefaultClientVersionModes();
+  const manual = {
+    ...registry.createDefaultClientVersionModes(),
+    "claude-code": { mode: "manual" as const, manualVersion: "1.0.0" },
+  };
+  const apply = (modes: unknown, revision: number, force = false) =>
+    runtimeSettings.applyRuntimeSettings(
+      { ...base, clientVersionModes: modes },
+      { force, source: `rev-${revision}`, revision }
+    );
+
+  runtimeSettings.resetRuntimeSettingsStateForTests();
+  await apply(off, 399);
+  assert.equal(registry.getClientVersionRegistryRevision(), 399);
+
+  // N (manual) is forced, so it pauses on earlier sections' imports before
+  // reaching the client-version section. N+1 switches back to "off", which
+  // matches the baseline snapshot, and finishes while N is still paused.
+  let staleSettled = false;
+  const stale = apply(manual, 400, true).then(() => {
+    staleSettled = true;
+  });
+  const changes = await apply(off, 401);
+  assert.equal(staleSettled, false, "N+1 must finish while N is still paused");
+  assert.ok(!changes.some((change) => change.section === "clientVersionModes"));
+  assert.equal(registry.getClientVersionRegistryRevision(), 401);
+
+  // N resumes: the registry is already at N+1, so its manual modes are dropped.
+  await stale;
+  assert.equal(registry.getClientVersionRegistryRevision(), 401);
+  assert.equal(registry.getActiveClientVersion("claude-code"), null);
+  assert.equal(service.isClientVersionSchedulerRunning(), false);
+
+  // N+2 re-enabling the manual version still diffs against N+1's snapshot.
+  const reapplied = await apply(manual, 402);
+  assert.ok(reapplied.some((change) => change.section === "clientVersionModes"));
+  assert.equal(registry.getActiveClientVersion("claude-code"), "1.0.0");
+  service.stopClientVersionScheduler();
+});

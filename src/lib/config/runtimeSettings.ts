@@ -664,6 +664,13 @@ export async function applyRuntimeSettings(
   ) {
     await applyClientVersionModesSection(currentSnapshot.clientVersionModes, revision);
     markChanged("clientVersionModes");
+  } else if (revision !== undefined) {
+    // Unchanged modes still advance the registry to this revision: an older
+    // reload paused before its client-version section would otherwise pass the
+    // registry's revision check on resume and install its outdated modes. The
+    // scheduler needs no resync — it already reflects the unchanged baseline,
+    // and the paused reload skips its sync once the registry has moved past it.
+    setClientVersionModes(currentSnapshot.clientVersionModes, { revision });
   }
 
   // A newer reload may have finished while this one awaited a section; keep its
