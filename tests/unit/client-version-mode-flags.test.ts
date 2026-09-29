@@ -1120,3 +1120,36 @@ test("card merges only the affected product from a PATCH/check response", () => 
   assert.equal(drafts.values["claude-code"], "2.1.300");
   assert.equal(drafts.values.codex, "0.160.0");
 });
+
+test("a stale reload paused at the scheduler import cannot resync over a newer reload", async () => {
+  const base = await settingsDb.getSettings();
+  const automatic = {
+    ...registry.createDefaultClientVersionModes(),
+    "claude-code": { mode: "automatic" as const },
+  };
+  const off = registry.createDefaultClientVersionModes();
+
+  // Revision N applies its registry update, then pauses at the scheduler-service
+  // import; revision N+1 applies and syncs fully in that window.
+  async function interleave(staleModes: unknown, newerModes: unknown, revision: number) {
+    const stale = runtimeSettings.applyRuntimeSettings(
+      { ...base, clientVersionModes: staleModes },
+      { force: true, source: "stale", revision }
+    );
+    while (registry.getClientVersionRegistryRevision() !== revision) {
+      await Promise.resolve();
+    }
+    assert.equal(registry.setClientVersionModes(newerModes, { revision: revision + 1 }), true);
+    service.syncClientVersionScheduler(newerModes);
+    await stale;
+  }
+
+  // Stale "automatic" must not start the scheduler the newer "off" stopped.
+  await interleave(automatic, off, 100);
+  assert.equal(service.isClientVersionSchedulerRunning(), false);
+
+  // Stale "off" must not stop the scheduler the newer "automatic" started.
+  await interleave(off, automatic, 200);
+  assert.equal(service.isClientVersionSchedulerRunning(), true);
+  service.stopClientVersionScheduler();
+});

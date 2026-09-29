@@ -8,6 +8,7 @@ import { isAutomatedTestProcess } from "@/shared/utils/testProcess";
 import { readSettingsRevisionTag } from "@/lib/db/settingsRevisionTag";
 import {
   normalizeClientVersionModes,
+  getClientVersionRegistryRevision,
   setClientVersionModes,
   type ClientVersionModesSettings,
 } from "@/lib/client-versions/registry";
@@ -456,6 +457,10 @@ async function applyClientVersionModesSection(
   // Only automatic mode ever reaches the network; with every product off the
   // scheduler is stopped (or never started).
   const { syncClientVersionScheduler } = await import("@/lib/client-versions/service");
+  // A newer reload may have applied (and synced the scheduler) while this one
+  // awaited the import; its modes win, so don't resync from ours.
+  const currentRevision = getClientVersionRegistryRevision();
+  if (currentRevision !== null && (revision === undefined || currentRevision > revision)) return;
   syncClientVersionScheduler(clientVersionModes);
 }
 
