@@ -445,8 +445,13 @@ async function applySystemPromptSection(systemPrompt: unknown) {
   }
 }
 
-async function applyClientVersionModesSection(clientVersionModes: ClientVersionModesSettings) {
-  setClientVersionModes(clientVersionModes);
+async function applyClientVersionModesSection(
+  clientVersionModes: ClientVersionModesSettings,
+  revision: number | undefined
+) {
+  // A stale (older-revision) reload is dropped so it can neither roll the
+  // registry back nor stop/start the scheduler from outdated modes.
+  if (!setClientVersionModes(clientVersionModes, { revision })) return;
   // Only automatic mode ever reaches the network; with every product off the
   // scheduler is stopped (or never started).
   const { syncClientVersionScheduler } = await import("@/lib/client-versions/service");
@@ -504,7 +509,7 @@ async function applyModelsDevSyncSection(
 
 export async function applyRuntimeSettings(
   settings: Record<string, unknown>,
-  options: { force?: boolean; source?: string } = {}
+  options: { force?: boolean; source?: string; revision?: number } = {}
 ): Promise<RuntimeReloadChange[]> {
   const source = options.source || "runtime";
   const force = options.force === true;
@@ -644,7 +649,7 @@ export async function applyRuntimeSettings(
     force ||
     hasChanged(currentSnapshot.clientVersionModes, previousSnapshot.clientVersionModes)
   ) {
-    await applyClientVersionModesSection(currentSnapshot.clientVersionModes);
+    await applyClientVersionModesSection(currentSnapshot.clientVersionModes, options.revision);
     markChanged("clientVersionModes");
   }
 

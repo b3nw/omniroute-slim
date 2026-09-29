@@ -91,6 +91,31 @@ function serializeWrite<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
+// Per-product check generation, bumped whenever a product's mode changes. An
+// upstream check captures it when it starts; if it moved by the time the result
+// is merged (e.g. automatic → off → automatic mid-flight) the outcome is stale.
+const modeGenerations = new Map<ClientVersionProduct, number>();
+
+/** Current check generation for a product (in-process; bumps on every committed mode change). */
+export function getClientVersionModeGeneration(product: ClientVersionProduct): number {
+  return modeGenerations.get(product) ?? 0;
+}
+
+/** Bump every product whose mode differs; returns a function that undoes the bump. */
+function bumpChangedModeGenerations(
+  before: ClientVersionModesSettings,
+  after: ClientVersionModesSettings
+): () => void {
+  const previous = new Map<ClientVersionProduct, number>();
+  for (const product of CLIENT_VERSION_PRODUCTS) {
+    if (before[product].mode !== after[product].mode) {
+      previous.set(product, getClientVersionModeGeneration(product));
+      modeGenerations.set(product, getClientVersionModeGeneration(product) + 1);
+    }
+  }
+  return () => previous.forEach((generation, product) => modeGenerations.set(product, generation));
+}
+
 /**
  * Read-modify-write `clientVersionModes` without losing concurrent updates.
  * Writes are serialized in-process and guarded by the settings revision (CAS),
@@ -104,11 +129,18 @@ async function mutateClientVersionModes(
   return serializeWrite(async () => {
     for (let attempt = 1; ; attempt += 1) {
       const expectedRevision = await getSettingsRevision();
-      const modes = await getClientVersionModes();
+      const before = await getClientVersionModes();
+      const modes = normalizeClientVersionModes(before);
       mutate(modes);
+      // Bump before the write: updateSettings hot-reloads (and may start a
+      // scheduled check) before returning, and that check must see the new
+      // generation. A failed write reverts the bump; at worst a check that
+      // started in between is conservatively discarded.
+      const revertGenerations = bumpChangedModeGenerations(before, modes);
       try {
         await updateSettings({ [CLIENT_VERSION_SETTINGS_KEY]: modes }, { expectedRevision });
       } catch (error) {
+        revertGenerations();
         if (error instanceof SettingsRevisionConflictError && attempt < MAX_SAVE_ATTEMPTS) {
           continue;
         }
@@ -116,7 +148,8 @@ async function mutateClientVersionModes(
       }
       // updateSettings already hot-reloads through applyRuntimeSettings; set the
       // registry directly as well in case that reload path failed (it only warns).
-      setClientVersionModes(modes);
+      // Tagged with the committed revision so it never rolls back a newer reload.
+      setClientVersionModes(modes, { revision: expectedRevision + 1 });
       return modes;
     }
   });
@@ -159,12 +192,19 @@ export async function updateClientVersionMode(input: {
   });
 }
 
-const inFlightChecks = new Map<ClientVersionTarget, Promise<CheckOutcome>>();
+// Keyed by target + mode generation so a check started after a mode transition
+// never joins (and inherits) a fetch that began under the previous generation.
+const inFlightChecks = new Map<string, Promise<CheckOutcome>>();
 
 type CheckOutcome = { version: string | null; error: string | null; checkedAt: string };
 
-function checkTarget(product: ClientVersionTarget, fetchImpl: FetchLike): Promise<CheckOutcome> {
-  const existing = inFlightChecks.get(product);
+function checkTarget(
+  product: ClientVersionTarget,
+  generation: number,
+  fetchImpl: FetchLike
+): Promise<CheckOutcome> {
+  const key = `${product}#${generation}`;
+  const existing = inFlightChecks.get(key);
   if (existing) return existing;
   const promise = (async (): Promise<CheckOutcome> => {
     try {
@@ -178,8 +218,8 @@ function checkTarget(product: ClientVersionTarget, fetchImpl: FetchLike): Promis
         checkedAt: new Date().toISOString(),
       };
     }
-  })().finally(() => inFlightChecks.delete(product));
-  inFlightChecks.set(product, promise);
+  })().finally(() => inFlightChecks.delete(key));
+  inFlightChecks.set(key, promise);
   return promise;
 }
 
@@ -188,35 +228,57 @@ function checkTarget(product: ClientVersionTarget, fetchImpl: FetchLike): Promis
  * still only if it is `automatic`). Never throws: failures are recorded on the
  * product as `lastCheckError` and the previous auto-detected version is kept,
  * so the active version falls back to manual → env → compiled pin.
+ *
+ * Outcomes for a product whose mode changed while the check was in flight
+ * (tracked by its mode generation) are reported in `discarded` and not stored.
  */
 export async function runClientVersionCheck(
   options: { product?: ClientVersionProduct; fetchImpl?: FetchLike } = {}
-): Promise<{ checked: ClientVersionProduct[]; skipped: ClientVersionProduct[] }> {
+): Promise<{
+  checked: ClientVersionProduct[];
+  skipped: ClientVersionProduct[];
+  discarded: ClientVersionProduct[];
+}> {
   const fetchImpl = options.fetchImpl ?? getFetchImpl();
-  const modes = await getClientVersionModes();
   const candidates = options.product ? [options.product] : [...CLIENT_VERSION_PRODUCTS];
+  // Capture generations before reading modes: any transition committed after
+  // this point bumps the generation and invalidates the outcome.
+  const startGenerations = new Map(
+    candidates.map((product) => [product, getClientVersionModeGeneration(product)])
+  );
+  const modes = await getClientVersionModes();
   const checked = candidates.filter((product) => modes[product].mode === "automatic");
   const skipped = candidates.filter((product) => modes[product].mode !== "automatic");
-  if (checked.length === 0) return { checked, skipped };
+  const discarded: ClientVersionProduct[] = [];
+  if (checked.length === 0) return { checked, skipped, discarded };
 
   // Antigravity IDE and CLI come from different feeds and are stored separately.
   const outcomes = await Promise.all(
-    checked.map((product) =>
-      product === "antigravity"
+    checked.map((product) => {
+      const generation = startGenerations.get(product) ?? 0;
+      return product === "antigravity"
         ? Promise.all([
-            checkTarget("antigravity", fetchImpl),
-            checkTarget("antigravity-cli", fetchImpl),
+            checkTarget("antigravity", generation, fetchImpl),
+            checkTarget("antigravity-cli", generation, fetchImpl),
           ])
-        : Promise.all([checkTarget(product, fetchImpl)])
-    )
+        : Promise.all([checkTarget(product, generation, fetchImpl)]);
+    })
   );
 
   // Merge onto a fresh read inside the CAS loop so a PATCH that landed while we
   // were on the network (or races this write) is not clobbered. A product that
-  // left automatic mode meanwhile keeps its state: the stale outcome is dropped.
+  // left automatic mode meanwhile — or left and came back — keeps its state:
+  // the stale outcome is dropped.
   await mutateClientVersionModes((latest) => {
+    discarded.length = 0;
     checked.forEach((product, index) => {
-      if (latest[product].mode !== "automatic") return;
+      if (
+        latest[product].mode !== "automatic" ||
+        getClientVersionModeGeneration(product) !== startGenerations.get(product)
+      ) {
+        discarded.push(product);
+        return;
+      }
       const [ide, cli] = outcomes[index];
       const config: ProductClientVersionConfig = {
         ...latest[product],
@@ -232,7 +294,7 @@ export async function runClientVersionCheck(
       latest[product] = config;
     });
   });
-  return { checked, skipped };
+  return { checked, skipped, discarded };
 }
 
 // ── Periodic auto-check scheduler ────────────────────────────────────────────
@@ -380,10 +442,13 @@ export function resolveActiveVersionSource(
   return getEnvOverride(product) ? "env" : "default";
 }
 
+/**
+ * Strictly read-only: never touches the registry. It is updated only by the
+ * startup/hot-reload path (applyRuntimeSettings) and after committed writes, so
+ * a slow GET can never roll back a newer registry or race a PATCH.
+ */
 export async function getClientVersionStatus() {
   const modes = await getClientVersionModes();
-  // Keep the registry in lockstep with what we are about to report.
-  setClientVersionModes(modes);
   return {
     products: CLIENT_VERSION_PRODUCTS.map((product) => ({
       product,

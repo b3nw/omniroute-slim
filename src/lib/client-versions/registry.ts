@@ -141,18 +141,37 @@ export function resolveConfiguredCliVersion(
   return resolveVersionPair(config.mode, config.manualCliVersion, config.autoDetectedCliVersion);
 }
 
-type RegistryState = { active: Partial<Record<ClientVersionTarget, string>> };
+type RegistryState = {
+  active: Partial<Record<ClientVersionTarget, string>>;
+  /** Settings revision the active map was built from (null = unversioned/startup). */
+  revision: number | null;
+};
 
 const REGISTRY_KEY = Symbol.for("omniroute.clientVersionRegistry");
 
 function getState(): RegistryState {
   const g = globalThis as typeof globalThis & { [REGISTRY_KEY]?: RegistryState };
-  if (!g[REGISTRY_KEY]) g[REGISTRY_KEY] = { active: {} };
+  if (!g[REGISTRY_KEY]) g[REGISTRY_KEY] = { active: {}, revision: null };
   return g[REGISTRY_KEY];
 }
 
-/** Hot-swap the registry from a (possibly partial / raw) settings value. */
-export function setClientVersionModes(value: unknown): void {
+/**
+ * Hot-swap the registry from a (possibly partial / raw) settings value.
+ *
+ * Pass the settings `revision` the value was read at so an out-of-order reload
+ * (an older write's hot-reload finishing after a newer one) is ignored instead
+ * of rolling the registry back. Unversioned calls always apply. Returns whether
+ * the value was applied.
+ */
+export function setClientVersionModes(
+  value: unknown,
+  options: { revision?: number } = {}
+): boolean {
+  const state = getState();
+  const { revision } = options;
+  if (revision !== undefined && state.revision !== null && revision < state.revision) {
+    return false;
+  }
   const settings = normalizeClientVersionModes(value);
   const active: RegistryState["active"] = {};
   for (const product of CLIENT_VERSION_PRODUCTS) {
@@ -161,7 +180,14 @@ export function setClientVersionModes(value: unknown): void {
   }
   const antigravityCli = resolveConfiguredCliVersion(settings.antigravity);
   if (antigravityCli) active["antigravity-cli"] = antigravityCli;
-  getState().active = active;
+  state.active = active;
+  if (revision !== undefined) state.revision = revision;
+  return true;
+}
+
+/** Settings revision of the last versioned registry update (null if none yet). */
+export function getClientVersionRegistryRevision(): number | null {
+  return getState().revision;
 }
 
 /** Synchronous, 0-I/O lookup. Null when the product is off or the registry is uninitialized. */
@@ -170,5 +196,7 @@ export function getActiveClientVersion(product: ClientVersionTarget): string | n
 }
 
 export function resetClientVersionRegistry(): void {
-  getState().active = {};
+  const state = getState();
+  state.active = {};
+  state.revision = null;
 }

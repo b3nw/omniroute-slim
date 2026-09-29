@@ -33,6 +33,8 @@ const geminiDiscovery = await import("../../open-sse/services/geminiCliDiscovery
 const geminiExecutor = await import("../../open-sse/executors/geminiCli.ts");
 const route = await import("../../src/app/api/client-versions/route.ts");
 const checkRoute = await import("../../src/app/api/client-versions/check/route.ts");
+const cardState =
+  await import("../../src/app/(dashboard)/dashboard/settings/components/clientVersionModesState.ts");
 
 type FetchCall = { url: string; init?: RequestInit };
 type ProductStatusBody = {
@@ -735,4 +737,183 @@ test("a failed settings write leaves the in-memory registry on the previous valu
     db.exec("DROP TRIGGER IF EXISTS fail_client_version_write;");
   }
   assert.equal((await service.getClientVersionModes())["claude-code"].manualVersion, "2.1.299");
+});
+
+// ── Review remediation: read-only status, revisions, check generations, UI state ─
+
+test("GET status is side-effect free: it never rewrites the in-memory registry", async () => {
+  await service.updateClientVersionMode({
+    product: "codex",
+    mode: "manual",
+    manualVersion: "0.160.0",
+  });
+  // Simulate a newer registry value than the one a slow read would observe.
+  registry.setClientVersionModes({ codex: { mode: "manual", manualVersion: "0.170.0" } });
+
+  const response = await route.GET(new Request("http://localhost/api/client-versions"));
+  assert.equal(response.status, 200);
+  const status = await service.getClientVersionStatus();
+  assert.equal(status.products.find((p) => p.product === "codex")!.config.manualVersion, "0.160.0");
+  assert.equal(registry.getActiveClientVersion("codex"), "0.170.0");
+  assert.equal(codexClient.getCodexClientVersion(), "0.170.0");
+});
+
+test("registry ignores out-of-order (older revision) reloads", () => {
+  assert.equal(
+    registry.setClientVersionModes(
+      { codex: { mode: "manual", manualVersion: "0.170.0" } },
+      { revision: 5 }
+    ),
+    true
+  );
+  assert.equal(
+    registry.setClientVersionModes(
+      { codex: { mode: "manual", manualVersion: "0.160.0" } },
+      { revision: 4 }
+    ),
+    false
+  );
+  assert.equal(registry.getActiveClientVersion("codex"), "0.170.0");
+  assert.equal(registry.getClientVersionRegistryRevision(), 5);
+  // Same revision re-applies (the write path and its hot-reload share one revision).
+  assert.equal(
+    registry.setClientVersionModes(
+      { codex: { mode: "manual", manualVersion: "0.170.0" } },
+      { revision: 5 }
+    ),
+    true
+  );
+  registry.resetClientVersionRegistry();
+  assert.equal(registry.getClientVersionRegistryRevision(), null);
+});
+
+test("a stale applyRuntimeSettings reload cannot roll back a newer committed write", async () => {
+  await service.updateClientVersionMode({
+    product: "claude-code",
+    mode: "manual",
+    manualVersion: "2.1.299",
+  });
+  const staleSettings = await settingsDb.getSettings();
+  const staleRevision = await settingsDb.getSettingsRevision();
+  await service.updateClientVersionMode({
+    product: "claude-code",
+    mode: "manual",
+    manualVersion: "2.1.300",
+  });
+  assert.equal(registry.getClientVersionRegistryRevision(), staleRevision + 1);
+
+  // The older write's hot-reload lands last.
+  await runtimeSettings.applyRuntimeSettings(staleSettings, {
+    force: true,
+    source: "settings:update",
+    revision: staleRevision,
+  });
+  assert.equal(claudeClient.getClaudeCodeClientVersion(), "2.1.300");
+});
+
+test("an in-flight check is discarded when the product cycles automatic → off → automatic", async () => {
+  fetchResponder = () => jsonResponse({ latest: "0.158.0" });
+  await service.updateClientVersionMode({ product: "codex", mode: "automatic" });
+  await service.flushClientVersionChecks();
+  await service.runClientVersionCheck({ product: "codex" });
+  const generationAtStart = service.getClientVersionModeGeneration("codex");
+
+  let releaseFetch!: () => void;
+  const fetchHeld = new Promise<void>((resolve) => (releaseFetch = resolve));
+  let fetchStarted!: () => void;
+  const started = new Promise<void>((resolve) => (fetchStarted = resolve));
+  fetchResponder = async () => {
+    fetchStarted();
+    await fetchHeld;
+    return jsonResponse({ latest: "0.999.0" });
+  };
+  const staleCheck = service.runClientVersionCheck({ product: "codex" });
+  await started;
+
+  await service.updateClientVersionMode({ product: "codex", mode: "off" });
+  await service.updateClientVersionMode({ product: "codex", mode: "automatic" });
+  await service.flushClientVersionChecks();
+  assert.equal(service.getClientVersionModeGeneration("codex"), generationAtStart + 2);
+
+  // A check started under the new generation must not join the stale fetch.
+  const callsBefore = fetchCalls.length;
+  fetchResponder = () => jsonResponse({ latest: "0.200.0" });
+  const freshResult = await service.runClientVersionCheck({ product: "codex" });
+  assert.equal(fetchCalls.length, callsBefore + 1);
+  assert.deepEqual(freshResult.discarded, []);
+
+  releaseFetch();
+  const staleResult = await staleCheck;
+  assert.deepEqual(staleResult.discarded, ["codex"]);
+
+  const codex = (await service.getClientVersionModes()).codex;
+  assert.equal(codex.mode, "automatic");
+  assert.equal(codex.autoDetectedVersion, "0.200.0");
+  assert.equal(codexClient.getCodexClientVersion(), "0.200.0");
+});
+
+test("a failed write does not bump the mode generation", async () => {
+  const before = service.getClientVersionModeGeneration("codex");
+  const db = core.getDbInstance();
+  db.exec(`CREATE TRIGGER fail_client_version_write BEFORE INSERT ON key_value
+    WHEN NEW.namespace = 'settings' AND NEW.key = 'clientVersionModes'
+    BEGIN SELECT RAISE(ABORT, 'simulated write failure'); END;`);
+  try {
+    await assert.rejects(
+      service.updateClientVersionMode({ product: "codex", mode: "automatic" }),
+      /simulated write failure/
+    );
+  } finally {
+    db.exec("DROP TRIGGER IF EXISTS fail_client_version_write;");
+  }
+  assert.equal(service.getClientVersionModeGeneration("codex"), before);
+});
+
+test("card busy state is tracked per product", () => {
+  let busy: Record<string, boolean> = {};
+  busy = cardState.setProductBusy(busy, "codex", true);
+  busy = cardState.setProductBusy(busy, "claude-code", true);
+  // codex finishes first: claude-code must stay busy.
+  busy = cardState.setProductBusy(busy, "codex", false);
+  assert.deepEqual(busy, { "claude-code": true });
+  busy = cardState.setProductBusy(busy, "claude-code", false);
+  assert.deepEqual(busy, {});
+  assert.equal(cardState.setProductBusy(busy, "codex", false), busy, "no-op keeps identity");
+});
+
+test("card drafts sync to persisted values unless the input has dirty edits", () => {
+  let drafts = cardState.syncDraftsWithPersisted(cardState.EMPTY_DRAFTS, {
+    codex: "0.160.0",
+    "claude-code": "",
+  });
+  assert.deepEqual(drafts.values, { codex: "0.160.0", "claude-code": "" });
+
+  // Clean input follows a refreshed server value.
+  drafts = cardState.syncDraftsWithPersisted(drafts, { codex: "0.170.0", "claude-code": "" });
+  assert.equal(drafts.values.codex, "0.170.0");
+
+  // Saving " 2.1.299 " persists the trimmed value; the input adopts it.
+  drafts = cardState.editDraft(drafts, "claude-code", " 2.1.299 ");
+  drafts = cardState.syncDraftsWithPersisted(drafts, {
+    codex: "0.170.0",
+    "claude-code": "2.1.299",
+  });
+  assert.equal(drafts.values["claude-code"], "2.1.299");
+
+  // A dirty, uncommitted edit survives a refresh (e.g. another product's save).
+  drafts = cardState.editDraft(drafts, "codex", "0.18");
+  drafts = cardState.syncDraftsWithPersisted(drafts, {
+    codex: "0.175.0",
+    "claude-code": "2.1.299",
+  });
+  assert.equal(drafts.values.codex, "0.18");
+  assert.equal(drafts.persisted.codex, "0.175.0");
+
+  // Reverting the edit back to the persisted value makes it clean again.
+  drafts = cardState.editDraft(drafts, "codex", "0.175.0");
+  drafts = cardState.syncDraftsWithPersisted(drafts, {
+    codex: "0.180.0",
+    "claude-code": "2.1.299",
+  });
+  assert.equal(drafts.values.codex, "0.180.0");
 });

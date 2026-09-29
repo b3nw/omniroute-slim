@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Badge, Button, Card } from "@/shared/components";
+import {
+  EMPTY_DRAFTS,
+  editDraft,
+  setProductBusy,
+  syncDraftsWithPersisted,
+  type BusyProducts,
+  type DraftState,
+} from "./clientVersionModesState";
 
 type Mode = "off" | "manual" | "automatic";
 type VersionSource = "manual" | "automatic" | "env" | "default";
@@ -42,32 +50,32 @@ function readErrorMessage(data: unknown): string | null {
 export default function ClientVersionModesCard() {
   const t = useTranslations("settings");
   const [products, setProducts] = useState<ProductStatus[]>([]);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [cliDrafts, setCliDrafts] = useState<Record<string, string>>({});
+  const [draftState, setDraftState] = useState<DraftState>(EMPTY_DRAFTS);
+  const [cliDraftState, setCliDraftState] = useState<DraftState>(EMPTY_DRAFTS);
+  const drafts = draftState.values;
+  const cliDrafts = cliDraftState.values;
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busyProducts, setBusyProducts] = useState<BusyProducts>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const applyStatus = useCallback((data: { products?: ProductStatus[] }) => {
     if (!Array.isArray(data?.products)) return;
-    setProducts(data.products);
-    setDrafts((prev) => {
-      const next = { ...prev };
-      for (const item of data.products ?? []) {
-        if (next[item.product] === undefined) next[item.product] = item.config.manualVersion ?? "";
-      }
-      return next;
-    });
-    setCliDrafts((prev) => {
-      const next = { ...prev };
-      for (const item of data.products ?? []) {
-        if (next[item.product] === undefined) {
-          next[item.product] = item.config.manualCliVersion ?? "";
-        }
-      }
-      return next;
-    });
+    const items = data.products;
+    setProducts(items);
+    // Inputs follow the persisted (server-trimmed) values unless they hold dirty edits.
+    setDraftState((prev) =>
+      syncDraftsWithPersisted(
+        prev,
+        Object.fromEntries(items.map((item) => [item.product, item.config.manualVersion ?? ""]))
+      )
+    );
+    setCliDraftState((prev) =>
+      syncDraftsWithPersisted(
+        prev,
+        Object.fromEntries(items.map((item) => [item.product, item.config.manualCliVersion ?? ""]))
+      )
+    );
   }, []);
 
   const load = useCallback(
@@ -101,7 +109,7 @@ export default function ClientVersionModesCard() {
   }, [load]);
 
   const send = async (product: string, url: string, method: string, body: unknown) => {
-    setBusy(product);
+    setBusyProducts((prev) => setProductBusy(prev, product, true));
     setErrors((prev) => ({ ...prev, [product]: "" }));
     try {
       const res = await fetch(url, {
@@ -121,7 +129,7 @@ export default function ClientVersionModesCard() {
     } catch {
       setErrors((prev) => ({ ...prev, [product]: t("clientVersionsSaveError") }));
     } finally {
-      setBusy(null);
+      setBusyProducts((prev) => setProductBusy(prev, product, false));
     }
   };
 
@@ -227,7 +235,7 @@ export default function ClientVersionModesCard() {
           const isDual = item.product === DUAL_VERSION_PRODUCT;
           const cliDraft = cliDrafts[item.product] ?? "";
           const cliDraftInvalid = cliDraft.trim() !== "" && !VERSION_PATTERN.test(cliDraft.trim());
-          const isBusy = busy === item.product;
+          const isBusy = busyProducts[item.product] === true;
           return (
             <div
               key={item.product}
@@ -296,7 +304,7 @@ export default function ClientVersionModesCard() {
                     aria-label={t("clientVersionsManualLabel", { product: item.label })}
                     aria-invalid={draftInvalid}
                     onChange={(e) =>
-                      setDrafts((prev) => ({ ...prev, [item.product]: e.target.value }))
+                      setDraftState((prev) => editDraft(prev, item.product, e.target.value))
                     }
                     className={`h-8 w-48 rounded-md border bg-bg-primary px-2 text-sm font-mono ${
                       draftInvalid ? "border-rose-500" : "border-border"
@@ -311,7 +319,7 @@ export default function ClientVersionModesCard() {
                       aria-label={t("clientVersionsManualCliLabel", { product: item.label })}
                       aria-invalid={cliDraftInvalid}
                       onChange={(e) =>
-                        setCliDrafts((prev) => ({ ...prev, [item.product]: e.target.value }))
+                        setCliDraftState((prev) => editDraft(prev, item.product, e.target.value))
                       }
                       className={`h-8 w-48 rounded-md border bg-bg-primary px-2 text-sm font-mono ${
                         cliDraftInvalid ? "border-rose-500" : "border-border"

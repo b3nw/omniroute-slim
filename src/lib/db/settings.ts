@@ -330,6 +330,7 @@ export async function updateSettings(
   const insert = db.prepare(
     "INSERT OR REPLACE INTO key_value (namespace, key, value) VALUES ('settings', ?, ?)"
   );
+  let committedRevision = 0;
   const tx = db.transaction(() => {
     const currentRevision = readSettingsRevision(db);
     if (options?.expectedRevision !== undefined && options.expectedRevision !== currentRevision) {
@@ -339,7 +340,8 @@ export async function updateSettings(
       const toStore = key === "oidcClientSecret" ? encrypt(value as string) : value;
       insert.run(key, JSON.stringify(toStore));
     }
-    insert.run(SETTINGS_REVISION_KEY, JSON.stringify(currentRevision + 1));
+    committedRevision = currentRevision + 1;
+    insert.run(SETTINGS_REVISION_KEY, JSON.stringify(committedRevision));
   });
   tx();
   backupDbFile("pre-write");
@@ -355,7 +357,12 @@ export async function updateSettings(
 
   try {
     const { applyRuntimeSettings } = await import("@/lib/config/runtimeSettings");
-    await applyRuntimeSettings(nextSettings, { source: "settings:update" });
+    // Pass the committed revision so a slower, older reload cannot roll back
+    // revision-aware sections (e.g. clientVersionModes) applied by a newer write.
+    await applyRuntimeSettings(nextSettings, {
+      source: "settings:update",
+      revision: committedRevision,
+    });
   } catch (error) {
     console.warn(
       "[HOT_RELOAD] Failed to apply runtime settings after update:",
