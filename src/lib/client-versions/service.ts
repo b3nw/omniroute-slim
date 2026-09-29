@@ -31,6 +31,7 @@ import { getGeminiCliAuthHeaders } from "@omniroute/open-sse/services/geminiCliD
 import {
   CLIENT_VERSION_PRODUCTS,
   getActiveClientVersion,
+  getModeRevision,
   isSafeClientVersion,
   normalizeClientVersionModes,
   setClientVersionModes,
@@ -91,29 +92,20 @@ function serializeWrite<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
-// Per-product check generation, bumped whenever a product's mode changes. An
-// upstream check captures it when it starts; if it moved by the time the result
-// is merged (e.g. automatic → off → automatic mid-flight) the outcome is stale.
-const modeGenerations = new Map<ClientVersionProduct, number>();
-
-/** Current check generation for a product (in-process; bumps on every committed mode change). */
-export function getClientVersionModeGeneration(product: ClientVersionProduct): number {
-  return modeGenerations.get(product) ?? 0;
-}
-
-/** Bump every product whose mode differs; returns a function that undoes the bump. */
-function bumpChangedModeGenerations(
+/**
+ * Advance the persisted `modeRevision` of every product whose mode changed.
+ * It is written in the same CAS commit as the mode itself, so every process
+ * (and every check that re-reads settings) sees the transition.
+ */
+function bumpChangedModeRevisions(
   before: ClientVersionModesSettings,
   after: ClientVersionModesSettings
-): () => void {
-  const previous = new Map<ClientVersionProduct, number>();
+): void {
   for (const product of CLIENT_VERSION_PRODUCTS) {
     if (before[product].mode !== after[product].mode) {
-      previous.set(product, getClientVersionModeGeneration(product));
-      modeGenerations.set(product, getClientVersionModeGeneration(product) + 1);
+      after[product] = { ...after[product], modeRevision: getModeRevision(before[product]) + 1 };
     }
   }
-  return () => previous.forEach((generation, product) => modeGenerations.set(product, generation));
 }
 
 /**
@@ -132,15 +124,10 @@ async function mutateClientVersionModes(
       const before = await getClientVersionModes();
       const modes = normalizeClientVersionModes(before);
       mutate(modes);
-      // Bump before the write: updateSettings hot-reloads (and may start a
-      // scheduled check) before returning, and that check must see the new
-      // generation. A failed write reverts the bump; at worst a check that
-      // started in between is conservatively discarded.
-      const revertGenerations = bumpChangedModeGenerations(before, modes);
+      bumpChangedModeRevisions(before, modes);
       try {
         await updateSettings({ [CLIENT_VERSION_SETTINGS_KEY]: modes }, { expectedRevision });
       } catch (error) {
-        revertGenerations();
         if (error instanceof SettingsRevisionConflictError && attempt < MAX_SAVE_ATTEMPTS) {
           continue;
         }
@@ -192,18 +179,18 @@ export async function updateClientVersionMode(input: {
   });
 }
 
-// Keyed by target + mode generation so a check started after a mode transition
-// never joins (and inherits) a fetch that began under the previous generation.
+// Keyed by target + modeRevision so a check started after a mode transition
+// never joins (and inherits) a fetch that began under the previous mode.
 const inFlightChecks = new Map<string, Promise<CheckOutcome>>();
 
 type CheckOutcome = { version: string | null; error: string | null; checkedAt: string };
 
 function checkTarget(
   product: ClientVersionTarget,
-  generation: number,
+  modeRevision: number,
   fetchImpl: FetchLike
 ): Promise<CheckOutcome> {
-  const key = `${product}#${generation}`;
+  const key = `${product}#${modeRevision}`;
   const existing = inFlightChecks.get(key);
   if (existing) return existing;
   const promise = (async (): Promise<CheckOutcome> => {
@@ -230,7 +217,8 @@ function checkTarget(
  * so the active version falls back to manual → env → compiled pin.
  *
  * Outcomes for a product whose mode changed while the check was in flight
- * (tracked by its mode generation) are reported in `discarded` and not stored.
+ * (its persisted `modeRevision` moved, in this or any other process) are
+ * reported in `discarded` and not stored.
  */
 export async function runClientVersionCheck(
   options: { product?: ClientVersionProduct; fetchImpl?: FetchLike } = {}
@@ -241,12 +229,12 @@ export async function runClientVersionCheck(
 }> {
   const fetchImpl = options.fetchImpl ?? getFetchImpl();
   const candidates = options.product ? [options.product] : [...CLIENT_VERSION_PRODUCTS];
-  // Capture generations before reading modes: any transition committed after
-  // this point bumps the generation and invalidates the outcome.
-  const startGenerations = new Map(
-    candidates.map((product) => [product, getClientVersionModeGeneration(product)])
-  );
   const modes = await getClientVersionModes();
+  // Record each product's modeRevision from the same read that decides what to
+  // check; any transition committed after it invalidates the outcome.
+  const startModeRevisions = new Map(
+    candidates.map((product) => [product, getModeRevision(modes[product])])
+  );
   const checked = candidates.filter((product) => modes[product].mode === "automatic");
   const skipped = candidates.filter((product) => modes[product].mode !== "automatic");
   const discarded: ClientVersionProduct[] = [];
@@ -255,26 +243,27 @@ export async function runClientVersionCheck(
   // Antigravity IDE and CLI come from different feeds and are stored separately.
   const outcomes = await Promise.all(
     checked.map((product) => {
-      const generation = startGenerations.get(product) ?? 0;
+      const modeRevision = startModeRevisions.get(product) ?? 0;
       return product === "antigravity"
         ? Promise.all([
-            checkTarget("antigravity", generation, fetchImpl),
-            checkTarget("antigravity-cli", generation, fetchImpl),
+            checkTarget("antigravity", modeRevision, fetchImpl),
+            checkTarget("antigravity-cli", modeRevision, fetchImpl),
           ])
-        : Promise.all([checkTarget(product, generation, fetchImpl)]);
+        : Promise.all([checkTarget(product, modeRevision, fetchImpl)]);
     })
   );
 
   // Merge onto a fresh read inside the CAS loop so a PATCH that landed while we
   // were on the network (or races this write) is not clobbered. A product that
   // left automatic mode meanwhile — or left and came back — keeps its state:
-  // the stale outcome is dropped.
+  // the stale outcome is dropped. `latest` is re-read from SQLite on every CAS
+  // attempt, so a transition made by another process is caught here too.
   await mutateClientVersionModes((latest) => {
     discarded.length = 0;
     checked.forEach((product, index) => {
       if (
         latest[product].mode !== "automatic" ||
-        getClientVersionModeGeneration(product) !== startGenerations.get(product)
+        getModeRevision(latest[product]) !== startModeRevisions.get(product)
       ) {
         discarded.push(product);
         return;

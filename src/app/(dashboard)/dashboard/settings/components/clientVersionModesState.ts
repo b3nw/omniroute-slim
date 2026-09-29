@@ -50,3 +50,20 @@ export function syncDraftsWithPersisted(
   }
   return { values, persisted: nextPersisted };
 }
+
+/**
+ * Merge one product's entry from a status payload into the current list. A
+ * PATCH or check for `product` returns every product, but the other entries
+ * may be older than what a concurrent request for another product already
+ * applied, so only the affected product is taken from the response.
+ */
+export function mergeProductStatus<T extends { product: string }>(
+  prev: T[],
+  incoming: T[],
+  product: string
+): T[] {
+  const next = incoming.find((item) => item.product === product);
+  if (!next) return prev;
+  if (!prev.some((item) => item.product === product)) return [...prev, next];
+  return prev.map((item) => (item.product === product ? next : item));
+}

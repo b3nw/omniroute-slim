@@ -5,6 +5,7 @@ import {
   type OperatorProviderErrorRule,
 } from "@omniroute/open-sse/config/providerErrorRules.ts";
 import { isAutomatedTestProcess } from "@/shared/utils/testProcess";
+import { readSettingsRevisionTag } from "@/lib/db/settingsRevisionTag";
 import {
   normalizeClientVersionModes,
   setClientVersionModes,
@@ -649,7 +650,12 @@ export async function applyRuntimeSettings(
     force ||
     hasChanged(currentSnapshot.clientVersionModes, previousSnapshot.clientVersionModes)
   ) {
-    await applyClientVersionModesSection(currentSnapshot.clientVersionModes, options.revision);
+    // Fall back to the revision getSettings() stamped on the object, so even a
+    // caller that passes no revision is ordered against newer reloads.
+    await applyClientVersionModesSection(
+      currentSnapshot.clientVersionModes,
+      options.revision ?? readSettingsRevisionTag(settings)
+    );
     markChanged("clientVersionModes");
   }
 

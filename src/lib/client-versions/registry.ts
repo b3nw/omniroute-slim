@@ -37,6 +37,12 @@ export interface ProductClientVersionConfig {
   /** Antigravity only: the CLI version, kept apart from the IDE version above. */
   manualCliVersion?: string;
   autoDetectedCliVersion?: string;
+  /**
+   * Persisted mode-transition counter, bumped on every committed mode change.
+   * An upstream check records it when it starts and drops its outcome if it
+   * moved by merge time, even when another process made the transition.
+   */
+  modeRevision?: number;
 }
 
 export type ClientVersionModesSettings = Record<ClientVersionProduct, ProductClientVersionConfig>;
@@ -83,6 +89,13 @@ function normalizeProductConfig(value: unknown): ProductClientVersionConfig {
   }
   if (isSafeClientVersion(record.autoDetectedCliVersion)) {
     config.autoDetectedCliVersion = record.autoDetectedCliVersion;
+  }
+  if (
+    typeof record.modeRevision === "number" &&
+    Number.isInteger(record.modeRevision) &&
+    record.modeRevision > 0
+  ) {
+    config.modeRevision = record.modeRevision;
   }
   if (typeof record.lastCheckedAt === "string") config.lastCheckedAt = record.lastCheckedAt;
   if (typeof record.lastCheckError === "string") config.lastCheckError = record.lastCheckError;
@@ -155,13 +168,20 @@ function getState(): RegistryState {
   return g[REGISTRY_KEY];
 }
 
+/** Mode-transition counter of a product config (0 = never transitioned). */
+export function getModeRevision(config: ProductClientVersionConfig | undefined): number {
+  return config?.modeRevision ?? 0;
+}
+
 /**
  * Hot-swap the registry from a (possibly partial / raw) settings value.
  *
- * Pass the settings `revision` the value was read at so an out-of-order reload
- * (an older write's hot-reload finishing after a newer one) is ignored instead
- * of rolling the registry back. Unversioned calls always apply. Returns whether
- * the value was applied.
+ * Pass the settings `revision` the value was read at. Revisions only move
+ * forward: an older revision (an earlier reload finishing after a newer one)
+ * is ignored instead of rolling the registry back, and once any revision has
+ * been recorded an unversioned update is ignored too, since its age is
+ * unknown. Unversioned calls apply only before the first versioned one.
+ * Returns whether the value was applied.
  */
 export function setClientVersionModes(
   value: unknown,
@@ -169,7 +189,7 @@ export function setClientVersionModes(
 ): boolean {
   const state = getState();
   const { revision } = options;
-  if (revision !== undefined && state.revision !== null && revision < state.revision) {
+  if (state.revision !== null && (revision === undefined || revision < state.revision)) {
     return false;
   }
   const settings = normalizeClientVersionModes(value);

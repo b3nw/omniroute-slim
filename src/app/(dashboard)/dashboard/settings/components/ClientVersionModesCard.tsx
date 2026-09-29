@@ -6,6 +6,7 @@ import { Badge, Button, Card } from "@/shared/components";
 import {
   EMPTY_DRAFTS,
   editDraft,
+  mergeProductStatus,
   setProductBusy,
   syncDraftsWithPersisted,
   type BusyProducts,
@@ -59,10 +60,14 @@ export default function ClientVersionModesCard() {
   const [busyProducts, setBusyProducts] = useState<BusyProducts>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const applyStatus = useCallback((data: { products?: ProductStatus[] }) => {
+  // With `product`, only that product's entry (and drafts) are taken from the
+  // payload so a slower response cannot clobber a concurrent update to another.
+  const applyStatus = useCallback((data: { products?: ProductStatus[] }, product?: string) => {
     if (!Array.isArray(data?.products)) return;
-    const items = data.products;
-    setProducts(items);
+    const items = product
+      ? data.products.filter((item) => item.product === product)
+      : data.products;
+    setProducts(product ? (prev) => mergeProductStatus(prev, items, product) : items);
     // Inputs follow the persisted (server-trimmed) values unless they hold dirty edits.
     setDraftState((prev) =>
       syncDraftsWithPersisted(
@@ -125,7 +130,7 @@ export default function ClientVersionModesCard() {
         }));
         return;
       }
-      applyStatus(data);
+      applyStatus(data, product);
     } catch {
       setErrors((prev) => ({ ...prev, [product]: t("clientVersionsSaveError") }));
     } finally {
