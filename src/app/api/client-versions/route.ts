@@ -24,7 +24,11 @@ export async function PATCH(request: Request) {
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
   const parsed = await validatedJsonBody(request, updateClientVersionModeSchema);
-  if (!parsed.success) return parsed.response;
+  if (!parsed.success) {
+    return "response" in parsed
+      ? parsed.response
+      : NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  }
 
   try {
     const modes = await updateClientVersionMode(parsed.data);
