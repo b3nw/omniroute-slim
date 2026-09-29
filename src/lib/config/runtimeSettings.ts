@@ -97,6 +97,10 @@ const DEFAULT_RUNTIME_SETTINGS_SNAPSHOT: RuntimeSettingsSnapshot = {
 };
 
 let lastAppliedSnapshot: RuntimeSettingsSnapshot | null = null;
+// Settings revision `lastAppliedSnapshot` was built from (null until a
+// versioned reload applies). Mirrors the client-version registry's rule: a
+// reload finishing after a newer one must not become the diff baseline.
+let lastAppliedRevision: number | null = null;
 
 // Module-local mirror of the current bypass policy. Read by the route guard
 // on every non-loopback hit to a LOCAL_ONLY path via `getAuthzBypassSnapshot`.
@@ -519,6 +523,9 @@ export async function applyRuntimeSettings(
 ): Promise<RuntimeReloadChange[]> {
   const source = options.source || "runtime";
   const force = options.force === true;
+  // Fall back to the revision getSettings() stamped on the object, so even a
+  // caller that passes no revision is ordered against newer reloads.
+  const revision = options.revision ?? readSettingsRevisionTag(settings);
   const hasBootstrappedSnapshot = lastAppliedSnapshot !== null;
   const currentSnapshot = buildRuntimeSettingsSnapshot(settings);
   const previousSnapshot = getPreviousSnapshot();
@@ -655,20 +662,22 @@ export async function applyRuntimeSettings(
     force ||
     hasChanged(currentSnapshot.clientVersionModes, previousSnapshot.clientVersionModes)
   ) {
-    // Fall back to the revision getSettings() stamped on the object, so even a
-    // caller that passes no revision is ordered against newer reloads.
-    await applyClientVersionModesSection(
-      currentSnapshot.clientVersionModes,
-      options.revision ?? readSettingsRevisionTag(settings)
-    );
+    await applyClientVersionModesSection(currentSnapshot.clientVersionModes, revision);
     markChanged("clientVersionModes");
   }
 
-  lastAppliedSnapshot = currentSnapshot;
+  // A newer reload may have finished while this one awaited a section; keep its
+  // snapshot as the baseline, or a later reload matching ours would diff as
+  // unchanged and be skipped.
+  if (lastAppliedRevision === null || (revision !== undefined && revision >= lastAppliedRevision)) {
+    lastAppliedSnapshot = currentSnapshot;
+    if (revision !== undefined) lastAppliedRevision = revision;
+  }
   return changes;
 }
 
 export function resetRuntimeSettingsStateForTests() {
   lastAppliedSnapshot = null;
+  lastAppliedRevision = null;
   currentAuthzBypass = DEFAULT_AUTHZ_BYPASS_SNAPSHOT;
 }

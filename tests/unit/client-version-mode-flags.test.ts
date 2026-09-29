@@ -1153,3 +1153,42 @@ test("a stale reload paused at the scheduler import cannot resync over a newer r
   assert.equal(service.isClientVersionSchedulerRunning(), true);
   service.stopClientVersionScheduler();
 });
+
+test("a stale reload finishing late does not become the baseline that skips a newer reload", async () => {
+  const base = await settingsDb.getSettings();
+  const off = registry.createDefaultClientVersionModes();
+  const modesA = {
+    ...registry.createDefaultClientVersionModes(),
+    "claude-code": { mode: "manual" as const, manualVersion: "1.0.0" },
+  };
+  const modesB = {
+    ...registry.createDefaultClientVersionModes(),
+    "claude-code": { mode: "manual" as const, manualVersion: "2.0.0" },
+  };
+  const apply = (modes: unknown, revision: number, force = false) =>
+    runtimeSettings.applyRuntimeSettings(
+      { ...base, clientVersionModes: modes },
+      { force, source: `rev-${revision}`, revision }
+    );
+
+  runtimeSettings.resetRuntimeSettingsStateForTests();
+  await apply(off, 299);
+
+  // N is forced, so it awaits every section's import; N+1 changes only the
+  // client-version section and runs to completion while N is still paused.
+  let staleSettled = false;
+  const stale = apply(modesA, 300, true).then(() => {
+    staleSettled = true;
+  });
+  await apply(modesB, 301);
+  assert.equal(staleSettled, false, "N+1 must finish while N is still paused");
+  await stale;
+  assert.equal(registry.getActiveClientVersion("claude-code"), "2.0.0");
+
+  // N+2 carries N's modes; it must diff against N+1's snapshot and apply.
+  const changes = await apply(modesA, 302);
+  assert.ok(changes.some((change) => change.section === "clientVersionModes"));
+  assert.equal(registry.getClientVersionRegistryRevision(), 302);
+  assert.equal(registry.getActiveClientVersion("claude-code"), "1.0.0");
+  service.stopClientVersionScheduler();
+});
