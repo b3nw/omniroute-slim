@@ -19,6 +19,7 @@ import {
   reassembleGeminiCliChunks,
   type GeminiCliResponseAccumulator,
 } from "../translator/response/geminiCli.ts";
+import { getActiveClientVersion } from "@/lib/client-versions/registry";
 
 export const GEMINI_CLI_ENDPOINT_FALLBACKS = [
   "https://cloudcode-pa.googleapis.com/v1internal",
@@ -75,6 +76,7 @@ export function buildGeminiCliHeaders(
 ): Record<string, string> {
   const uaVer =
     env.uaVersion ||
+    getActiveClientVersion("gemini-cli") ||
     process.env.GEMINI_CLI_UA_VERSION ||
     process.env.GEMINI_CLI_CLIENT_VERSION ||
     GEMINI_CLI_UA_VERSION;

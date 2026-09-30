@@ -5,6 +5,13 @@ import {
   type OperatorProviderErrorRule,
 } from "@omniroute/open-sse/config/providerErrorRules.ts";
 import { isAutomatedTestProcess } from "@/shared/utils/testProcess";
+import { readSettingsRevisionTag } from "@/lib/db/settingsRevisionTag";
+import {
+  normalizeClientVersionModes,
+  getClientVersionRegistryRevision,
+  setClientVersionModes,
+  type ClientVersionModesSettings,
+} from "@/lib/client-versions/registry";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -24,7 +31,8 @@ export type RuntimeReloadSection =
   | "systemTransforms"
   | "systemPrompt"
   | "authzBypass"
-  | "bannedSignals";
+  | "bannedSignals"
+  | "clientVersionModes";
 
 export interface RuntimeReloadChange {
   section: RuntimeReloadSection;
@@ -55,6 +63,7 @@ interface RuntimeSettingsSnapshot {
   authzBypass: AuthzBypassSnapshot;
   customBannedSignals: string[];
   providerErrorRules: Record<string, OperatorProviderErrorRule[]> | null;
+  clientVersionModes: ClientVersionModesSettings;
 }
 
 // Default bypass policy: kill-switch on, `/api/mcp/` bypassable. Mirrors the
@@ -84,9 +93,14 @@ const DEFAULT_RUNTIME_SETTINGS_SNAPSHOT: RuntimeSettingsSnapshot = {
   authzBypass: DEFAULT_AUTHZ_BYPASS_SNAPSHOT,
   customBannedSignals: [],
   providerErrorRules: null,
+  clientVersionModes: normalizeClientVersionModes(null),
 };
 
 let lastAppliedSnapshot: RuntimeSettingsSnapshot | null = null;
+// Settings revision `lastAppliedSnapshot` was built from (null until a
+// versioned reload applies). Mirrors the client-version registry's rule: a
+// reload finishing after a newer one must not become the diff baseline.
+let lastAppliedRevision: number | null = null;
 
 // Module-local mirror of the current bypass policy. Read by the route guard
 // on every non-loopback hit to a LOCAL_ONLY path via `getAuthzBypassSnapshot`.
@@ -264,7 +278,9 @@ export function buildRuntimeSettingsSnapshot(
   return {
     payloadRules: normalizePayloadRules(settings.payloadRules),
     modelAliases: normalizeStringRecord(settings.modelAliases),
-    providerAliases: normalizeStringRecord(settings.providerAliases ?? settings.providerAliasOverrides),
+    providerAliases: normalizeStringRecord(
+      settings.providerAliases ?? settings.providerAliasOverrides
+    ),
     backgroundDegradation: normalizeBackgroundDegradation(settings.backgroundDegradation),
     cliCompatProviders: normalizeStringArray(settings.cliCompatProviders),
     alwaysPreserveClientCache:
@@ -288,6 +304,7 @@ export function buildRuntimeSettingsSnapshot(
     authzBypass: normalizeAuthzBypass(settings),
     customBannedSignals: normalizeStringArray(settings.customBannedSignals),
     providerErrorRules: normalizeOperatorProviderErrorRules(settings.providerErrorRules),
+    clientVersionModes: normalizeClientVersionModes(settings.clientVersionModes),
   };
 }
 
@@ -313,9 +330,8 @@ async function applyModelAliasesSection(modelAliases: Record<string, string>) {
 }
 
 async function applyProviderAliasesSection(providerAliases: Record<string, string>) {
-  const { setProviderAliasOverrides } = await import(
-    "@omniroute/open-sse/config/providerAliasOverrides.ts"
-  );
+  const { setProviderAliasOverrides } =
+    await import("@omniroute/open-sse/config/providerAliasOverrides.ts");
   setProviderAliasOverrides(providerAliases);
 }
 
@@ -435,6 +451,23 @@ async function applySystemPromptSection(systemPrompt: unknown) {
   }
 }
 
+async function applyClientVersionModesSection(
+  clientVersionModes: ClientVersionModesSettings,
+  revision: number | undefined
+) {
+  // A stale (older-revision) reload is dropped so it can neither roll the
+  // registry back nor stop/start the scheduler from outdated modes.
+  if (!setClientVersionModes(clientVersionModes, { revision })) return;
+  // Only automatic mode ever reaches the network; with every product off the
+  // scheduler is stopped (or never started).
+  const { syncClientVersionScheduler } = await import("@/lib/client-versions/service");
+  // A newer reload may have applied (and synced the scheduler) while this one
+  // awaited the import; its modes win, so don't resync from ours.
+  const currentRevision = getClientVersionRegistryRevision();
+  if (currentRevision !== null && (revision === undefined || currentRevision > revision)) return;
+  syncClientVersionScheduler(clientVersionModes);
+}
+
 async function applyModelsDevSyncSection(
   previousSnapshot: RuntimeSettingsSnapshot,
   currentSnapshot: RuntimeSettingsSnapshot,
@@ -456,8 +489,7 @@ async function applyModelsDevSyncSection(
   }
 
   const wasEnabled = previousSnapshot.modelsDevSyncEnabled === true;
-  const isEnabled =
-    isModelsDevSyncEnvForcedOn() || currentSnapshot.modelsDevSyncEnabled === true;
+  const isEnabled = isModelsDevSyncEnvForcedOn() || currentSnapshot.modelsDevSyncEnabled === true;
   const intervalChanged =
     previousSnapshot.modelsDevSyncInterval !== currentSnapshot.modelsDevSyncInterval;
 
@@ -487,10 +519,13 @@ async function applyModelsDevSyncSection(
 
 export async function applyRuntimeSettings(
   settings: Record<string, unknown>,
-  options: { force?: boolean; source?: string } = {}
+  options: { force?: boolean; source?: string; revision?: number } = {}
 ): Promise<RuntimeReloadChange[]> {
   const source = options.source || "runtime";
   const force = options.force === true;
+  // Fall back to the revision getSettings() stamped on the object, so even a
+  // caller that passes no revision is ordered against newer reloads.
+  const revision = options.revision ?? readSettingsRevisionTag(settings);
   const hasBootstrappedSnapshot = lastAppliedSnapshot !== null;
   const currentSnapshot = buildRuntimeSettingsSnapshot(settings);
   const previousSnapshot = getPreviousSnapshot();
@@ -623,11 +658,33 @@ export async function applyRuntimeSettings(
     setOperatorProviderErrorRules(currentSnapshot.providerErrorRules ?? undefined);
   }
 
-  lastAppliedSnapshot = currentSnapshot;
+  if (
+    force ||
+    hasChanged(currentSnapshot.clientVersionModes, previousSnapshot.clientVersionModes)
+  ) {
+    await applyClientVersionModesSection(currentSnapshot.clientVersionModes, revision);
+    markChanged("clientVersionModes");
+  } else if (revision !== undefined) {
+    // Unchanged modes still advance the registry to this revision: an older
+    // reload paused before its client-version section would otherwise pass the
+    // registry's revision check on resume and install its outdated modes. The
+    // scheduler needs no resync — it already reflects the unchanged baseline,
+    // and the paused reload skips its sync once the registry has moved past it.
+    setClientVersionModes(currentSnapshot.clientVersionModes, { revision });
+  }
+
+  // A newer reload may have finished while this one awaited a section; keep its
+  // snapshot as the baseline, or a later reload matching ours would diff as
+  // unchanged and be skipped.
+  if (lastAppliedRevision === null || (revision !== undefined && revision >= lastAppliedRevision)) {
+    lastAppliedSnapshot = currentSnapshot;
+    if (revision !== undefined) lastAppliedRevision = revision;
+  }
   return changes;
 }
 
 export function resetRuntimeSettingsStateForTests() {
   lastAppliedSnapshot = null;
+  lastAppliedRevision = null;
   currentAuthzBypass = DEFAULT_AUTHZ_BYPASS_SNAPSHOT;
 }

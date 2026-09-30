@@ -8,6 +8,8 @@
  * advertise the version on the wire must go through getClaudeCodeClientVersion()
  * so operators can bump past Anthropic's model gate without a rebuild (#12417).
  */
+import { getActiveClientVersion } from "@/lib/client-versions/registry";
+
 export const CLAUDE_CODE_CLIENT_VERSION = "2.1.220";
 export const CLAUDE_CODE_CLIENT_BUILD_REVISION = "1f2";
 export const CLAUDE_CODE_CLIENT_BILLING_VERSION = `${CLAUDE_CODE_CLIENT_VERSION}.${CLAUDE_CODE_CLIENT_BUILD_REVISION}`;
@@ -30,7 +32,12 @@ function getSafeEnvValue(name: string, pattern: RegExp): string | null {
 }
 
 export function getClaudeCodeClientVersion(): string {
-  return getSafeEnvValue(CLAUDE_VERSION_OVERRIDE_ENV, SAFE_HEADER_TOKEN_PATTERN) || CLAUDE_CODE_CLIENT_VERSION;
+  const dynamic = getActiveClientVersion("claude-code");
+  if (dynamic) return dynamic;
+  return (
+    getSafeEnvValue(CLAUDE_VERSION_OVERRIDE_ENV, SAFE_HEADER_TOKEN_PATTERN) ||
+    CLAUDE_CODE_CLIENT_VERSION
+  );
 }
 
 export function getClaudeCodeClientBillingVersion(): string {
