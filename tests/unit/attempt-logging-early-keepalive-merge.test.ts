@@ -23,7 +23,9 @@ const { recordEarlyKeepaliveBytes, takeEarlyKeepaliveBytes } =
   await import("../../open-sse/utils/earlyKeepaliveByteBuffer.ts");
 
 function baseCtx(overrides: Record<string, unknown> = {}) {
+  const pendingRequestId = (overrides.pendingRequestId as string) ?? "REPLACE";
   return {
+    traceId: (overrides.traceId as string) ?? pendingRequestId,
     provider: "openai",
     connectionId: "conn-1",
     model: "gpt-x",

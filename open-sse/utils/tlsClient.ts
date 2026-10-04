@@ -1,6 +1,9 @@
 import { createRequire } from "module";
 import { createHash } from "node:crypto";
 import { getTlsClientTimeoutConfig } from "@/shared/utils/runtimeTimeouts";
+// #12656 — re-exported so proxyFetch.ts (frozen at its file-size cap) can
+// import the first-byte watchdog alongside TlsClient without adding a line.
+export { guardTlsFirstByte } from "./tlsFirstByteWatchdog.ts";
 
 const runtimeRequire = createRequire(import.meta.url);
 

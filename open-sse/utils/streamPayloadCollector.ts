@@ -1,5 +1,7 @@
 import { cloneLogPayload } from "@/lib/logPayloads";
+import { toNumber } from "@/shared/utils/numeric";
 import { FORMATS } from "../translator/formats.ts";
+import { jsonLength } from "./jsonSize.ts";
 
 type StructuredSSEEvent = {
   index: number;
@@ -56,15 +58,6 @@ function asRecord(value: unknown): JsonRecord {
 
 function toString(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
-}
-
-function toNumber(value: unknown, fallback = 0): number {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim().length > 0) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : fallback;
-  }
-  return fallback;
 }
 
 function normalizeFormat(format?: string | null): string {
@@ -205,7 +198,13 @@ export function splitConcatenatedToolCallArguments(raw: string): string[] | null
 // once the collector's storage cap is hit.
 
 function createOpenAIReducer(fallbackModel?: string | null): SummaryReducer {
-  let first: JsonRecord | null = null;
+  let sawAny = false;
+  // Snapshot of primitive fields from the first chunk — finalized in finalize().
+  // Storing primitives (not the chunk reference) avoids retaining a reference to
+  // the original payload, so caller mutation after push() cannot change the summary.
+  let firstId: string | null = null;
+  let firstCreated: number | null = null;
+  let firstModel: string | null = null;
   const contentParts: string[] = [];
   const reasoningParts: string[] = [];
   type ToolCall = {
@@ -245,7 +244,12 @@ function createOpenAIReducer(fallbackModel?: string | null): SummaryReducer {
   return {
     ingest(chunk: JsonRecord) {
       if (Object.keys(chunk).length === 0) return;
-      if (!first) first = chunk;
+      sawAny = true;
+      if (firstId === null) {
+        firstId = toString(chunk.id) || null;
+        firstCreated = toNumber(chunk.created) || null;
+        firstModel = toString(chunk.model) || null;
+      }
 
       const choice = asRecord(Array.isArray(chunk.choices) ? chunk.choices[0] : null);
       const delta = asRecord(choice.delta);
@@ -319,7 +323,7 @@ function createOpenAIReducer(fallbackModel?: string | null): SummaryReducer {
     },
 
     finalize(): unknown {
-      if (!first) return null;
+      if (!sawAny) return null;
 
       const joinedContent = contentParts.length > 0 ? contentParts.join("").trim() : null;
       const joinedReasoning = reasoningParts.length > 0 ? reasoningParts.join("").trim() : null;
@@ -359,10 +363,10 @@ function createOpenAIReducer(fallbackModel?: string | null): SummaryReducer {
       }
 
       const result: JsonRecord = {
-        id: toString(first.id, `chatcmpl-${Date.now()}`),
+        id: firstId || `chatcmpl-${Date.now()}`,
         object: "chat.completion",
-        created: toNumber(first.created, Math.floor(Date.now() / 1000)),
-        model: toString(first.model, fallbackModel || "unknown"),
+        created: firstCreated || Math.floor(Date.now() / 1000),
+        model: firstModel || fallbackModel || "unknown",
         choices: [
           {
             index: 0,
@@ -381,10 +385,23 @@ function createOpenAIReducer(fallbackModel?: string | null): SummaryReducer {
   };
 }
 
+type ResponseSnapshot = {
+  id: string;
+  model: string;
+  status: string;
+  created_at: number;
+  output: unknown;
+  usage: JsonRecord | null;
+  metadata: JsonRecord;
+};
+
 function createResponsesReducer(fallbackModel?: string | null): SummaryReducer {
   let sawAny = false;
-  let completed: JsonRecord | null = null;
-  let latestResponse: JsonRecord | null = null;
+  // Snapshot of response fields — primitives only, nested objects deep-cloned.
+  // Avoids retaining a reference to the original payload so caller mutation
+  // after push() cannot change the summary.
+  let completedSnapshot: ResponseSnapshot | null = null;
+  let latestSnapshot: ResponseSnapshot | null = null;
   let usage: JsonRecord | null = null;
   const textParts: string[] = [];
   const buildOutputFromText = () =>
@@ -398,6 +415,16 @@ function createResponsesReducer(fallbackModel?: string | null): SummaryReducer {
         ]
       : [];
 
+  const snapshotResponse = (resp: JsonRecord): ResponseSnapshot => ({
+    id: toString(resp.id),
+    model: toString(resp.model),
+    status: toString(resp.status),
+    created_at: toNumber(resp.created_at),
+    output: cloneLogPayload(Array.isArray(resp.output) ? resp.output : []),
+    usage: resp.usage && typeof resp.usage === "object" ? { ...asRecord(resp.usage) } : null,
+    metadata: cloneLogPayload(asRecord(resp.metadata)),
+  });
+
   return {
     ingest(payload: JsonRecord) {
       if (Object.keys(payload).length === 0) return;
@@ -409,12 +436,12 @@ function createResponsesReducer(fallbackModel?: string | null): SummaryReducer {
         payload.response &&
         typeof payload.response === "object"
       ) {
-        completed = asRecord(payload.response);
+        completedSnapshot = snapshotResponse(asRecord(payload.response));
       }
       if (payload.response && typeof payload.response === "object") {
-        latestResponse = asRecord(payload.response);
+        latestSnapshot = snapshotResponse(asRecord(payload.response));
       } else if (payload.object === "response") {
-        latestResponse = payload;
+        latestSnapshot = snapshotResponse(payload);
       }
       if (
         eventType === "response.output_text.delta" &&
@@ -433,18 +460,18 @@ function createResponsesReducer(fallbackModel?: string | null): SummaryReducer {
     finalize(): unknown {
       if (!sawAny) return null;
 
-      const picked = completed || latestResponse;
-      if (picked && Object.keys(picked).length > 0) {
+      const picked = completedSnapshot || latestSnapshot;
+      if (picked) {
         const pickedOutput = Array.isArray(picked.output) ? picked.output : [];
         return {
-          id: toString(picked.id, `resp_${Date.now()}`),
+          id: picked.id || `resp_${Date.now()}`,
           object: "response",
-          model: toString(picked.model, fallbackModel || "unknown"),
+          model: picked.model || fallbackModel || "unknown",
           output: pickedOutput.length > 0 ? pickedOutput : buildOutputFromText(),
           usage: picked.usage ?? usage ?? null,
-          status: toString(picked.status, completed ? "completed" : "in_progress"),
-          created_at: toNumber(picked.created_at, Math.floor(Date.now() / 1000)),
-          metadata: asRecord(picked.metadata),
+          status: picked.status || (completedSnapshot ? "completed" : "in_progress"),
+          created_at: picked.created_at || Math.floor(Date.now() / 1000),
+          metadata: picked.metadata,
         };
       }
 
@@ -871,13 +898,16 @@ export function createStructuredSSECollector(options: CollectorOptions = {}) {
     push(payload: unknown, explicitEvent?: string) {
       if (payload === null || payload === undefined) return;
 
-      const clonedData = cloneLogPayload(payload);
-      reducer?.ingest(unwrapEventEnvelope(clonedData));
+      // Reducer only reads — safe to pass the original payload without a clone.
+      // The deep clone is deferred until after the cap check so dropped events
+      // don't pay the structuredClone cost (~9,800 saved per stream — see
+      // _tasks/research/2026-08-31_performance-resource-audit.md, Quick Win #2).
+      reducer?.ingest(unwrapEventEnvelope(payload));
 
       const event: StructuredSSEEvent = {
         index: events.length + droppedEvents,
         timestamp: new Date().toISOString(),
-        data: clonedData,
+        data: payload,
       };
 
       const eventName = explicitEvent || getEventName(payload);
@@ -885,12 +915,13 @@ export function createStructuredSSECollector(options: CollectorOptions = {}) {
         event.event = eventName;
       }
 
-      const serializedSize = JSON.stringify(event).length;
+      const serializedSize = jsonLength(event);
       if (events.length >= maxEvents || usedBytes + serializedSize > maxBytes) {
         droppedEvents += 1;
         return;
       }
 
+      event.data = cloneLogPayload(payload);
       usedBytes += serializedSize;
       events.push(event);
     },

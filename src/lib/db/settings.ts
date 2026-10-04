@@ -5,6 +5,7 @@
 import { getDbInstance } from "./core";
 import { backupDbFile } from "./backup";
 import { invalidateDbCache } from "./readCache";
+import { readSettingsRevisionTag, tagSettingsRevision } from "./settingsRevisionTag";
 import { encrypt, decrypt } from "./encryption";
 import { getProxyRegistryGeneration, resolveProxyForScopeFromRegistry } from "./proxies";
 import { getComboModelProvider as getComboEntryProvider } from "@/lib/combos/steps";
@@ -109,17 +110,21 @@ export class SettingsRevisionConflictError extends Error {
   }
 }
 
-function readSettingsRevision(db: ReturnType<typeof getDbInstance>): number {
-  const row = db
-    .prepare("SELECT value FROM key_value WHERE namespace = 'settings' AND key = ?")
-    .get(SETTINGS_REVISION_KEY) as { value?: string } | undefined;
-  if (!row?.value) return 0;
+function parseSettingsRevision(rawValue: unknown): number {
+  if (typeof rawValue !== "string" || !rawValue) return 0;
   try {
-    const parsed = JSON.parse(row.value) as unknown;
+    const parsed = JSON.parse(rawValue) as unknown;
     return typeof parsed === "number" && Number.isInteger(parsed) && parsed >= 0 ? parsed : 0;
   } catch {
     return 0;
   }
+}
+
+function readSettingsRevision(db: ReturnType<typeof getDbInstance>): number {
+  const row = db
+    .prepare("SELECT value FROM key_value WHERE namespace = 'settings' AND key = ?")
+    .get(SETTINGS_REVISION_KEY) as { value?: string } | undefined;
+  return parseSettingsRevision(row?.value);
 }
 
 export async function getSettingsRevision(): Promise<number> {
@@ -278,10 +283,14 @@ export async function getSettings() {
     providerAliases: {},
     providerAliasOverrides: {},
   };
+  // Stamp the result with the revision from this same SELECT, so hot-reload
+  // can order it against other reloads (see settingsRevisionTag.ts).
+  let revision = 0;
   for (const row of rows) {
     const record = toRecord(row);
     const key = typeof record.key === "string" ? record.key : null;
     const rawValue = typeof record.value === "string" ? record.value : null;
+    if (key === SETTINGS_REVISION_KEY) revision = parseSettingsRevision(rawValue);
     if (!key || rawValue === null || key.startsWith("_")) continue;
     try {
       settings[key] = JSON.parse(rawValue);
@@ -308,7 +317,7 @@ export async function getSettings() {
     ).run();
   }
 
-  return settings;
+  return tagSettingsRevision(settings, revision);
 }
 
 export async function updateSettings(
@@ -330,6 +339,7 @@ export async function updateSettings(
   const insert = db.prepare(
     "INSERT OR REPLACE INTO key_value (namespace, key, value) VALUES ('settings', ?, ?)"
   );
+  let committedRevision = 0;
   const tx = db.transaction(() => {
     const currentRevision = readSettingsRevision(db);
     if (options?.expectedRevision !== undefined && options.expectedRevision !== currentRevision) {
@@ -339,7 +349,8 @@ export async function updateSettings(
       const toStore = key === "oidcClientSecret" ? encrypt(value as string) : value;
       insert.run(key, JSON.stringify(toStore));
     }
-    insert.run(SETTINGS_REVISION_KEY, JSON.stringify(currentRevision + 1));
+    committedRevision = currentRevision + 1;
+    insert.run(SETTINGS_REVISION_KEY, JSON.stringify(committedRevision));
   });
   tx();
   backupDbFile("pre-write");
@@ -355,7 +366,13 @@ export async function updateSettings(
 
   try {
     const { applyRuntimeSettings } = await import("@/lib/config/runtimeSettings");
-    await applyRuntimeSettings(nextSettings, { source: "settings:update" });
+    // Pass the revision these settings were read at (>= committedRevision if
+    // another writer landed meanwhile) so a slower, older reload cannot roll
+    // back revision-aware sections (e.g. clientVersionModes) of a newer write.
+    await applyRuntimeSettings(nextSettings, {
+      source: "settings:update",
+      revision: readSettingsRevisionTag(nextSettings) ?? committedRevision,
+    });
   } catch (error) {
     console.warn(
       "[HOT_RELOAD] Failed to apply runtime settings after update:",

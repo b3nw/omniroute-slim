@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { SQLITE_FILE } from "@/lib/db/core";
 import { getSettings } from "@/lib/db/settings";
+import { readSettingsRevisionTag } from "@/lib/db/settingsRevisionTag";
 import { applyRuntimeSettings, type RuntimeReloadChange } from "./runtimeSettings";
 
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
@@ -37,7 +38,12 @@ function logChanges(source: string, changes: RuntimeReloadChange[]) {
 
 async function runHotReloadCheck(source: string) {
   const settings = await getSettings();
-  const changes = await applyRuntimeSettings(settings, { source });
+  // The revision these settings were read at: a poll that read before a newer
+  // write but finishes after it must not roll revision-aware sections back.
+  const changes = await applyRuntimeSettings(settings, {
+    source,
+    revision: readSettingsRevisionTag(settings),
+  });
   logChanges(source, changes);
 }
 

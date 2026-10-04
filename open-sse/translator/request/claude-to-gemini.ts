@@ -16,6 +16,7 @@ import {
   buildChangedToolNameMap,
   buildHistoricalToolResultContext,
   mergeConsecutiveSameRoleContents,
+  ensureHistoryDoesNotOpenWithFunctionCall,
   type GeminiContent,
 } from "./openai-to-gemini/helpers.ts";
 
@@ -83,6 +84,10 @@ export function claudeToGeminiRequest(model, body, stream, credentials = null) {
       result.generationConfig.maxOutputTokens = maxOutputTokens;
     }
   }
+  if (body.stop_sequences !== undefined || body.stop !== undefined) {
+    const rawStop = body.stop_sequences ?? body.stop;
+    result.generationConfig.stopSequences = Array.isArray(rawStop) ? rawStop : [rawStop];
+  }
 
   // ── System instruction ─────────────────────────────────────────
   if (body.system) {
@@ -137,6 +142,10 @@ export function claudeToGeminiRequest(model, body, stream, credentials = null) {
     const omittedToolCallIds = new Set<string>();
     for (const msg of body.messages) {
       const parts = [];
+      // Images returned inside tool_result blocks go right after the last tool response,
+      // ahead of any text that follows it, as on the Claude -> OpenAI -> Gemini path.
+      const toolResultImageParts = [];
+      let afterLastToolResult = -1;
 
       if (Array.isArray(msg.content)) {
         for (const block of msg.content) {
@@ -181,9 +190,24 @@ export function claudeToGeminiRequest(model, body, stream, credentials = null) {
             case "tool_result": {
               let content = block.content;
               if (Array.isArray(content)) {
-                content = content
-                  .map((c) => (c.type === "text" ? c.text : JSON.stringify(c)))
-                  .join("\n");
+                // A base64 image (the Read tool on a PNG, an MCP screenshot) becomes an
+                // inlineData part, as claude-to-openai.ts lifts it into an image turn
+                // (#5100); JSON.stringify would hand Gemini the base64 as text.
+                const textParts = [];
+                let hasImage = false;
+                for (const c of content) {
+                  if (c.type === "image" && c.source?.type === "base64") {
+                    toolResultImageParts.push({
+                      inlineData: { mimeType: c.source.media_type, data: c.source.data },
+                    });
+                    hasImage = true;
+                  } else {
+                    textParts.push(c.type === "text" ? c.text : JSON.stringify(c));
+                  }
+                }
+                content =
+                  textParts.join("\n") ||
+                  (hasImage ? "[tool returned an image; see attached]" : "");
               }
               const toolUseId = block.tool_use_id;
               const name = toolUseNames[toolUseId] || "unknown";
@@ -195,6 +219,7 @@ export function claudeToGeminiRequest(model, body, stream, credentials = null) {
                 parts.push({
                   text: buildHistoricalToolResultContext(name, content),
                 });
+                afterLastToolResult = parts.length;
                 break;
               }
 
@@ -205,6 +230,7 @@ export function claudeToGeminiRequest(model, body, stream, credentials = null) {
                   response: { result: content },
                 },
               });
+              afterLastToolResult = parts.length;
               break;
             }
 
@@ -223,6 +249,9 @@ export function claudeToGeminiRequest(model, body, stream, credentials = null) {
         }
       } else if (typeof msg.content === "string" && msg.content) {
         parts.push({ text: msg.content });
+      }
+      if (toolResultImageParts.length > 0) {
+        parts.splice(afterLastToolResult, 0, ...toolResultImageParts);
       }
 
       if (parts.length > 0) {
@@ -310,6 +339,9 @@ export function claudeToGeminiRequest(model, body, stream, credentials = null) {
   // (400 INVALID_ARGUMENT: "Request contains consecutive messages with the same role").
   // Normalize adjacent same-role messages by concatenating their parts.
   result.contents = mergeConsecutiveSameRoleContents(result.contents);
+  // Guard the one alternation violation the merge above cannot reach: history
+  // that opens with a functionCall-bearing turn instead of a user turn.
+  result.contents = ensureHistoryDoesNotOpenWithFunctionCall(result.contents);
 
   return result;
 }

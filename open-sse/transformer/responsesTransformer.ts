@@ -359,6 +359,24 @@ export function createResponsesApiTransformStream(
     }
   };
 
+  // #13693: post-close content (deepseek/Kimi upstreams interleave text after
+  // a real tool_call) must not land on an already-done message item — Codex
+  // CLI aborts on "OutputTextDelta without active item". Allocate the next
+  // free output_index instead, avoiding reasoning, messages and cached
+  // tool-call indexes.
+  const nextFreeMessageIndex = (requestedIdx) => {
+    let candidate = normalizeOutputIndex(requestedIdx);
+    const allocatedToolIndexes = new Set(
+      Object.values(state.funcOutputIndex || {}).map((v) => normalizeOutputIndex(v))
+    );
+    const claimed = (i) =>
+      state.msgItemAdded[i] ||
+      allocatedToolIndexes.has(i) ||
+      (state.reasoningId && i === normalizeOutputIndex(state.reasoningIndex));
+    while (claimed(candidate)) candidate += 1;
+    return candidate;
+  };
+
   const closeMessage = (controller, idx) => {
     if (state.msgItemAdded[idx] && !state.msgItemDone[idx]) {
       state.msgItemDone[idx] = true;
@@ -747,7 +765,12 @@ export function createResponsesApiTransformStream(
                 // Use a distinct output_index for the message when reasoning was
                 // emitted, so the message item does not collide with the
                 // reasoning item's output_index.
-                const msgIdx = state.reasoningId ? state.reasoningIndex + 1 : idx;
+                let msgIdx = state.reasoningId ? state.reasoningIndex + 1 : idx;
+                // #13693: a done item must never receive new deltas — re-home
+                // the text on a fresh message item instead.
+                if (state.msgItemDone[msgIdx]) {
+                  msgIdx = nextFreeMessageIndex(msgIdx);
+                }
 
                 // Fix for #1211: Strip leading double-newlines / blank spaces from the very first text chunk
                 if (!state.msgTextBuf[msgIdx]) {
@@ -795,7 +818,7 @@ export function createResponsesApiTransformStream(
           }
 
           // Handle tool_calls
-          if (delta.tool_calls) {
+          if (delta.tool_calls?.length) {
             // Close reasoning first so tool calls do not collide with an
             // open reasoning item, then close the message at its real index.
             if (state.reasoningId && !state.reasoningDone) {

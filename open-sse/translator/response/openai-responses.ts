@@ -23,12 +23,12 @@ import {
 import { createEventEmitter } from "./openai-responses/eventEmitter.ts";
 import { buildResponsesToolCallItem } from "./responsesToolItem.ts";
 import { resolveRequestToolIdentity } from "./openai-responses/requestToolIdentity.ts";
+import { resolveLocalToolCallIndex } from "./openai-responses/toolCallLocalIndex.ts";
 import {
   synthesizeCompletedToolCalls,
   computeFinishReason,
   withAssistantRoleOnFirstDelta,
 } from "./openai-responses/synthesizeCompletedToolCalls.ts";
-
 // normalizeUpstreamFailure is re-exported for external importers (tests).
 export { normalizeUpstreamFailure } from "./openai-responses/pureHelpers.ts";
 
@@ -109,6 +109,49 @@ function escapeJsonStringValues(json: string, escapeState: JsonStringEscapeState
 
   escapeState.inString = inString;
   escapeState.pendingEscape = pendingEscape;
+  return result;
+}
+
+/**
+ * Collapse double-escaped tab sequences inside JSON string values.
+ * Some providers (e.g. gpt-5.6-luna-xhigh, #12831) over-escape a tab when
+ * emitting tool call argument JSON: instead of the single valid JSON escape
+ * `\t` (backslash + t), they emit `\\t` (backslash + backslash + t) inside
+ * the string value. JSON.parse then decodes that to a literal two-character
+ * `\t` text (backslash followed by the letter t) instead of an actual tab
+ * character, which breaks consumers (e.g. editor patches) expecting real
+ * tabs. This only rewrites the over-escaped form and leaves an
+ * already-correct single escape untouched.
+ */
+function fixDoubleEscapedTabs(json: string): string {
+  let result = "";
+  let inString = false;
+
+  for (let i = 0; i < json.length; i++) {
+    const ch = json[i];
+
+    if (inString && ch === "\\" && json[i + 1] === "\\" && json[i + 2] === "t") {
+      result += "\\t";
+      i += 2;
+      continue;
+    }
+
+    // Inside a string, leave any other escape sequence untouched.
+    if (inString && ch === "\\") {
+      result += ch + (json[i + 1] ?? "");
+      i++;
+      continue;
+    }
+
+    if (ch === '"') {
+      result += ch;
+      inString = !inString;
+      continue;
+    }
+
+    result += ch;
+  }
+
   return result;
 }
 
@@ -287,7 +330,7 @@ export function openaiToOpenAIResponsesResponse(chunk, state) {
   }
 
   // Handle tool_calls
-  if (delta.tool_calls) {
+  if (delta.tool_calls?.length) {
     // Close reasoning first so tool calls do not collide with an open
     // reasoning item, then close the message at its real index.
     if (state.reasoningId && !state.reasoningDone) {
@@ -413,7 +456,30 @@ function closeReasoning(state, emit) {
   }
 }
 
+// Some upstreams (deepseek-v4, Kimi-style) interleave plain text deltas AFTER
+// a real tool_call has closed the message item. Emitting those onto the
+// already-done output_index violates the Responses item lifecycle (#13693):
+// Codex CLI aborts on "OutputTextDelta without active item" and the tail text
+// is silently dropped from response.completed. Re-home post-close content onto
+// a FRESH message item at the next free output_index instead — the text keeps
+// flowing and every done item stays immutable. The fresh index must also stay
+// clear of the tool-call block (toolCallOutputIndexBase), hence the scan past
+// reasoning/message AND allocated function-call indexes.
+function nextFreeMessageIndex(state, requestedIdx) {
+  let candidate = normalizeOutputIndex(requestedIdx);
+  const allocatedToolIndexes = state.funcAllocatedOutputIndexes || {};
+  const claimed = (i) =>
+    state.msgItemAdded[i] ||
+    allocatedToolIndexes[i] !== undefined ||
+    (state.reasoningId && i === normalizeOutputIndex(state.reasoningIndex));
+  while (claimed(candidate)) candidate += 1;
+  return candidate;
+}
+
 function emitTextContent(state, emit, idx, content) {
+  if (state.msgItemDone[idx]) {
+    idx = nextFreeMessageIndex(state, idx);
+  }
   if (!state.msgItemAdded[idx]) {
     state.msgItemAdded[idx] = true;
     const msgId = `msg_${state.responseId}_${idx}`;
@@ -506,7 +572,11 @@ function toolCallOutputIndexBase(state) {
 
 function emitToolCall(state, emit, tc) {
   const tcIdx = tc.index ?? 0;
-  const outputIndex = toolCallOutputIndexBase(state) + normalizeOutputIndex(tcIdx);
+  const outputIndex = toolCallOutputIndexBase(state) + resolveLocalToolCallIndex(state, tcIdx);
+  // Record every allocated tool-call output_index so a post-close text
+  // relocation (nextFreeMessageIndex) can never collide with it.
+  if (!state.funcAllocatedOutputIndexes) state.funcAllocatedOutputIndexes = {};
+  state.funcAllocatedOutputIndexes[outputIndex] = true;
   const newCallId = tc.id;
   const funcName = tc.function?.name;
 
@@ -588,7 +658,7 @@ function emitToolCall(state, emit, tc) {
       state.funcArgsEscapeState[tcIdx] = createJsonStringEscapeState();
     }
     const sanitized = escapeJsonStringValues(
-      tc.function.arguments,
+      fixDoubleEscapedTabs(tc.function.arguments),
       state.funcArgsEscapeState[tcIdx]
     );
     const nextArgs = appendToolCallArgumentDelta(existingArgs, sanitized);
@@ -609,7 +679,7 @@ function emitToolCall(state, emit, tc) {
 function closeToolCall(state, emit, idx, recordAsCompleted = true) {
   const callId = state.funcCallIds[idx];
   if (callId && !state.funcItemDone[idx]) {
-    const normalizedIndex = toolCallOutputIndexBase(state) + normalizeOutputIndex(idx);
+    const normalizedIndex = toolCallOutputIndexBase(state) + resolveLocalToolCallIndex(state, idx);
     const args = state.funcArgsBuf[idx] || "{}";
     const toolName = state.funcNames[idx] || "";
     // See emitToolCall()'s isCustomTool comment — must stay in sync (both compute the
