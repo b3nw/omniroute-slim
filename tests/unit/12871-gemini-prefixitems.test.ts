@@ -108,12 +108,10 @@ test("stripped prefixItems arrays still declare an items schema (issue #12871)",
   ];
 
   const geminiTools = buildGeminiTools(tools) as
-    | Array<{ functionDeclarations?: Array<{ parameters?: unknown }> }>
-    | undefined;
+    Array<{ functionDeclarations?: Array<{ parameters?: unknown }> }> | undefined;
 
   const parameters = geminiTools?.[0]?.functionDeclarations?.[0]?.parameters as
-    | { properties?: Record<string, { type?: string; items?: unknown }> }
-    | undefined;
+    { properties?: Record<string, { type?: string; items?: unknown }> } | undefined;
   const pair = parameters?.properties?.pair;
 
   assert.equal(pair?.type, "array");

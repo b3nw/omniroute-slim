@@ -73,7 +73,11 @@ import {
   isStripReasoningRequested,
 } from "./chatCore/headers.ts";
 import { markCodexScopeRateLimited } from "./chatCore/codexFailover.ts";
-import { getCodexClientSessionId, isCodexOriginatedHeaders, isClaudeCodeOriginatedHeaders } from "../config/codexIdentity.ts";
+import {
+  getCodexClientSessionId,
+  isCodexOriginatedHeaders,
+  isClaudeCodeOriginatedHeaders,
+} from "../config/codexIdentity.ts";
 import {
   noteCodexTurnStateProvenance,
   readCodexTurnStateHeader,
@@ -795,7 +799,6 @@ export async function handleChatCore({
     if (body && typeof body === "object") {
       body.model = model;
     }
-
   }
 
   // Custom aliases remain explicit; lifecycle replacements are advisory and never silently routed.
@@ -1949,7 +1952,6 @@ export async function handleChatCore({
           "CONTEXT",
           `Context compressed: ${stats.original} → ${stats.final} tokens${layersInfo}`
         );
-
       } else {
         log?.debug?.("CONTEXT", `Compression not applied: context already fits within target`);
       }
@@ -5031,23 +5033,18 @@ export async function handleChatCore({
 
     // Execute the synthetic web_search / web_fetch fallback tool calls, if the
     // request had either fallback enabled, and splice the results back in.
-    const builtinToolNames = [
-      webSearchFallbackPlan.toolName,
-      webFetchFallbackPlan.toolName,
-    ].filter((name): name is string => Boolean(name));
+    const builtinToolNames = [webSearchFallbackPlan.toolName, webFetchFallbackPlan.toolName].filter(
+      (name): name is string => Boolean(name)
+    );
     if (builtinToolNames.length > 0) {
-      translatedResponse = await handleBuiltinToolExecution(
-        translatedResponse,
-        effectiveModel,
-        {
-          apiKeyId: apiKeyInfo?.id || "local",
-          sessionId: pipelineSessionId,
-          requestId: skillRequestId,
-          builtinToolNames,
-          provider,
-          model: effectiveModel,
-        }
-      );
+      translatedResponse = await handleBuiltinToolExecution(translatedResponse, effectiveModel, {
+        apiKeyId: apiKeyInfo?.id || "local",
+        sessionId: pipelineSessionId,
+        requestId: skillRequestId,
+        builtinToolNames,
+        provider,
+        model: effectiveModel,
+      });
     }
 
     const responseUsage = isJsonRecord(usage)

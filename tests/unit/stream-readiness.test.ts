@@ -616,10 +616,7 @@ test("ensureStreamReadiness preserves sanitized error-only diagnostics on early 
   assert.equal(result.response.status, 502);
   assert.equal(result.code, "STREAM_EARLY_EOF");
   assert.equal(result.type, "stream_early_eof");
-  assert.equal(
-    result.classificationReason,
-    "Stream ended before producing a non-ping SSE event"
-  );
+  assert.equal(result.classificationReason, "Stream ended before producing a non-ping SSE event");
   assert.equal(
     result.upstreamDiagnostic,
     "UPSTREAM_DETAIL quota exhausted; retry after 2s; empty content Bearer [REDACTED] <path>"
@@ -636,16 +633,9 @@ test("ensureStreamReadiness preserves sanitized error-only diagnostics on early 
   assert.equal(body.upstream_details.error.message, result.upstreamDiagnostic);
   assert.equal(warnings.length, 1);
 
-  for (const surfaced of [
-    result.reason,
-    body.upstream_details.error.message,
-    warnings[0],
-  ]) {
+  for (const surfaced of [result.reason, body.upstream_details.error.message, warnings[0]]) {
     assert.match(surfaced, /UPSTREAM_DETAIL/);
-    assert.doesNotMatch(
-      surfaced,
-      /SECOND_DETAIL|TOP_SECRET|\/srv\/omniroute\/handler\.ts/
-    );
+    assert.doesNotMatch(surfaced, /SECOND_DETAIL|TOP_SECRET|\/srv\/omniroute\/handler\.ts/);
   }
 });
 

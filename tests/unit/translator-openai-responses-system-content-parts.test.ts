@@ -1,9 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { openaiToOpenAIResponsesRequest } = await import(
-  "../../open-sse/translator/request/openai-responses.ts"
-);
+const { openaiToOpenAIResponsesRequest } =
+  await import("../../open-sse/translator/request/openai-responses.ts");
 
 // Regression: the leading system message was read as `typeof content === "string"
 // ? content : ""`, so a Chat-Completions content-part array — valid for `system`,
@@ -55,7 +54,12 @@ test("Chat -> Responses: cache_control on a system part does not drop the text",
 test("Chat -> Responses: a plain string system message is unchanged", () => {
   const result = openaiToOpenAIResponsesRequest(
     "gpt-4o",
-    { messages: [{ role: "system", content: "Be terse." }, { role: "user", content: "hi" }] },
+    {
+      messages: [
+        { role: "system", content: "Be terse." },
+        { role: "user", content: "hi" },
+      ],
+    },
     null,
     null
   ) as Record<string, unknown>;
@@ -66,7 +70,12 @@ test("Chat -> Responses: a plain string system message is unchanged", () => {
 test("Chat -> Responses: a system message with no text yields empty instructions", () => {
   const result = openaiToOpenAIResponsesRequest(
     "gpt-4o",
-    { messages: [{ role: "system", content: [] }, { role: "user", content: "hi" }] },
+    {
+      messages: [
+        { role: "system", content: [] },
+        { role: "user", content: "hi" },
+      ],
+    },
     null,
     null
   ) as Record<string, unknown>;

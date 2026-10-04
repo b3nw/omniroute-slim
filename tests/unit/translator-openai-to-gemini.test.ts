@@ -866,7 +866,11 @@ test("OpenAI -> Antigravity maps Claude-family models to Gemini-compatible schem
   assert.match(result.requestId, /^agent\/\d+\/[0-9a-f]{8}$/);
   assert.equal(result.enabledCreditTypes, undefined);
   assert.equal(result.request.systemInstruction.parts[0].text, ANTIGRAVITY_DEFAULT_SYSTEM);
-  assert.equal(result.request.systemInstruction.parts.length, 1, "systemInstruction must contain only ANTIGRAVITY_DEFAULT_SYSTEM (#9030)");
+  assert.equal(
+    result.request.systemInstruction.parts.length,
+    1,
+    "systemInstruction must contain only ANTIGRAVITY_DEFAULT_SYSTEM (#9030)"
+  );
   // #9030 — Client system content moved to first user message to avoid upstream 429s
   assert.equal(result.request.contents[0].parts[0].text, "Project rules");
   assert.equal(result.request.contents[0].parts[1].text, "Read a file");
@@ -1774,7 +1778,9 @@ test("OpenAI -> Gemini pairs tool calls and responses in context mode without ID
 
   // In context mode without thought signatures, tool responses are emitted as context text
   const textParts = result.contents.flatMap((c: GeminiTestContent) =>
-    (c.parts || []).filter((p: GeminiTestPart) => typeof p.text === "string").map((p: GeminiTestPart) => p.text)
+    (c.parts || [])
+      .filter((p: GeminiTestPart) => typeof p.text === "string")
+      .map((p: GeminiTestPart) => p.text)
   );
   assert.ok(
     textParts.some(

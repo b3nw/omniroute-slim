@@ -106,28 +106,30 @@ function appendReasoningContent(current: unknown, next: string): string {
 function normalizeRoleBasedToolCalls(toolCalls: unknown): JsonRecord[] {
   if (!Array.isArray(toolCalls)) return [];
 
-  return toolCalls
-    .map((toolCallValue) => {
-      const toolCall = toRecord(toolCallValue);
-      const fn = toRecord(toolCall.function);
-      const name = toString(fn.name).trim();
-      const id = toString(toolCall.id).trim();
-      if (!name || !id) return null;
-      return {
-        id,
-        type: "function",
-        function: {
-          name,
-          arguments:
-            typeof fn.arguments === "string" ? fn.arguments : JSON.stringify(fn.arguments ?? {}),
-        },
-      };
-    })
-    // The mapped element is the tool-call object or null, which is NOT a
-    // Record<string, unknown> as far as the predicate rule is concerned (TS2677:
-    // the predicate type must be assignable to the parameter type). Narrow by the
-    // element's own type; the literal satisfies JsonRecord at the return.
-    .filter((toolCall): toolCall is NonNullable<typeof toolCall> => toolCall !== null);
+  return (
+    toolCalls
+      .map((toolCallValue) => {
+        const toolCall = toRecord(toolCallValue);
+        const fn = toRecord(toolCall.function);
+        const name = toString(fn.name).trim();
+        const id = toString(toolCall.id).trim();
+        if (!name || !id) return null;
+        return {
+          id,
+          type: "function",
+          function: {
+            name,
+            arguments:
+              typeof fn.arguments === "string" ? fn.arguments : JSON.stringify(fn.arguments ?? {}),
+          },
+        };
+      })
+      // The mapped element is the tool-call object or null, which is NOT a
+      // Record<string, unknown> as far as the predicate rule is concerned (TS2677:
+      // the predicate type must be assignable to the parameter type). Narrow by the
+      // element's own type; the literal satisfies JsonRecord at the return.
+      .filter((toolCall): toolCall is NonNullable<typeof toolCall> => toolCall !== null)
+  );
 }
 
 /**

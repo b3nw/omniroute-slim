@@ -6,9 +6,8 @@ import {
   type OutputStyleSelectionEntry,
 } from "../../../open-sse/services/compression/outputStyles/apply.ts";
 
-const sel = (
-  ...entries: Array<[string, "lite" | "full" | "ultra"]>
-): OutputStyleSelectionEntry[] => entries.map(([id, level]) => ({ id, level }));
+const sel = (...entries: Array<[string, "lite" | "full" | "ultra"]>): OutputStyleSelectionEntry[] =>
+  entries.map(([id, level]) => ({ id, level }));
 
 test("injects a system instruction with the unified marker", () => {
   const r = applyOutputStyles(
@@ -61,9 +60,11 @@ test("idempotent: re-applying is a no-op", () => {
   const twice = applyOutputStyles(once, sel(["terse-prose", "full"]));
   assert.equal(twice.applied, false);
   assert.equal(twice.skippedReason, "already_applied");
-  const markerCount = (String(twice.body.messages?.[0]?.content).match(
-    new RegExp(escapeRe(OUTPUT_STYLE_MARKER), "g")
-  ) ?? []).length;
+  const markerCount = (
+    String(twice.body.messages?.[0]?.content).match(
+      new RegExp(escapeRe(OUTPUT_STYLE_MARKER), "g")
+    ) ?? []
+  ).length;
   assert.equal(markerCount, 1);
 });
 
@@ -105,7 +106,10 @@ test("unknown style id is skipped, never throws", () => {
     sel(["__nope__", "full"], ["terse-prose", "full"])
   );
   assert.equal(r.applied, true);
-  assert.deepEqual(r.appliedStyles?.map((s) => s.id), ["terse-prose"]);
+  assert.deepEqual(
+    r.appliedStyles?.map((s) => s.id),
+    ["terse-prose"]
+  );
 });
 
 test("locale gate: terse-cjk only honored under zh", () => {

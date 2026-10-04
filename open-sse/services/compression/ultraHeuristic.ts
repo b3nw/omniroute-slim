@@ -106,15 +106,32 @@ export const FORCE_PRESERVE_RE = /\d|https?:\/\/|[._\/\\]|Error:|Exception:|```/
 // #13454: Polarity, modality, and negation words that must never be pruned.
 // Dropping these flips the meaning of the sentence they appear in.
 const POLARITY_WORDS = new Set([
-  "never", "always", "no", "not", "nor",
-  "must", "shall", "shall not",
-  "do", "does", "did",
-  "don't", "doesn't", "didn't",
-  "can", "cannot", "can't",
-  "should", "shouldn't",
-  "need", "needs", "mustn't",
-  "won't", "wouldn't",
-  "could", "couldn't",
+  "never",
+  "always",
+  "no",
+  "not",
+  "nor",
+  "must",
+  "shall",
+  "shall not",
+  "do",
+  "does",
+  "did",
+  "don't",
+  "doesn't",
+  "didn't",
+  "can",
+  "cannot",
+  "can't",
+  "should",
+  "shouldn't",
+  "need",
+  "needs",
+  "mustn't",
+  "won't",
+  "wouldn't",
+  "could",
+  "couldn't",
 ]);
 
 /**
@@ -163,16 +180,18 @@ export function pruneByScore(text: string, keepRate = 0.5, minScore = 0.3): stri
 
   // Rebuild preserving whitespace
   let wordIdx = 0;
-  return tokens
-    .map((t) => {
-      if (/^\s+$/.test(t)) return t;
-      const keep = !toPrune.has(wordIdx);
-      wordIdx++;
-      return keep ? t : "";
-    })
-    .join("")
-    // #13454: Only collapse spaces/tabs, NOT newlines.
-    // Collapsing newlines destroys bullet lists, headings, and code fences.
-    .replace(/[ \t]{2,}/g, " ")
-    .trim();
+  return (
+    tokens
+      .map((t) => {
+        if (/^\s+$/.test(t)) return t;
+        const keep = !toPrune.has(wordIdx);
+        wordIdx++;
+        return keep ? t : "";
+      })
+      .join("")
+      // #13454: Only collapse spaces/tabs, NOT newlines.
+      // Collapsing newlines destroys bullet lists, headings, and code fences.
+      .replace(/[ \t]{2,}/g, " ")
+      .trim()
+  );
 }

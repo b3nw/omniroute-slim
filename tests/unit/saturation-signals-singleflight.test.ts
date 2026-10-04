@@ -52,7 +52,10 @@ test("cache hit does not create _inflight state", async () => {
 test("concurrent same-key calls start ONE upstream fetch (singleflight)", async () => {
   const dim = { unit: "tokens", window: "hourly" } as const;
   let calls = 0;
-  __setGenericUsageFetcherForTests(async () => { calls++; return { quotas: {} }; });
+  __setGenericUsageFetcherForTests(async () => {
+    calls++;
+    return { quotas: {} };
+  });
   try {
     _clearSaturationCache();
     const [a, b] = await Promise.all([
@@ -69,7 +72,10 @@ test("concurrent same-key calls start ONE upstream fetch (singleflight)", async 
 test("reject path fails open to 0, serves _cache without refetch, cleans _inflight", async () => {
   const dim = { unit: "tokens", window: "hourly" } as const;
   let calls = 0;
-  __setGenericUsageFetcherForTests(async () => { calls++; throw new Error("boom"); });
+  __setGenericUsageFetcherForTests(async () => {
+    calls++;
+    throw new Error("boom");
+  });
   try {
     _clearSaturationCache();
     const [a, b] = await Promise.all([

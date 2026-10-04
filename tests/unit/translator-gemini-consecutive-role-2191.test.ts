@@ -141,7 +141,10 @@ test("ensureHistoryDoesNotOpenWithFunctionCall prepends a synthetic user turn wh
     fixed.map((c) => c.role),
     ["user", "model", "user"]
   );
-  assert.ok(fixed[0].parts[0].text, "the synthetic leading turn carries plain text, not a tool part");
+  assert.ok(
+    fixed[0].parts[0].text,
+    "the synthetic leading turn carries plain text, not a tool part"
+  );
   // Original array and its entries are untouched.
   assert.equal(input.length, 2);
 });

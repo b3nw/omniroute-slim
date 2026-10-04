@@ -114,7 +114,7 @@ function convertContent(
     if (part.functionResponse) {
       const fr = part.functionResponse;
       const payload =
-        fr.response && "result" in fr.response ? fr.response.result : fr.response ?? {};
+        fr.response && "result" in fr.response ? fr.response.result : (fr.response ?? {});
       toolMessages.push({
         role: "tool",
         tool_call_id: toolCallIds.responseId(fr),

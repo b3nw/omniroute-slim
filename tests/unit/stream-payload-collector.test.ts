@@ -50,9 +50,7 @@ test("buildStreamSummaryFromEvents handles single event", () => {
 });
 
 test("buildStreamSummaryFromEvents handles multiple events", () => {
-  const events = [
-    { index: 0, data: { choices: [{ delta: { content: " hello" } }] } },
-  ];
+  const events = [{ index: 0, data: { choices: [{ delta: { content: " hello" } }] } }];
   const result = collector.buildStreamSummaryFromEvents(events);
   assert.ok(result !== null);
   assert.ok(typeof result === "object");

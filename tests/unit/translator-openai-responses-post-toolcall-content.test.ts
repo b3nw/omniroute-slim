@@ -89,10 +89,7 @@ test("content after a closed message must not emit orphan deltas on the done ite
   // #13693 invariant 1: no output_text.delta may follow the message item's
   // output_item.done for the SAME output_index.
   const itemDoneIndexes = events
-    .filter(
-      (e) =>
-        e.event === "response.output_item.done" && e.data.item?.type === "message"
-    )
+    .filter((e) => e.event === "response.output_item.done" && e.data.item?.type === "message")
     .map((e) => e.data.output_index);
   const orphanDeltas = [];
   let lastDoneForIndex = new Map();
@@ -136,7 +133,12 @@ test("every output_text.done text equals the concatenation of its item's deltas"
           delta: {
             content: "two",
             tool_calls: [
-              { index: 0, id: "call_1", type: "function", function: { name: "f", arguments: "{}" } },
+              {
+                index: 0,
+                id: "call_1",
+                type: "function",
+                function: { name: "f", arguments: "{}" },
+              },
             ],
           },
           finish_reason: null,

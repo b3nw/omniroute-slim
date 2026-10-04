@@ -75,10 +75,7 @@ function writeValue(
  * token, e.g. an object-valued key being dropped later is not possible here
  * — writeValue callers already filter omissions). Returns true when handled.
  */
-function writeToJSONFallback(
-  hash: ReturnType<typeof crypto.createHash>,
-  obj: object
-): boolean {
+function writeToJSONFallback(hash: ReturnType<typeof crypto.createHash>, obj: object): boolean {
   const hasToJSON = typeof (obj as { toJSON?: unknown }).toJSON === "function";
   if (hasToJSON || !isPlainContainer(obj)) {
     const encoded = JSON.stringify(obj);
