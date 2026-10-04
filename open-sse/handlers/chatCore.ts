@@ -877,6 +877,7 @@ export async function handleChatCore({
       stage: "registered",
       correlationId,
       sessionTag: conversationId || null,
+      callLogId: traceId,
     }) || generateRequestId();
 
   // Initialize rate limit settings from persisted DB (once, lazy)

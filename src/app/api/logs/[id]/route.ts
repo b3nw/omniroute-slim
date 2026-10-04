@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { getCallLogById } from "@/lib/usageDb";
-import { getCompletedDetails, getPendingById } from "@/lib/usage/usageHistory";
+import { getPendingById } from "@/lib/usage/usageHistory";
+import { findCompletedDetailForCallLog } from "@/lib/usage/completedRequestDetails";
 
 // Each logged chunk-array element is one raw network read, timestamp-prefixed
 // for the debug display — NOT one complete SSE `data:` line. A single JSON
@@ -116,8 +117,7 @@ export async function GET(
       Object.keys(persistedRequest.pipelinePayloads).length === 0
     ) {
       try {
-        const completed = getCompletedDetails();
-        const inMem = completed.get(id);
+        const inMem = findCompletedDetailForCallLog(id, persistedRequest);
         if (inMem) {
           const pipelinePayloads: any = {
             clientRequest: inMem.clientRequest ?? null,
