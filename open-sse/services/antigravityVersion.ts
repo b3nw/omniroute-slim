@@ -1,3 +1,5 @@
+import { getActiveClientVersion } from "@/lib/client-versions/registry";
+
 const ANTIGRAVITY_IDE_RELEASE_FEED_URL =
   "https://antigravity-auto-updater-974169037036.us-central1.run.app/releases";
 const ANTIGRAVITY_CLI_RELEASE_URL =
@@ -136,6 +138,8 @@ function seedVersionCache(state: ProductVersionState, version: string, fetchedAt
 }
 
 export function resolveAntigravityIdeVersion(fetchImpl: FetchLike = fetch): Promise<string> {
+  const dynamic = getActiveClientVersion("antigravity");
+  if (dynamic) return Promise.resolve(dynamic);
   return resolveProductVersion(
     ideState,
     ANTIGRAVITY_IDE_FALLBACK_VERSION,
@@ -146,6 +150,8 @@ export function resolveAntigravityIdeVersion(fetchImpl: FetchLike = fetch): Prom
 }
 
 export function resolveAntigravityCliVersion(fetchImpl: FetchLike = fetch): Promise<string> {
+  const dynamic = getActiveClientVersion("antigravity-cli");
+  if (dynamic) return Promise.resolve(dynamic);
   return resolveProductVersion(
     cliState,
     ANTIGRAVITY_CLI_FALLBACK_VERSION,
@@ -156,11 +162,19 @@ export function resolveAntigravityCliVersion(fetchImpl: FetchLike = fetch): Prom
 }
 
 export function getCachedAntigravityIdeVersion(): string {
-  return ideState.cache?.version ?? ANTIGRAVITY_IDE_FALLBACK_VERSION;
+  return (
+    getActiveClientVersion("antigravity") ??
+    ideState.cache?.version ??
+    ANTIGRAVITY_IDE_FALLBACK_VERSION
+  );
 }
 
 export function getCachedAntigravityCliVersion(): string {
-  return cliState.cache?.version ?? ANTIGRAVITY_CLI_FALLBACK_VERSION;
+  return (
+    getActiveClientVersion("antigravity-cli") ??
+    cliState.cache?.version ??
+    ANTIGRAVITY_CLI_FALLBACK_VERSION
+  );
 }
 
 export function seedAntigravityIdeVersionCache(version: string, fetchedAt = Date.now()): void {

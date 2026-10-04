@@ -28,6 +28,7 @@ export const ONBOARD_USER_ENDPOINTS = [
 ] as const;
 
 import { withGeminiCliSurface } from "../executors/geminiCli.ts";
+import { getActiveClientVersion } from "@/lib/client-versions/registry";
 
 const SERVICE_USAGE_API = "https://serviceusage.googleapis.com/v1";
 const CRM_PROJECTS_URL = "https://cloudresourcemanager.googleapis.com/v1/projects";
@@ -40,6 +41,7 @@ const DEFAULT_ACCEPT_ENCODING = "gzip, deflate, br";
 
 export function getGeminiCliAuthHeaders(accessToken: string): Record<string, string> {
   const uaVersion =
+    getActiveClientVersion("gemini-cli") ||
     process.env.GEMINI_CLI_UA_VERSION ||
     process.env.GEMINI_CLI_CLIENT_VERSION ||
     DEFAULT_UA_VERSION;

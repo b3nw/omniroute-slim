@@ -11,14 +11,10 @@ import assert from "node:assert/strict";
 // unit-tested without importing the chat-handler graph, which keeps timers
 // alive and hangs the node:test runner.
 
-const { convertGeminiToInternal } = await import(
-  "../../src/app/api/v1beta/models/[...path]/convertGeminiToInternal.ts"
-);
-const {
-  openAIChunkToGeminiChunk,
-  transformOpenAISSEToGeminiSSE,
-  convertOpenAIResponseToGemini,
-} = await import("../../open-sse/translator/response/openai-to-gemini-sse.ts");
+const { convertGeminiToInternal } =
+  await import("../../src/app/api/v1beta/models/[...path]/convertGeminiToInternal.ts");
+const { openAIChunkToGeminiChunk, transformOpenAISSEToGeminiSSE, convertOpenAIResponseToGemini } =
+  await import("../../open-sse/translator/response/openai-to-gemini-sse.ts");
 
 // ---------------------------------------------------------------------------
 // 1. Request converter
@@ -85,10 +81,7 @@ test("request: prior functionCall part → assistant tool_calls", () => {
   assert.equal(assistantMsg.tool_calls.length, 1);
   assert.equal(assistantMsg.tool_calls[0].type, "function");
   assert.equal(assistantMsg.tool_calls[0].function.name, "get_weather");
-  assert.deepEqual(
-    JSON.parse(assistantMsg.tool_calls[0].function.arguments),
-    { city: "Paris" }
-  );
+  assert.deepEqual(JSON.parse(assistantMsg.tool_calls[0].function.arguments), { city: "Paris" });
 });
 
 test("request: functionResponse part → tool role message", () => {
@@ -117,7 +110,10 @@ test("request: functionResponse part → tool role message", () => {
 
   const toolMsg = out.messages.find((m) => m.role === "tool");
   assert.ok(toolMsg, "tool message should exist");
-  assert.equal(toolMsg.tool_call_id, "get_weather");
+  // Neither part carries an id, so the response must answer the call's generated id —
+  // the function name matches no call and the result would be dropped downstream.
+  const assistantMsg = out.messages.find((m) => m.role === "assistant");
+  assert.equal(toolMsg.tool_call_id, assistantMsg.tool_calls[0].id);
   assert.deepEqual(JSON.parse(toolMsg.content), { tempC: 18 });
 });
 
@@ -170,8 +166,7 @@ test("non-stream: message.tool_calls → parts[].functionCall {name,args}", asyn
 
   const parts = body.candidates[0].content.parts;
   const fcPart = parts.find((p) => "functionCall" in p) as
-    | { functionCall: { name: string; args: Record<string, unknown> } }
-    | undefined;
+    { functionCall: { name: string; args: Record<string, unknown> } } | undefined;
   assert.ok(fcPart, "should emit a functionCall part");
   assert.equal(fcPart.functionCall.name, "get_weather");
   // args must be parsed to an object, NOT left as a JSON string.
@@ -213,7 +208,10 @@ test("stream (unit): fragmented tool_calls accumulate into one functionCall", ()
   const c2 = openAIChunkToGeminiChunk(
     {
       choices: [
-        { delta: { tool_calls: [{ index: 0, function: { arguments: 'ty":"Paris"}' } }] }, finish_reason: null },
+        {
+          delta: { tool_calls: [{ index: 0, function: { arguments: 'ty":"Paris"}' } }] },
+          finish_reason: null,
+        },
       ],
     },
     "gemini/gemini-pro",
@@ -230,8 +228,7 @@ test("stream (unit): fragmented tool_calls accumulate into one functionCall", ()
   assert.ok(c3, "final chunk should emit");
   const parts = c3!.candidates[0].content.parts as Array<Record<string, unknown>>;
   const fcPart = parts.find((p) => "functionCall" in p) as
-    | { functionCall: { name: string; args: Record<string, unknown> } }
-    | undefined;
+    { functionCall: { name: string; args: Record<string, unknown> } } | undefined;
   assert.ok(fcPart, "final chunk carries the functionCall part");
   assert.equal(fcPart.functionCall.name, "get_weather");
   assert.deepEqual(fcPart.functionCall.args, { city: "Paris" });

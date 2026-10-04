@@ -331,6 +331,10 @@ function runCompression(
       ...options,
       config: { ...options.config, memoizeCompressionResults: false },
     });
+    // memoStore clones internally, so the cache entry stays isolated from the caller's
+    // live object. Return the caller's own `result` (upstream #11727 semantics): handing
+    // back the stored clone would let the caller's later mutations corrupt the cache —
+    // the exact bug the result-memo mutation-isolation test guards.
     memoStore(key, result);
     return result;
   }
@@ -538,6 +542,10 @@ async function runCompressionAsync(
       const { runCompressionInWorker } = await import("./compressionWorkerPool.ts");
       return await runCompressionInWorker(body, mode, workerOptions, options?.onEngineStep);
     } catch {
+      // Worker failed (timeout, postMessage rejection, etc.) — a timeout means the
+      // compression was too heavy for the worker's budget, so falling through to run
+      // the SAME heavy compression synchronously on the main event loop would defeat
+      // the point of offloading it. Ship the body uncompressed instead.
       return { body, compressed: false, stats: null };
     }
   }
@@ -564,6 +572,8 @@ async function runCompressionAsync(
       ...options,
       config: { ...options.config, memoizeCompressionResults: false },
     });
+    // Same contract as the sync path: store the internal clone; return the caller's own
+    // object so later caller mutations cannot corrupt the cache (#11727 semantics).
     memoStore(key, result);
     return result;
   }

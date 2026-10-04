@@ -3,6 +3,7 @@ import {
   DEFAULT_CODEX_CLIENT_VERSION,
   getCodexCliRsHeaders as buildCodexCliRsHeaders,
 } from "@/shared/constants/codexClient";
+import { getActiveClientVersion } from "@/lib/client-versions/registry";
 
 export {
   DEFAULT_CODEX_CLIENT_VERSION,
@@ -27,6 +28,8 @@ function getSafeEnvValue(name: string, pattern: RegExp): string | null {
 }
 
 export function getCodexClientVersion(): string {
+  const dynamic = getActiveClientVersion("codex");
+  if (dynamic) return dynamic;
   return (
     getSafeEnvValue(CODEX_VERSION_OVERRIDE_ENV, SAFE_HEADER_TOKEN_PATTERN) ||
     DEFAULT_CODEX_CLIENT_VERSION

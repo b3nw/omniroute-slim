@@ -16,7 +16,28 @@ test("Grok Build OAuth Provider - config", () => {
     "clientId must resolve from the embedded grok_id default"
   );
   assert.equal(grokCli.config.tokenUrl, "https://auth.x.ai/oauth2/token");
-  assert.equal(getGrokBuildClientVersion(), "0.2.106");
+  assert.equal(getGrokBuildClientVersion(), "1.0.44");
+});
+
+test("Grok Build client version respects GROK_CLI_CLIENT_VERSION env override", () => {
+  const original = process.env.GROK_CLI_CLIENT_VERSION;
+  try {
+    process.env.GROK_CLI_CLIENT_VERSION = "1.0.99";
+    assert.equal(getGrokBuildClientVersion(), "1.0.99");
+
+    // Invalid values fall back to default
+    process.env.GROK_CLI_CLIENT_VERSION = "bad version with spaces";
+    assert.equal(getGrokBuildClientVersion(), "1.0.44");
+
+    process.env.GROK_CLI_CLIENT_VERSION = "   ";
+    assert.equal(getGrokBuildClientVersion(), "1.0.44");
+  } finally {
+    if (original !== undefined) {
+      process.env.GROK_CLI_CLIENT_VERSION = original;
+    } else {
+      delete process.env.GROK_CLI_CLIENT_VERSION;
+    }
+  }
 });
 
 test("publicCreds: grok_id embedded default is present and decodes", () => {

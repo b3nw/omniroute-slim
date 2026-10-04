@@ -14,6 +14,7 @@ export type StreamReadinessPolicyInput = {
 export type StreamReadinessPolicyResult = {
   timeoutMs: number;
   baseTimeoutMs: number;
+  maxTimeoutMs: number;
   reasons: string[];
 };
 
@@ -100,7 +101,12 @@ export function resolveStreamReadinessTimeout(
 ): StreamReadinessPolicyResult {
   const baseTimeoutMs = Math.max(0, Math.floor(input.baseTimeoutMs || 0));
   if (baseTimeoutMs <= 0) {
-    return { timeoutMs: baseTimeoutMs, baseTimeoutMs, reasons: ["disabled"] };
+    return {
+      timeoutMs: baseTimeoutMs,
+      baseTimeoutMs,
+      maxTimeoutMs: baseTimeoutMs,
+      reasons: ["disabled"],
+    };
   }
 
   const maxTimeoutMs = Math.max(baseTimeoutMs, input.maxTimeoutMs ?? DEFAULT_MAX_TIMEOUT_MS);
@@ -165,5 +171,5 @@ export function resolveStreamReadinessTimeout(
   timeoutMs = Math.min(timeoutMs, maxTimeoutMs);
   if (timeoutMs === baseTimeoutMs) reasons.push("base");
 
-  return { timeoutMs, baseTimeoutMs, reasons };
+  return { timeoutMs, baseTimeoutMs, maxTimeoutMs, reasons };
 }

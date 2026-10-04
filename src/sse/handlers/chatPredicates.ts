@@ -1,4 +1,7 @@
-import { isLocalStreamLifecycleError } from "../../shared/utils/circuitBreaker";
+import {
+  isLocalStreamLifecycleError,
+  isLocalExecutionError,
+} from "../../shared/utils/circuitBreaker";
 import { isRequestScopedUpstreamFailure } from "./comboFailureLogging";
 import { getTrustedLocalRateLimitResponse } from "@omniroute/open-sse/services/rateLimitManager/errors";
 
@@ -29,6 +32,7 @@ export function shouldTripProviderBreakerForResult(
     !isRequestScopedUpstreamFailure({ code: result.errorCode, type: result.errorType }) &&
     !(result.response && getTrustedLocalRateLimitResponse(result.response)) &&
     !isLocalStreamLifecycleError(result.error) &&
+    !isLocalExecutionError(result.error) &&
     // Network-layer errors (ECONNREFUSED, ETIMEDOUT) never reached the provider —
     // the provider may be healthy, only the network path is broken. OmniRoute's own
     // rate-limit queue timeouts are backpressure we applied, not a provider failure.

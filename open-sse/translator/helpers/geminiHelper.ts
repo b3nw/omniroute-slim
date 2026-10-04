@@ -63,6 +63,19 @@ export const GEMINI_UNSUPPORTED_SCHEMA_KEYS = new Set([
   // it, rejecting the whole request with "Unknown name \"uniqueItems\"".
   // Upstream 9router already strips it alongside `contains` for the same error.
   "uniqueItems",
+  // #12509: JSON-Schema-2020-12 tuple keyword. Claude Code's built-in tools
+  // describe `[start_line, end_line]` ranges with it (nested under `items`),
+  // and Gemini's schema parser rejects the whole tool list with
+  // "Unknown name \"prefixItems\" ... Cannot find field". ensureArrayItems
+  // below still guarantees an `items` schema for the tuple-typed array.
+  "prefixItems",
+  // #12871: `additionalItems` is the draft-07 spelling of the same tuple-typed
+  // array concept as `prefixItems` above — it describes positional array entries,
+  // which the Gemini schema parser has no field for, rejecting the request with
+  // "Unknown name \"additionalItems\" ... Cannot find field". Stripping it leaves
+  // a bare `type: "array"`, which `ensureArrayItems()` below (#10578) fills with a
+  // safe `items` schema instead of failing the call.
+  "additionalItems",
   // Complex schema keywords (handled by flattenAnyOfOneOf/mergeAllOf)
   "anyOf",
   "oneOf",
@@ -437,7 +450,16 @@ function removeUnsupportedKeywords(obj: unknown, keywords: Set<string>): void {
   const record = obj as JsonRecord;
   // Delete unsupported *constraint* keywords at the current schema level.
   for (const key of Object.keys(record)) {
-    if (keywords.has(key) || key.startsWith("x-")) {
+    // `~`-prefixed keys are the Standard Schema convention (Zod 4+, Valibot,
+    // ArkType) for internal/vendor metadata namespaced to avoid colliding
+    // with real schema property names -- e.g. a tool built from one of those
+    // libraries can leak a literal `~optional` key into a property's
+    // subschema. The plain `"optional"` entry in the denylist above doesn't
+    // match the tilde-prefixed form, and Gemini 400s the entire tool list on
+    // the unrecognized field ("Unknown name \"~optional\" ... Cannot find
+    // field"), taking down every model behind it. Strip the whole class the
+    // same way `x-` vendor extensions are already stripped below.
+    if (keywords.has(key) || key.startsWith("x-") || key.startsWith("~")) {
       delete record[key];
     }
   }
@@ -647,7 +669,49 @@ function flattenTypeArrays(obj: unknown): void {
 
 // Clean JSON Schema for Antigravity API compatibility - removes unsupported keywords recursively
 // Reference: CLIProxyAPI/internal/util/gemini_schema.go
-export function cleanJSONSchemaForAntigravity(schema: unknown): unknown {
+/**
+ * JSON Schema spells a nullable field as a union — `type: ["string","null"]`,
+ * or an anyOf/oneOf with a `{"type":"null"}` branch. Gemini's Schema proto has
+ * no unions and spells it as a sibling key, `nullable: true`. Record that
+ * before Phase 2 flattens the union and destroys the evidence (#12308).
+ *
+ * Response schemas only (opt-in below). For a tool parameter, flattening to a
+ * concrete type is correct — Gemini wants one, and the caller decides what an
+ * absent argument means. For a response schema the union is the only thing
+ * telling the model that "nothing" is a legal answer; without it a model with
+ * nothing to say returns the string "null" or fabricates a value, and either
+ * reaches the client as schema-conformant data.
+ *
+ * `nullable` survives the rest of the pipeline for free: it is absent from
+ * GEMINI_UNSUPPORTED_SCHEMA_KEYS, and flattenAnyOfOneOf merges the surviving
+ * branch with Object.assign, which cannot clobber a key the branch lacks.
+ */
+function preserveNullable(obj: unknown): void {
+  if (!obj || typeof obj !== "object") return;
+
+  const record = obj as JsonRecord;
+  const hasNullBranch = (list: unknown): boolean =>
+    Array.isArray(list) && list.some((s) => s && toRecord(s).type === "null");
+
+  if (
+    (Array.isArray(record.type) && record.type.includes("null")) ||
+    hasNullBranch(record.anyOf) ||
+    hasNullBranch(record.oneOf)
+  ) {
+    record.nullable = true;
+  }
+
+  for (const value of Object.values(record)) {
+    if (value && typeof value === "object") {
+      preserveNullable(value);
+    }
+  }
+}
+
+export function cleanJSONSchemaForAntigravity(
+  schema: unknown,
+  options: { preserveNullable?: boolean } = {}
+): unknown {
   if (!schema || typeof schema !== "object") return schema;
 
   const root = cloneSchemaValue(schema);
@@ -656,6 +720,10 @@ export function cleanJSONSchemaForAntigravity(schema: unknown): unknown {
   // Phase 1: Convert and prepare
   convertConstToEnum(cleaned);
   convertEnumValuesToStrings(cleaned);
+
+  // Phase 1b: response schemas only — record nullability while the union
+  // still exists; afterwards there is nothing left to detect (#12308).
+  if (options.preserveNullable) preserveNullable(cleaned);
 
   // Phase 2: Flatten complex structures
   mergeAllOf(cleaned);

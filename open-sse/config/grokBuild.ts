@@ -8,7 +8,7 @@ export const GROK_BUILD_OAUTH_ISSUER = "https://auth.x.ai";
 export const GROK_BUILD_DEVICE_CODE_URL = `${GROK_BUILD_OAUTH_ISSUER}/oauth2/device/code`;
 export const GROK_BUILD_TOKEN_URL = `${GROK_BUILD_OAUTH_ISSUER}/oauth2/token`;
 
-export const GROK_BUILD_DEFAULT_CLIENT_VERSION = "0.2.106";
+export const GROK_BUILD_DEFAULT_CLIENT_VERSION = "1.0.44";
 export const GROK_BUILD_DEFAULT_CONTEXT_WINDOW = 256_000;
 export const GROK_BUILD_DEFAULT_REASONING_EFFORT = "high";
 export const GROK_BUILD_SUPPORTED_REASONING_EFFORTS = Object.freeze(["low", "medium", "high"]);
@@ -16,6 +16,9 @@ export const GROK_BUILD_CLIENT_IDENTIFIER = "grok-shell";
 export const GROK_BUILD_TOKEN_AUTH = "xai-grok-cli";
 export const GROK_BUILD_REASONING_INCLUDE = "reasoning.encrypted_content";
 export const GROK_BUILD_OAUTH_REFERRER = "grok-build";
+
+const GROK_CLI_VERSION_OVERRIDE_ENV = "GROK_CLI_CLIENT_VERSION";
+const SAFE_HEADER_TOKEN_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
 
 export const GROK_BUILD_OAUTH_SCOPES = Object.freeze([
   "openid",
@@ -62,7 +65,21 @@ function mapArch(arch: string): string {
   return arch;
 }
 
+function getSafeEnvValue(name: string, pattern: RegExp): string | null {
+  const raw = process.env[name];
+  if (typeof raw !== "string") return null;
+  const normalized = raw.trim();
+  if (!normalized || !pattern.test(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
 export function getGrokBuildClientVersion(): string {
+  const envOverride = getSafeEnvValue(GROK_CLI_VERSION_OVERRIDE_ENV, SAFE_HEADER_TOKEN_PATTERN);
+  if (envOverride) {
+    return envOverride;
+  }
   return GROK_BUILD_DEFAULT_CLIENT_VERSION;
 }
 

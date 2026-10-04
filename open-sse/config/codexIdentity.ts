@@ -570,3 +570,37 @@ export function isVerifiedNativeCodexRequest(
 ): boolean {
   return isCodexOriginatedHeaders(headers) && hasNativeCodexTurnBinding(body);
 }
+
+/**
+ * Detect the Claude Code CLI as the request *client* from request headers.
+ * Used to auto-enable model echo so session restores work when the resolved
+ * upstream model (e.g. `oc/nemotron-3-ultra-free`) is not recognized by the
+ * Claude Code client on `--resume`.
+ */
+export function isClaudeCodeOriginatedHeaders(
+  headers: Headers | Record<string, unknown> | null | undefined
+): boolean {
+  const getHeader = (name: string): string => {
+    if (headers instanceof Headers) {
+      return headers.get(name)?.toLowerCase() ?? "";
+    }
+    if (headers && typeof headers === "object") {
+      for (const [key, value] of Object.entries(headers as Record<string, unknown>)) {
+        if (key.toLowerCase() === name && typeof value === "string") {
+          return value.toLowerCase();
+        }
+      }
+    }
+    return "";
+  };
+
+  // Claude Code identifies itself via the user-agent header
+  const userAgent = getHeader("user-agent");
+  if (userAgent.includes("claude-code") || userAgent.includes("anthropic-ai/claude-code")) {
+    return true;
+  }
+  // Also check originator if present
+  const originator = getHeader("originator");
+  if (originator.startsWith("claude-code")) return true;
+  return false;
+}

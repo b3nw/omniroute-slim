@@ -448,12 +448,18 @@ function prependBufferedChunks(
   });
 }
 
+class StreamReadinessReadTimeout extends Error {
+  constructor() {
+    super("STREAM_READINESS_TIMEOUT");
+  }
+}
+
 function readWithTimeout(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   timeoutMs: number
 ): Promise<ReadableStreamReadResult<Uint8Array>> {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("STREAM_READINESS_TIMEOUT")), timeoutMs);
+    const timeout = setTimeout(() => reject(new StreamReadinessReadTimeout()), timeoutMs);
     reader.read().then(
       (value) => {
         clearTimeout(timeout);
@@ -471,6 +477,9 @@ export async function ensureStreamReadiness(
   response: Response,
   options: {
     timeoutMs: number;
+    /** Hard ceiling for liveness-extended deadlines. When omitted, no hard ceiling
+     *  is applied beyond `timeoutMs`. */
+    maxTimeoutMs?: number;
     provider?: string | null;
     model?: string | null;
     log?: StreamReadinessLogger | null;
@@ -489,7 +498,14 @@ export async function ensureStreamReadiness(
   };
   const startedAt = Date.now();
   const effectiveTimeoutMs = Math.max(0, Math.floor(options.timeoutMs));
-  const deadline = startedAt + effectiveTimeoutMs;
+  // Hard ceiling: the deadline may extend on liveness signals (bytes arriving),
+  // but never past this absolute maximum.  When maxTimeoutMs is omitted the
+  // initial timeoutMs itself acts as the ceiling (no extension).
+  const maxDeadline =
+    options.maxTimeoutMs != null
+      ? startedAt + Math.max(effectiveTimeoutMs, Math.floor(options.maxTimeoutMs))
+      : startedAt + effectiveTimeoutMs;
+  let deadline = startedAt + effectiveTimeoutMs;
   let handedOffReader = false;
 
   const buildReadyResponse = () =>
@@ -500,7 +516,7 @@ export async function ensureStreamReadiness(
     });
 
   const timeoutReason = () =>
-    `Stream produced no non-ping SSE event within ${effectiveTimeoutMs}ms`;
+    `Stream produced no non-ping SSE event within ${deadline - startedAt}ms (max=${maxDeadline - startedAt}ms)`;
 
   try {
     while (true) {
@@ -530,7 +546,40 @@ export async function ensureStreamReadiness(
       let readResult: ReadableStreamReadResult<Uint8Array>;
       try {
         readResult = await readWithTimeout(reader, remainingMs);
-      } catch {
+      } catch (error) {
+        // A source stream that errors before its first non-ping event (e.g. an
+        // executor watchdog giving up on a stalled upstream) must say so instead of
+        // claiming a readiness timeout. The code/type/status stay on the timeout class on
+        // purpose: STREAM_EARLY_EOF buys a same-connection retry (#3758), which would
+        // double the wait on a stream the executor already gave up on before the combo
+        // can fall back.
+        if (!(error instanceof StreamReadinessReadTimeout)) {
+          const classificationReason = "Stream failed before producing a non-ping SSE event";
+          const rawMessage = error instanceof Error ? error.message : String(error);
+          const upstreamDiagnostic = sanitizeErrorMessage(rawMessage).trim() || undefined;
+          const reason = upstreamDiagnostic
+            ? `${classificationReason}: ${upstreamDiagnostic}`
+            : classificationReason;
+          options.log?.warn?.(
+            "STREAM",
+            `${reason} (${options.provider || "provider"}/${options.model || "unknown"})`
+          );
+          return {
+            ok: false,
+            reason,
+            classificationReason,
+            ...(upstreamDiagnostic ? { upstreamDiagnostic } : {}),
+            code: "STREAM_READINESS_TIMEOUT",
+            type: "stream_timeout",
+            response: createErrorResponse(
+              HTTP_STATUS.GATEWAY_TIMEOUT,
+              classificationReason,
+              "STREAM_READINESS_TIMEOUT",
+              "stream_timeout",
+              upstreamDiagnostic
+            ),
+          };
+        }
         const reason = timeoutReason();
         options.log?.warn?.(
           "STREAM",
@@ -592,6 +641,22 @@ export async function ensureStreamReadiness(
       if (!readResult.value) continue;
       chunks.push(readResult.value);
       const decodedChunk = decoder.decode(readResult.value, { stream: true });
+
+      // Liveness extension: bytes arrived → connection is alive, not dead.
+      // Reset the deadline so slow-but-alive upstreams (reasoning warm-ups,
+      // keepalive-only phases) are not aborted.  The hard ceiling (maxDeadline)
+      // prevents unbounded waits and preserves the operator's fast-fail intent
+      // for truly dead connections.
+      const now = Date.now();
+      if (deadline < maxDeadline) {
+        deadline = Math.min(now + effectiveTimeoutMs, maxDeadline);
+        if (now - startedAt > effectiveTimeoutMs) {
+          options.log?.debug?.(
+            "STREAM",
+            `readiness deadline extended to ${deadline - startedAt}ms (liveness signal) (${options.provider || "provider"}/${options.model || "unknown"})`
+          );
+        }
+      }
 
       if (appendStreamReadinessSignal(readinessState, decodedChunk)) {
         options.log?.debug?.(
