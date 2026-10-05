@@ -196,6 +196,21 @@ export function getGeminiThoughtSignature(toolCallId: unknown) {
   return null;
 }
 
+/**
+ * Drop one cached signature (memory + persisted). Used to purge a signature the
+ * upstream has rejected so it is not re-attached on the next turn.
+ */
+export function deleteGeminiThoughtSignature(toolCallId: unknown) {
+  if (typeof toolCallId !== "string" || !toolCallId) return;
+  signatures.delete(toolCallId);
+  try {
+    const db = getDbInstance();
+    db.prepare("DELETE FROM key_value WHERE namespace = ? AND key = ?").run(NAMESPACE, toolCallId);
+  } catch (error) {
+    warnPersistenceError("delete", error);
+  }
+}
+
 export function normalizeSignatureCacheMode(value: unknown): SignatureCacheMode {
   return value === "bypass" || value === "bypass-strict" ? value : "enabled";
 }

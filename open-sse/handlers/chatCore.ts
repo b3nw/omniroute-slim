@@ -391,11 +391,17 @@ import {
   markBlocked as markAccountSemaphoreBlocked,
 } from "../services/accountSemaphore.ts";
 import {
+  isAntigravityClaude55EntitlementFailure,
   lockModel,
   lockModelIfPerModelQuota,
+  recordAntigravityClaude55EntitlementLockout,
   recordCoreOwnedAntigravityQuotaState,
   shouldDeferAntigravityQuotaStateToCaller,
 } from "../services/accountFallback.ts";
+import {
+  resolveClaude55DispatchTier,
+  toClaude55TieredModelId,
+} from "../services/antigravityClaude55.ts";
 import { saveIdempotency } from "@/lib/idempotencyLayer";
 import {
   isModelUnavailableError,
@@ -3837,6 +3843,8 @@ export async function handleChatCore({
   let parsedStatusCode = providerResponse.status;
   let parsedMessage = "";
   let parsedRetryAfterMs: number | null = null;
+  let parsedErrorCode: string | undefined;
+  let parsedErrorType: string | undefined;
   let upstreamErrorBody: unknown = null;
 
   // Track whether stream_options was present and stripped — if so, 401/403 after
@@ -3848,6 +3856,31 @@ export async function handleChatCore({
     delete translatedBody.stream_options;
   }
 
+  // Claude 5.5 on Antigravity/agy answers 403 to accounts without the Pro/Ultra
+  // entitlement. Refreshing the OAuth token cannot grant it, so read the error body
+  // first and, on an entitlement denial, skip the refresh + same-account retry and go
+  // straight to the model lockout / account rotation in providerFailure below.
+  let isClaude55EntitlementDenial = false;
+  if (
+    providerResponse.status === HTTP_STATUS.FORBIDDEN &&
+    isAntigravityClaude55EntitlementFailure(provider, currentModel, HTTP_STATUS.FORBIDDEN)
+  ) {
+    const details = await parseUpstreamError(providerResponse, provider);
+    upstreamErrorParsed = true;
+    parsedStatusCode = details.statusCode;
+    parsedMessage = details.message;
+    parsedRetryAfterMs = details.retryAfterMs;
+    parsedErrorCode = details.errorCode as string | undefined;
+    parsedErrorType = details.errorType as string | undefined;
+    upstreamErrorBody = details.responseBody;
+    isClaude55EntitlementDenial = isAntigravityClaude55EntitlementFailure(
+      provider,
+      currentModel,
+      parsedStatusCode,
+      parsedMessage
+    );
+  }
+
   // Handle 401/403 - try token refresh using executor
   // T-PROBE: probe-origin failures never attempt the refresh — a probe must
   // not consume a rotating refresh token nor persist an "expired"
@@ -3857,6 +3890,7 @@ export async function handleChatCore({
     (providerResponse.status === HTTP_STATUS.UNAUTHORIZED ||
       providerResponse.status === HTTP_STATUS.FORBIDDEN) &&
     !hadStreamOptions && // Skip refresh if failure may be from stream_options removal, not auth
+    !isClaude55EntitlementDenial &&
     !(await shouldIsolateProbeFailures())
   ) {
     // Fix A: wrap refreshCredentials in runWithOnPersist so the persist callback
@@ -4023,6 +4057,8 @@ export async function handleChatCore({
       statusCode = parsedStatusCode;
       message = parsedMessage;
       retryAfterMs = parsedRetryAfterMs;
+      upstreamErrorCode = parsedErrorCode;
+      upstreamErrorType = parsedErrorType;
     } else {
       const details = await parseUpstreamError(providerResponse, provider);
       statusCode = details.statusCode;
@@ -4134,7 +4170,37 @@ export async function handleChatCore({
       );
     }
     const errorConnectionId = getCurrentConnectionId();
-    if (errorConnectionId && errorType) {
+    // Claude 5.5 on Antigravity/agy answers 404/403 to accounts without the Pro/Ultra
+    // entitlement. That is an account × model fact: lock only the exact tier for 900s and
+    // hand the error back for account rotation — never family:claude, never FORBIDDEN/banned.
+    const isClaude55Entitlement = isAntigravityClaude55EntitlementFailure(
+      provider,
+      currentModel,
+      statusCode,
+      message
+    );
+    if (errorConnectionId && isClaude55Entitlement) {
+      try {
+        if (!(await shouldIsolateProbeFailures())) {
+          // Lock both the requested model and the tier the upstream actually denied (bare id + effort → `-high`).
+          recordAntigravityClaude55EntitlementLockout(
+            provider,
+            errorConnectionId,
+            currentModel,
+            statusCode,
+            toClaude55TieredModelId(
+              currentModel,
+              resolveClaude55DispatchTier(currentModel, translatedBody)
+            )
+          );
+        }
+        console.warn(
+          `[provider] Node ${errorConnectionId} Claude 5.5 entitlement denied (${statusCode}) for ${currentModel} - model-only lock, rotating account (connection stays active)`
+        );
+      } catch {
+        // Best-effort state update; request flow should continue with fallback handling.
+      }
+    } else if (errorConnectionId && errorType) {
       try {
         if (errorType === PROVIDER_ERROR_TYPES.FORBIDDEN) {
           {
@@ -4474,7 +4540,9 @@ export async function handleChatCore({
     // Before returning a model-unavailable error upstream, try sibling models
     // from the same family. This keeps the request alive on the same account
     // instead of failing the entire combo.
-    if (isModelUnavailableError(statusCode, message, provider)) {
+    // Claude 5.5 entitlement failures skip intra-family fallback: the account rotation layer
+    // must try the same tier on another account rather than silently downgrading here.
+    if (!isClaude55Entitlement && isModelUnavailableError(statusCode, message, provider)) {
       const nextModel = getNextFamilyFallback(currentModel, triedModels, provider);
       if (nextModel) {
         triedModels.add(nextModel);

@@ -1,4 +1,5 @@
 import { getModelSpec } from "../../src/shared/constants/modelSpecs.ts";
+import { isAntigravityClaude55Model } from "./antigravityClaude55.ts";
 
 const CLOUD_CODE_REASONING_UNSUPPORTED_PATTERNS = [/^claude-/i, /^gpt-oss-/i, /^tab_/i];
 
@@ -30,6 +31,9 @@ function stripGeminiThinkingConfig(value: unknown): unknown {
 export function shouldStripCloudCodeThinking(provider: string, model: string): boolean {
   if (!provider || !model) return false;
   const normalizedModel = normalizeCloudCodeModel(model);
+  // Claude 5.5 is steered by generationConfig.thinkingConfig.thinkingLevel — the
+  // one Claude generation whose thinkingConfig must reach the Cloud Code endpoint.
+  if (isAntigravityClaude55Model(normalizedModel)) return false;
   if (CLOUD_CODE_REASONING_UNSUPPORTED_PATTERNS.some((pattern) => pattern.test(normalizedModel))) {
     return true;
   }

@@ -84,6 +84,11 @@ export { MODEL_LOCKOUT_EVICTION_CAP } from "./accountFallback/lockoutEviction.ts
 import { capScaledCooldownMs } from "./accountFallback/cooldownCap.ts";
 import { resolveApiKeyForbiddenFallback } from "./accountFallback/nonRetryableUpstream.ts";
 import * as exactModelLock from "./accountFallback/exactModelLock.ts";
+import {
+  ANTIGRAVITY_CLAUDE_55_ENTITLEMENT_COOLDOWN_MS,
+  isAntigravityClaude55Model,
+  toClaude55LockModelId,
+} from "./antigravityClaude55.ts";
 export type ProviderProfile = {
   baseCooldownMs: number;
   useUpstreamRetryHints: boolean;
@@ -602,6 +607,74 @@ export function shouldDeferAntigravityQuotaStateToCaller(
   return hasCallerOwner && (canonicalProvider === "antigravity" || canonicalProvider === "agy");
 }
 
+/**
+ * Claude 5.5 on Antigravity/agy is gated on a paid Pro/Ultra entitlement; accounts
+ * without it answer 404 (model not visible) or 403 (permission denied) on the tiered
+ * ids. That is an ACCOUNT × MODEL fact: the same account keeps serving Gemini and
+ * older Claude, so it must never cool the connection or be read as an auth failure.
+ * Deactivated, invalid-token, billing-suspension and credits-exhausted bodies are
+ * account-wide and keep their normal account-level handling.
+ */
+export function isAntigravityClaude55EntitlementFailure(
+  provider: string | null | undefined,
+  model: string | null | undefined,
+  status: number,
+  errorText?: string | null
+): boolean {
+  if (!provider || !model) return false;
+  if (status !== HTTP_STATUS.NOT_FOUND && status !== HTTP_STATUS.FORBIDDEN) return false;
+  const canonicalProvider = getCanonicalLockProvider(provider);
+  if (canonicalProvider !== "antigravity" && canonicalProvider !== "agy") return false;
+  if (!isAntigravityClaude55Model(model)) return false;
+  const text = errorText || "";
+  return (
+    !isAccountDeactivated(text) &&
+    !isOAuthInvalidToken(text) &&
+    !isAccountSuspendedForBilling(text) &&
+    !isCreditsExhausted(text)
+  );
+}
+
+/**
+ * Isolate a Claude 5.5 model on one account for the entitlement cooldown (900s) without
+ * touching the account's other models. Exact scope: never widens to a quota family.
+ *
+ * Lock keys are canonicalized (a bare alias locks the `-medium` tier it aliases to). When
+ * the request was dispatched at a different tier (a bare id + `reasoning_effort: "high"`
+ * goes upstream as `-high`), pass `dispatchedModel` so that tier is locked as well.
+ */
+export function recordAntigravityClaude55EntitlementLockout(
+  provider: string,
+  connectionId: string,
+  model: string,
+  status: number,
+  dispatchedModel?: string | null
+) {
+  const lock = (lockModelId: string) =>
+    recordModelLockoutFailure(
+      provider,
+      connectionId,
+      lockModelId,
+      status === HTTP_STATUS.NOT_FOUND ? "not_found" : "forbidden",
+      status,
+      ANTIGRAVITY_CLAUDE_55_ENTITLEMENT_COOLDOWN_MS,
+      null,
+      {
+        exactCooldownMs: ANTIGRAVITY_CLAUDE_55_ENTITLEMENT_COOLDOWN_MS,
+        maxCooldownMs: ANTIGRAVITY_CLAUDE_55_ENTITLEMENT_COOLDOWN_MS,
+        scope: "exact",
+      }
+    );
+  const lockout = lock(model);
+  if (
+    dispatchedModel &&
+    getCanonicalLockModel(provider, dispatchedModel) !== getCanonicalLockModel(provider, model)
+  ) {
+    lock(dispatchedModel);
+  }
+  return lockout;
+}
+
 export async function recordCoreOwnedAntigravityQuotaState({
   provider,
   connectionId,
@@ -642,14 +715,27 @@ export async function recordCoreOwnedAntigravityQuotaState({
   return { cooldownMs: lockout.cooldownMs, failureCount: lockout.failureCount };
 }
 
+/**
+ * Model id used in lock keys. Antigravity/agy Claude 5.5 aliases (bare, dotted,
+ * `-thinking`, prefixed) collapse to the tier they dispatch as, so a lock recorded under
+ * `claude-opus-5-5` and one queried as `claude-opus-5-5-medium` (or vice versa) match.
+ */
+function getCanonicalLockModel(provider: string, model: string): string {
+  const canonicalProvider = getCanonicalLockProvider(provider);
+  return canonicalProvider === "antigravity" || canonicalProvider === "agy"
+    ? toClaude55LockModelId(model)
+    : model;
+}
+
 function getModelLockKey(
   provider: string,
   connectionId: string,
-  model: string,
+  rawModel: string,
   reason?: string | null,
   status?: number | null
 ) {
   const canonicalProvider = getCanonicalLockProvider(provider);
+  const model = getCanonicalLockModel(canonicalProvider, rawModel);
   const lockModel =
     reason === "not_found" || status === 404
       ? model
@@ -659,11 +745,19 @@ function getModelLockKey(
   return `${canonicalProvider}:${connectionId}:${lockModel}`;
 }
 
-const buildExactKey = exactModelLock.buildExactModelLockKey; // see exactModelLock.ts
-const getModelLockKeys = exactModelLock.createGetModelLockKeys(
+// see exactModelLock.ts
+const buildExactKey = (canonicalProvider: string, connectionId: string, model: string) =>
+  exactModelLock.buildExactModelLockKey(
+    canonicalProvider,
+    connectionId,
+    getCanonicalLockModel(canonicalProvider, model)
+  );
+const getRawModelLockKeys = exactModelLock.createGetModelLockKeys(
   getModelLockKey,
   getCanonicalLockProvider
 );
+const getModelLockKeys = (provider: string, connectionId: string, model: string) =>
+  getRawModelLockKeys(provider, connectionId, getCanonicalLockModel(provider, model));
 
 function getFailureWindowMs(profile: ProviderProfile | null = null, fallbackMs = 30 * 60 * 1000) {
   const configured = profile?.resetTimeoutMs;
@@ -783,12 +877,19 @@ export function lockModel(
 }
 
 // Lock only this exact provider/account/model tuple, never a quota family — see exactModelLock.ts.
-export const lockExactModel = exactModelLock.createLockExactModel(
+const lockRawExactModel = exactModelLock.createLockExactModel(
   modelLockouts,
   ensureCleanupTimer,
   cleanupModelLockKey,
   getCanonicalLockProvider
 );
+export const lockExactModel: typeof lockRawExactModel = (provider, connectionId, model, ...rest) =>
+  lockRawExactModel(
+    provider,
+    connectionId,
+    model ? getCanonicalLockModel(provider, model) : model,
+    ...rest
+  );
 
 /**
  * Pick the `exactCooldownMs` to apply to a model lockout (#1308).
@@ -1713,6 +1814,19 @@ export function checkFallbackError(
       shouldFallback: false,
       cooldownMs: 0,
       reason: EXECUTOR_CONTRACT_VIOLATION_CODE,
+      skipProviderBreaker: true,
+    };
+  }
+
+  // Claude 5.5 entitlement miss (404/403) on Antigravity/agy: fall back to another
+  // account with a model-scoped cooldown; never an auth/terminal classification.
+  if (isAntigravityClaude55EntitlementFailure(provider, _model, status, errorText)) {
+    return {
+      shouldFallback: true,
+      cooldownMs: ANTIGRAVITY_CLAUDE_55_ENTITLEMENT_COOLDOWN_MS,
+      baseCooldownMs: ANTIGRAVITY_CLAUDE_55_ENTITLEMENT_COOLDOWN_MS,
+      reason: status === HTTP_STATUS.NOT_FOUND ? "not_found" : "forbidden",
+      quotaResetHintMs: ANTIGRAVITY_CLAUDE_55_ENTITLEMENT_COOLDOWN_MS,
       skipProviderBreaker: true,
     };
   }
