@@ -44,6 +44,48 @@ export function scheduleCompletedDetailCleanup(id: string) {
   completedDetailTimers.set(id, timer);
 }
 
+/**
+ * Identity shared by a persisted call-log row and the in-memory copy of the same
+ * request. Deliberately excludes `connectionId`: the in-memory detail keeps the
+ * starting account while the persisted row stores the post-rotation one. Returns
+ * null without a correlationId so rows are never matched on a missing correlation.
+ */
+export function callLogCorrelationKey(row: {
+  correlationId?: string | null;
+  model?: string | null;
+  provider?: string | null;
+}): string | null {
+  if (!row?.correlationId) return null;
+  return `${row.correlationId}\u0000${row.model || ""}\u0000${row.provider || ""}`;
+}
+
+/**
+ * Finds the in-memory completed detail backing a persisted call-log row. Matches on
+ * the detail id, then on `callLogId` (persisted rows are keyed on the chatCore trace
+ * id), then on the correlation key — the last only for details without a
+ * `callLogId`, since one that has a different callLogId belongs to another attempt.
+ */
+export function findCompletedDetailForCallLog(
+  id: string,
+  persisted?: {
+    correlationId?: string | null;
+    model?: string | null;
+    provider?: string | null;
+  } | null
+): PendingRequestDetail | undefined {
+  const direct = completedDetails.get(id);
+  if (direct) return direct;
+  const key = persisted ? callLogCorrelationKey(persisted) : null;
+  let correlated: PendingRequestDetail | undefined;
+  for (const detail of completedDetails.values()) {
+    if (detail.callLogId === id) return detail;
+    if (key && !correlated && !detail.callLogId && callLogCorrelationKey(detail) === key) {
+      correlated = detail;
+    }
+  }
+  return correlated;
+}
+
 export function clearCompletedDetails() {
   for (const timer of completedDetailTimers.values()) clearTimeout(timer);
   completedDetailTimers.clear();
@@ -71,8 +113,7 @@ export function maybeEnrichCompletedDetail(updated: PendingRequestDetail, connec
         const art = readCallArtifact(row.artifact_relpath);
         if (art.state !== "ready" || !art.artifact) continue;
         const pipeline = art.artifact.pipeline as
-          | { providerResponse?: unknown; clientResponse?: unknown }
-          | undefined;
+          { providerResponse?: unknown; clientResponse?: unknown } | undefined;
         if (missingProvider && pipeline?.providerResponse) {
           updated.providerResponse = pipeline.providerResponse;
         }

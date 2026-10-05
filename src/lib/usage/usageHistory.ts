@@ -55,6 +55,7 @@ export type PendingRequestMetadata = {
   stageUpdatedAt?: number | null;
   correlationId?: string | null;
   sessionTag?: string | null;
+  callLogId?: string | null;
 };
 export type PendingRequestDetail = {
   id: string;
@@ -77,6 +78,9 @@ export type PendingRequestDetail = {
   stageUpdatedAt?: number | null;
   correlationId?: string | null;
   sessionTag?: string | null;
+  // Id of the persisted call_logs row for this request (chatCore traceId). Differs
+  // from `id`, so the call-log list/detail routes use it to pair in-memory copies.
+  callLogId?: string | null;
   streamChunks?: {
     provider?: string[];
     openai?: string[];
@@ -138,6 +142,9 @@ function normalizePendingMetadata(metadata?: PendingRequestMetadata): PendingReq
   }
   if (metadata.sessionTag !== undefined) {
     normalized.sessionTag = toStringOrNull(metadata.sessionTag) || null;
+  }
+  if (metadata.callLogId !== undefined) {
+    normalized.callLogId = toStringOrNull(metadata.callLogId) || null;
   }
 
   return normalized;

@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { getCallLogs } from "@/lib/usageDb";
 import { getCompletedDetails, getPendingById } from "@/lib/usage/usageHistory";
+import { callLogCorrelationKey } from "@/lib/usage/completedRequestDetails";
 import { getProviderConnections } from "@/lib/db/providers";
 import { getProviderNodes } from "@/models";
 import { matchesSearch } from "@/shared/utils/turkishText";
@@ -44,7 +45,10 @@ export function rowMatchesFilter(row: any, filter: Record<string, any>): boolean
     if (!(Number(row?.status) >= 400 || Boolean(row?.error))) return false;
   } else if (filter.status === "ok") {
     if (!(Number(row?.status) >= 200 && Number(row?.status) < 300)) return false;
-  } else if (typeof filter.status === "number" || (typeof filter.status === "string" && !isNaN(Number(filter.status)))) {
+  } else if (
+    typeof filter.status === "number" ||
+    (typeof filter.status === "string" && !isNaN(Number(filter.status)))
+  ) {
     if (Number(row?.status) !== Number(filter.status)) return false;
   }
 
@@ -63,7 +67,10 @@ export function rowMatchesFilter(row: any, filter: Record<string, any>): boolean
   if (filter.combo && !matchesSearch(row?.comboName || "", String(filter.combo))) {
     return false;
   }
-  if (filter.correlationId && !matchesSearch(row?.correlationId || "", String(filter.correlationId))) {
+  if (
+    filter.correlationId &&
+    !matchesSearch(row?.correlationId || "", String(filter.correlationId))
+  ) {
     return false;
   }
   if (filter.search) {
@@ -155,9 +162,22 @@ export function buildCallLogListRows({
   }
 
   const pendingIds = new Set(activeEntries.map((entry) => entry.id));
+  // Persisted rows are keyed on the chatCore trace id (#13481), not the in-memory
+  // detail id, so in-memory copies are matched via `callLogId`, falling back to the
+  // correlation key for details that carry no callLogId. Only in-memory copies are
+  // ever skipped — persisted rows sharing a correlationId (real retries) all stay.
+  const persistedCorrelationKeys = new Set(
+    logs.map((log: any) => callLogCorrelationKey(log)).filter(Boolean)
+  );
   const completedEntries: any[] = [];
   for (const detail of completedDetails) {
     if (persistedIds.has(detail.id) || pendingIds.has(detail.id)) continue;
+    if (detail.callLogId) {
+      if (persistedIds.has(detail.callLogId)) continue;
+    } else {
+      const key = callLogCorrelationKey(detail);
+      if (key && persistedCorrelationKeys.has(key)) continue;
+    }
     const completedAt = typeof detail.completedAt === "number" ? detail.completedAt : null;
     const duration =
       typeof detail.durationMs === "number" && Number.isFinite(detail.durationMs)
