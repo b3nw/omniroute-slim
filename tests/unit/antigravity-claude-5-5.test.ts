@@ -71,9 +71,8 @@ const {
   seedAntigravityIdeVersionCache,
 } = await import("../../open-sse/services/antigravityVersion.ts");
 
-const { applyClaudeEffortVariant } = await import(
-  "../../open-sse/handlers/chatCore/claudeEffortVariant.ts"
-);
+const { applyClaudeEffortVariant } =
+  await import("../../open-sse/handlers/chatCore/claudeEffortVariant.ts");
 const { markAccountUnavailable } = await import("../../src/sse/services/auth.ts");
 
 const CLAUDE_55_IDS = [
@@ -1085,7 +1084,11 @@ test("entitlement: chatCore skips the OAuth refresh on a Claude 5.5 403 and lock
 
 test("normalization: explicit Claude 5.5 tiers are preserved for antigravity and agy", () => {
   for (const provider of ["antigravity", "agy"]) {
-    for (const model of ["claude-opus-5-5-high", "claude-sonnet-5-5-low", "claude-opus-5-5-medium"]) {
+    for (const model of [
+      "claude-opus-5-5-high",
+      "claude-sonnet-5-5-low",
+      "claude-opus-5-5-medium",
+    ]) {
       const body = { reasoning_effort: "low", model };
       const normalized = applyClaudeEffortVariant({
         provider,
@@ -1122,8 +1125,16 @@ test("entitlement: markAccountUnavailable honors dispatchedModel for Claude 5.5"
       { dispatchedModel: "claude-opus-5-5-high" }
     );
     assert.equal(isModelLocked(provider, conn, "claude-opus-5-5"), true);
-    assert.equal(isModelLocked(provider, conn, "claude-opus-5-5-medium"), true, "medium tier alias");
-    assert.equal(isModelLocked(provider, conn, "claude-opus-5-5-high"), true, "dispatched high tier");
+    assert.equal(
+      isModelLocked(provider, conn, "claude-opus-5-5-medium"),
+      true,
+      "medium tier alias"
+    );
+    assert.equal(
+      isModelLocked(provider, conn, "claude-opus-5-5-high"),
+      true,
+      "dispatched high tier"
+    );
     assert.equal(isModelLocked(provider, conn, "claude-opus-5-5-low"), false, "low tier unlocked");
   }
   clearAllModelLockouts();
