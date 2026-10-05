@@ -648,6 +648,7 @@ export function hasValidUsage(usage: UsageLike | null | undefined) {
     "output_tokens", // Claude
     "promptTokenCount",
     "candidatesTokenCount", // Gemini
+    "totalTokenCount", // Gemini (was missing — caused !hasValid to misfire on {totalTokenCount:15})
   ];
 
   for (const field of tokenFields) {
@@ -657,6 +658,26 @@ export function hasValidUsage(usage: UsageLike | null | undefined) {
   }
 
   return false;
+}
+
+/** True when present but every token field zero/absent — web relays emit `{prompt_tokens:0, ...}`. */
+export function isEmptyUsage(usage: unknown): boolean {
+  if (!usage || typeof usage !== "object" || Array.isArray(usage)) return true;
+  const u = usage as Record<string, unknown>;
+  for (const key of [
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "input_tokens",
+    "output_tokens",
+    "promptTokenCount",
+    "candidatesTokenCount",
+    "totalTokenCount",
+  ]) {
+    const v = u[key];
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) return false;
+  }
+  return true;
 }
 
 /**

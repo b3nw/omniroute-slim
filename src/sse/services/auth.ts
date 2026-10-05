@@ -33,6 +33,7 @@ import { buildJinaEnvCredentials } from "@/lib/providers/jina";
 import { buildGeminiEnvCredentials } from "@/lib/providers/gemini";
 import { isCommonChatGptWebRetiredProviderId } from "@/shared/constants/chatgptWebRetirement";
 import { toNumber } from "@/shared/utils/numeric";
+import { timingSafeCompare } from "@/shared/utils/timingSafeCompare";
 import { isMicrosoftDesignerWebRetiredProviderId } from "@/shared/constants/designerWebRetirement";
 import { isRuntimeRetiredProviderId } from "@/shared/constants/providerRetirement";
 import {
@@ -3380,7 +3381,7 @@ export async function isValidApiKey(apiKey: string) {
 
   // Persistent env-var key — always valid regardless of DB state (#1350)
   const envKey = process.env.OMNIROUTE_API_KEY || process.env.ROUTER_API_KEY;
-  if (envKey && apiKey === envKey) return true;
+  if (envKey && timingSafeCompare(apiKey, envKey)) return true;
 
   return await validateApiKey(apiKey);
 }

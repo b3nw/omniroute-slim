@@ -5,6 +5,7 @@
  * Each provider has its own request format and endpoint.
  */
 
+import { hasUnsafeModelIdSyntax } from "../utils/modelIdSafety.ts";
 import { LMARENA_DIRECT_IMAGE_MODELS } from "./providers/registry/lmarena/directModels.ts";
 import { SEGMIND_IMAGE_PROVIDER } from "./providers/registry/segmind/imageModels.ts";
 import { KIE_IMAGE_MODELS } from "./providers/registry/kie/imageModels.ts";
@@ -854,7 +855,7 @@ export function getImageProvider(providerId) {
  * Returns { provider, model }
  */
 export function parseImageModel(modelStr) {
-  if (!modelStr) return { provider: null, model: null };
+  if (!modelStr || hasUnsafeModelIdSyntax(modelStr)) return { provider: null, model: null };
 
   const directAlias = resolveImageModelAlias(modelStr);
   if (directAlias) {

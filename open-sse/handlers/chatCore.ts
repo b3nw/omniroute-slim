@@ -1,5 +1,5 @@
 import {
-  extractRequestToolIdentityMap,
+  extractRequestToolMetadata,
   resolveResponseToolNameMap,
 } from "./chatCore/requestToolIdentity.ts";
 import { resolveChatCoreRequestSetup } from "./chatCore/requestSetup.ts";
@@ -2509,8 +2509,9 @@ export async function handleChatCore({
   // Keep the request translator's namespace identities separate from toolNameMap:
   // the latter is a Kiro/Claude passthrough alias channel with string values,
   // while namespace identities carry `{namespace, name}` for the #7936 response
-  // seam. Extract first because Kiro merge may reuse `_toolNameMap` below.
-  const requestToolIdentityMap = extractRequestToolIdentityMap(translatedBody);
+  // seam. Capture both before stripping their side channels: a Responses ->
+  // Gemini/Antigravity pivot carries both maps, not one recoverable ledger.
+  const { requestToolIdentityMap, toolNameAliasMap } = extractRequestToolMetadata(translatedBody);
 
   // Kiro: sanitize tool schemas before dispatch. Kiro returns 400 "Improperly
   // formed request" for unsupported JSON-Schema keywords (anyOf/$ref/if-then,
@@ -2547,13 +2548,13 @@ export async function handleChatCore({
   }
 
   // Extract toolNameMap for response translation (Claude OAuth)
-  const translatedToolNameMap = translatedBody._toolNameMap;
+  const translatedToolNameMap = translatedBody._toolNameMap ?? toolNameAliasMap;
   const nativeClaudeToolNameMap = isClaudePassthrough
     ? buildClaudePassthroughToolNameMap(body)
     : null;
-  // Resolution order matters: `_toolNameMap` was already deleted by
-  // `extractRequestToolIdentityMap`, so Gemini/Antigravity depend on the
-  // `requestToolIdentityMap` fallback inside this helper (#9568 / #7936).
+  // A later provider-specific ledger (Kiro above) wins; otherwise use the
+  // alias map captured before extraction. Namespace identities are distinct
+  // from aliases and cannot restore sanitized Gemini names on their own.
   const toolNameMap = resolveResponseToolNameMap(
     translatedToolNameMap,
     nativeClaudeToolNameMap,
@@ -3100,6 +3101,20 @@ export async function handleChatCore({
               const res = normalizeExecutorResult(rawExecutorResult);
               trace("post_executor", { status: res?.response?.status });
 
+              // When a payload override rewrote body.model (custom-model alias →
+              // real upstream id, e.g. `gemini-3.7-flash-high` → `gemini-3.7-flash`),
+              // log and track the WIRE model so dashboards/telemetry reflect what
+              // actually shipped and Gemini rate-limit accounting uses the real id
+              // (the executor already built its URL from the same rewritten model).
+              const wireModel =
+                typeof res.model === "string" && res.model ? res.model : modelToCall;
+              if (wireModel !== modelToCall) {
+                log?.debug?.(
+                  "PAYLOAD_RULES",
+                  `Payload rules rewrote model for URL: requested=${modelToCall} wire=${wireModel}`
+                );
+              }
+
               if (
                 provider === "codex" &&
                 attemptConnectionId &&
@@ -3129,7 +3144,7 @@ export async function handleChatCore({
 
               // Track Gemini RPM + RPD request counts for 429 classification
               if (provider === "gemini") {
-                incrementRequestCount(modelToCall);
+                incrementRequestCount(wireModel);
               }
 
               updatePendingScope(pendingScope, {

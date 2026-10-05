@@ -33,6 +33,7 @@
 import crypto from "node:crypto";
 import { createCompressionStats } from "../../stats.ts";
 import { runFuzzyPass } from "./fuzzy.ts";
+import { callerSupportsCcrRetrieve } from "../ccr/protocolInstruction.ts";
 import type {
   CompressionEngine,
   CompressionEngineApplyOptions,
@@ -111,6 +112,41 @@ function findSuffixBlocks(
 
 // ─── two-pass dedup on message texts ─────────────────────────────────────────
 
+function countLiteralOccurrences(text: string, needle: string): number {
+  if (!needle) return 0;
+  let count = 0;
+  let offset = 0;
+  while (true) {
+    const idx = text.indexOf(needle, offset);
+    if (idx === -1) return count;
+    count++;
+    offset = idx + needle.length;
+  }
+}
+
+function replaceLiteralOccurrencesAfterFirst(
+  text: string,
+  needle: string,
+  replacement: string
+): string {
+  if (!needle) return text;
+  const first = text.indexOf(needle);
+  if (first === -1) return text;
+
+  let result = text.slice(0, first + needle.length);
+  let offset = first + needle.length;
+
+  while (true) {
+    const idx = text.indexOf(needle, offset);
+    if (idx === -1) {
+      result += text.slice(offset);
+      return result;
+    }
+    result += text.slice(offset, idx) + replacement;
+    offset = idx + needle.length;
+  }
+}
+
 /**
  * Deduplicates repeated lines within a single message (intra-message dedup).
  * Replaces repeated suffix blocks with markers.
@@ -140,20 +176,17 @@ function dedupeWithinMessage(
   let changed = false;
 
   for (const { block } of sortedBlocks) {
-    // Only dedup blocks that appear 2+ times in the text.
-    const occurrences = (
-      result.match(new RegExp(block.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []
-    ).length;
+    // Only dedup blocks that appear 2+ times in the text. Use literal indexOf
+    // scanning instead of compiling the whole block into a RegExp: remembered
+    // JSON/tool blobs can be hundreds of KB and V8 rejects such regex sources
+    // with "Regular expression too large".
+    const occurrences = countLiteralOccurrences(result, block);
     if (occurrences < 2) continue;
 
     const sha = hashBlock(block);
     const marker = `[dedup:ref sha=${sha}]`;
     // Replace ALL occurrences except the first (keep the original once).
-    let count = 0;
-    result = result.replace(new RegExp(block.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), () => {
-      count++;
-      return count === 1 ? block : marker;
-    });
+    result = replaceLiteralOccurrencesAfterFirst(result, block, marker);
     changed = true;
   }
 
@@ -445,7 +478,8 @@ export const sessionDedupEngine: CompressionEngine = {
       exactMessages,
       stepConfig,
       minBlockChars,
-      options?.principalId
+      options?.principalId,
+      callerSupportsCcrRetrieve(body)
     );
 
     if (dedupCount + fuzzyCount === 0) {

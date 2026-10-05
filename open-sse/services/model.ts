@@ -1,3 +1,4 @@
+import { hasUnsafeModelIdSyntax } from "../utils/modelIdSafety.ts";
 import { PROVIDER_ID_TO_ALIAS, PROVIDER_MODELS } from "../config/providerModels.ts";
 import { REGISTRY } from "../config/providerRegistry.ts";
 import {
@@ -558,8 +559,13 @@ export function parseModel(modelStr: string | null | undefined): ParsedModel {
     };
   }
 
-  // Sanitize: reject strings with path traversal or control characters
-  if (/\.\.[\/\\]/.test(modelStr) || /[\x00-\x1f]/.test(modelStr)) {
+  // Sanitize: reject strings with path traversal, control characters, or syntax that would let
+  // the id rewrite an upstream URL path (encoded dot-segments, `?`, `#`).
+  if (
+    /\.\.[\/\\]/.test(modelStr) ||
+    /[\x00-\x1f]/.test(modelStr) ||
+    hasUnsafeModelIdSyntax(modelStr)
+  ) {
     console.log(`[MODEL] Warning: rejected malformed model string: "${modelStr.substring(0, 50)}"`);
     return {
       provider: null,

@@ -21,6 +21,7 @@ import {
   type ConnectionCacheOverride,
 } from "../../utils/cacheControlPolicy.ts";
 import { FORMATS } from "../../translator/formats.ts";
+import { stripInternalBodyFields } from "../../config/cliFingerprints.ts";
 import { sanitizeRequestForResolvedTarget } from "../../services/targetRequestSanitizer.ts";
 
 type LoggerLike = { debug?: (...args: unknown[]) => void } | null | undefined;
@@ -239,5 +240,9 @@ export async function prepareUpstreamBody(opts: {
     connectionCacheOverride
   );
 
+  // All models, including universal/context-handoff summary models, pass through
+  // this shared pre-executor boundary. Remove OmniRoute-only routing markers here
+  // so custom executors that serialize their own request bodies cannot leak them.
+  stripInternalBodyFields(bodyToSend);
   return bodyToSend;
 }

@@ -8,6 +8,7 @@
  */
 
 import { getProviderAlias } from "@/shared/constants/providers";
+import { hasUnsafeModelIdSyntax } from "../utils/modelIdSafety.ts";
 
 interface AudioModel {
   id: string;
@@ -658,7 +659,7 @@ function parseAudioModel(
   registry: Record<string, AudioProvider>,
   dynamicProviders?: AudioProvider[]
 ): { provider: string | null; model: string | null } {
-  if (!modelStr) return { provider: null, model: null };
+  if (!modelStr || hasUnsafeModelIdSyntax(modelStr)) return { provider: null, model: null };
 
   // Phase 1: prefix match in hardcoded registry
   for (const [providerId] of Object.entries(registry)) {
