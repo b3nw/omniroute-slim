@@ -11,6 +11,9 @@
 // (`tab_flash_lite_preview`, `tab_jump_flash_lite_preview`) are intentionally excluded —
 // they are not chat-callable.
 
+import { resolveAntigravityModelId } from "./antigravityModelAliases.ts";
+import { isAntigravityClaude55Model } from "../services/antigravityClaude55.ts";
+
 export const AGY_PUBLIC_MODELS = Object.freeze([
   // Gemini 3.7 Flash tiers. The live endpoint selects High by default and advertises
   // all three ids to both the IDE 2.5.5 and CLI 1.1.x clients.
@@ -104,6 +107,61 @@ export const AGY_PUBLIC_MODELS = Object.freeze([
     supportsReasoning: true,
     toolCalling: true,
   },
+  // Claude 5.5 tiers (same Cloud Code backend as `antigravity`; see antigravityClaude55.ts).
+  {
+    id: "claude-opus-5-5-low",
+    name: "Claude Opus 5.5 (Low)",
+    contextLength: 1000000,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
+  {
+    id: "claude-opus-5-5-medium",
+    name: "Claude Opus 5.5 (Medium)",
+    contextLength: 1000000,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
+  {
+    id: "claude-opus-5-5-high",
+    name: "Claude Opus 5.5 (High)",
+    contextLength: 1000000,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
+  {
+    id: "claude-sonnet-5-5-low",
+    name: "Claude Sonnet 5.5 (Low)",
+    contextLength: 1000000,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
+  {
+    id: "claude-sonnet-5-5-medium",
+    name: "Claude Sonnet 5.5 (Medium)",
+    contextLength: 1000000,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
+  {
+    id: "claude-sonnet-5-5-high",
+    name: "Claude Sonnet 5.5 (High)",
+    contextLength: 1000000,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
 ]);
 
 const AGY_PUBLIC_MODEL_IDS = new Set(AGY_PUBLIC_MODELS.map((model) => model.id));
@@ -137,7 +195,14 @@ export function getClientVisibleAgyModelName(modelId: string, fallbackName?: str
 }
 
 export function isUserCallableAgyModelId(modelId: string): boolean {
-  return !!modelId && AGY_PUBLIC_MODEL_IDS.has(modelId);
+  if (!modelId) return false;
+  if (AGY_PUBLIC_MODEL_IDS.has(modelId)) return true;
+  // agy deliberately does not honor the general Antigravity alias table, except for the
+  // bare Claude 5.5 ids, whose upstream only serves the tiered ids (bare → -medium).
+  return (
+    isAntigravityClaude55Model(modelId) &&
+    AGY_PUBLIC_MODEL_IDS.has(resolveAntigravityModelId(modelId))
+  );
 }
 
 export function isDiscoverableAgyModelId(modelId: string): boolean {

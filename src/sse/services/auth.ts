@@ -61,6 +61,8 @@ import {
   getModelLockoutInfo,
   lockModel,
   hasPerModelQuota,
+  isAntigravityClaude55EntitlementFailure,
+  recordAntigravityClaude55EntitlementLockout,
   getRuntimeProviderProfile,
   recordModelLockoutFailure,
   retryHintBypassesMaxCooldownMs,
@@ -2569,6 +2571,7 @@ export async function markAccountUnavailable(
     /** Caller is the combo engine — it records its own model-level lockouts. */
     isCombo?: boolean;
     headers?: Headers | Record<string, string> | null;
+    dispatchedModel?: string | null;
   } = {}
 ) {
   const currentMutex = markMutexes.get(connectionId) || Promise.resolve();
@@ -2851,6 +2854,37 @@ export async function markAccountUnavailable(
         fallbackResult.reason
       );
       return { shouldFallback: true, cooldownMs: connectionCooldownMs };
+    }
+
+    // Claude 5.5 entitlement miss (404/403 on an account without Pro/Ultra): isolate
+    // just this model on this account for 900s and rotate. Runs before the generic
+    // per-model 404 / 403 handling so a 403 is never escalated to a terminal or
+    // connection-wide state and the account keeps serving Gemini / older Claude.
+    // Lock keys are canonicalized, so a bare `claude-opus-5-5` here also locks the
+    // `-medium` tier it dispatches as.
+    if (
+      provider &&
+      model &&
+      isAntigravityClaude55EntitlementFailure(provider, model, status, errorText)
+    ) {
+      const lockout = recordAntigravityClaude55EntitlementLockout(
+        provider,
+        connectionId,
+        model,
+        status,
+        options?.dispatchedModel
+      );
+      updateProviderConnection(connectionId, {
+        lastErrorType: "model_entitlement",
+        lastError: `Model ${model} not entitled on this account (${status})`,
+        lastErrorAt: new Date().toISOString(),
+        errorCode: status,
+      }).catch(() => {});
+      log.info(
+        "AUTH",
+        `Model-only entitlement lockout for ${provider}:${model} — ${status} ${Math.ceil(lockout.cooldownMs / 1000)}s (connection stays active)`
+      );
+      return { shouldFallback: true, cooldownMs: lockout.cooldownMs };
     }
 
     const isNvidiaModelGone = provider === "nvidia" && status === 410;

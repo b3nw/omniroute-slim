@@ -97,6 +97,63 @@ export const ANTIGRAVITY_PUBLIC_MODELS = Object.freeze([
     supportsReasoning: true,
     toolCalling: true,
   },
+  // Claude 5.5 (Antigravity backend, paid Pro/Ultra entitlement). The upstream only
+  // accepts the explicit tiered ids; thinking depth is steered by thinkingLevel (1/2/3)
+  // matching the tier (see services/antigravityClaude55.ts). Bare ids alias to Medium.
+  {
+    id: "claude-opus-5-5-low",
+    name: "Claude Opus 5.5 (Low)",
+    contextLength: 1000000,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
+  {
+    id: "claude-opus-5-5-medium",
+    name: "Claude Opus 5.5 (Medium)",
+    contextLength: 1000000,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
+  {
+    id: "claude-opus-5-5-high",
+    name: "Claude Opus 5.5 (High)",
+    contextLength: 1000000,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
+  {
+    id: "claude-sonnet-5-5-low",
+    name: "Claude Sonnet 5.5 (Low)",
+    contextLength: 1000000,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
+  {
+    id: "claude-sonnet-5-5-medium",
+    name: "Claude Sonnet 5.5 (Medium)",
+    contextLength: 1000000,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
+  {
+    id: "claude-sonnet-5-5-high",
+    name: "Claude Sonnet 5.5 (High)",
+    contextLength: 1000000,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
 ]);
 
 export const ANTIGRAVITY_MODEL_ALIASES = Object.freeze({
@@ -120,6 +177,16 @@ export const ANTIGRAVITY_MODEL_ALIASES = Object.freeze({
   "gemini-claude-sonnet-4-5": "claude-sonnet-4-6",
   "gemini-claude-sonnet-4-5-thinking": "claude-sonnet-4-6",
   "gemini-claude-opus-4-5-thinking": "claude-opus-4-6-thinking",
+  // Claude 5.5: the upstream only serves tiered ids. Bare / dotted / -thinking ids
+  // resolve to Medium (the translator may pick another tier from reasoning_effort).
+  "claude-opus-5-5": "claude-opus-5-5-medium",
+  "claude-sonnet-5-5": "claude-sonnet-5-5-medium",
+  "claude-opus-5.5": "claude-opus-5-5-medium",
+  "claude-sonnet-5.5": "claude-sonnet-5-5-medium",
+  "claude-opus-5-5-thinking": "claude-opus-5-5-medium",
+  "claude-sonnet-5-5-thinking": "claude-sonnet-5-5-medium",
+  "claude-opus-5.5-thinking": "claude-opus-5-5-medium",
+  "claude-sonnet-5.5-thinking": "claude-sonnet-5-5-medium",
 });
 
 type AntigravityModelAliasMap = Record<string, string>;

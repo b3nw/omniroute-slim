@@ -1,5 +1,9 @@
 import { getExplicitModelOutputCap } from "@/lib/modelCapabilities";
 import { isDiscoverableAntigravityModelId } from "../config/antigravityModelAliases";
+import {
+  ANTIGRAVITY_CLAUDE_55_MAX_OUTPUT_TOKENS,
+  isAntigravityClaude55Model,
+} from "../services/antigravityClaude55.ts";
 
 /**
  * Fallback ceiling on `generationConfig.maxOutputTokens` for Antigravity
@@ -43,15 +47,21 @@ export function resolveAntigravityOutputCap(modelId: string | null | undefined):
   // Gemini 3.5/3.6 ids after Antigravity retires them. Do not let those shared
   // specs make a retired Antigravity id look active on this provider path.
   if (!isDiscoverableAntigravityModelId(id)) return MAX_ANTIGRAVITY_OUTPUT_TOKENS;
+  // Claude 5.5 publishes a 128k output ceiling. Its fallback must be that ceiling
+  // rather than the 16k unknown-model constant, so a missing catalogue row (bare
+  // alias, DB unavailable) never starves it.
+  const fallback = isAntigravityClaude55Model(id)
+    ? ANTIGRAVITY_CLAUDE_55_MAX_OUTPUT_TOKENS
+    : MAX_ANTIGRAVITY_OUTPUT_TOKENS;
   try {
     const declared = getExplicitModelOutputCap({ provider: "antigravity", model: id });
     return typeof declared === "number" && Number.isFinite(declared) && declared > 0
       ? declared
-      : MAX_ANTIGRAVITY_OUTPUT_TOKENS;
+      : fallback;
   } catch {
     // DB not available (build phase, transient error) -- fall through to the
     // conservative fallback, the same guard cleanModelName uses above for
     // its own MITM alias lookup.
-    return MAX_ANTIGRAVITY_OUTPUT_TOKENS;
+    return fallback;
   }
 }
