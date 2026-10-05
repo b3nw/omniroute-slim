@@ -47,6 +47,13 @@ export async function handleResponsesCore({
     modelInfo?.model
   );
 
+  // Capture the #7936 namespace identities before handleChatCore consumes the
+  // side channel, so the Chat-to-Responses stream can restore {namespace, name}.
+  const requestToolIdentityMap =
+    convertedBody._namespaceToolIdentityMap instanceof Map
+      ? convertedBody._namespaceToolIdentityMap
+      : null;
+
   // Ensure stream is enabled
   convertedBody.stream = true;
 
@@ -86,7 +93,10 @@ export async function handleResponsesCore({
   }
 
   // Transform SSE stream to Responses API format (no logging in worker)
-  const transformStream = createResponsesApiTransformStream(null, undefined, { customToolNames });
+  const transformStream = createResponsesApiTransformStream(null, undefined, {
+    customToolNames,
+    requestToolIdentityMap,
+  });
   const transformedBody = response.body.pipeThrough(transformStream).pipeThrough(
     createSseHeartbeatTransform({
       signal,

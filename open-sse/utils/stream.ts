@@ -86,6 +86,7 @@ import { restoreClaudeToolName } from "../services/claudeCodeToolRemapper.ts";
 import { normalizeFinalOpenAIStreamChunk } from "./openAIStreamChunk.ts";
 import { collectClaudeDelta } from "./streamClaudeDelta.ts";
 import { createStreamTiming, type StreamTiming } from "./streamTiming.ts";
+import { buildUsageOnlyChunk } from "./usageOnlyChunk.ts";
 
 /**
  * Race a response body read against a timeout.
@@ -782,12 +783,18 @@ export function createSSEStream(options: StreamOptions = {}) {
   let passthroughAccumulatedContent = "";
   let passthroughAccumulatedReasoning = "";
   let passthroughBufferedTextualToolCallContent = "";
+  /** Passthrough: whether a usage block was already forwarded to the client (prevents double). */
+  let passthroughForwardedUsage = false;
+  /** Translate: usage already reached the client, or no trailing usage chunk applies. */
+  let translateForwardedUsage = sourceFormat !== FORMATS.OPENAI || !shouldEmitDoneTerminator;
   // Passthrough Responses SSE: snapshots of items seen via `response.output_item.done`,
   // used to backfill `response.completed.response.output` when upstream returns it
   // empty (which happens when `store: false` — see backfillResponsesCompletedOutput).
   const passthroughResponsesOutputItems: unknown[] = [];
   const passthroughResponsesPendingFunctionCalls = new Map<string, JsonRecord>();
   let passthroughResponsesId: string | null = null;
+  /** Passthrough chat path: upstream chat-completion id, reused by synthetic flush chunks. */
+  let passthroughLastChatId: string | null = null;
   let passthroughResponsesCurrentFunctionCallKey: string | null = null;
   const passthroughResponsesReasoningSummarySeen = new Set<string>();
   // #6199 — commentary-phase items announced via `response.output_item.added` are
@@ -858,13 +865,6 @@ export function createSSEStream(options: StreamOptions = {}) {
   const clientPayloadCollector = createStructuredSSECollector({
     stage: "client_response",
   });
-  const requestRecord = asRecord(body);
-  const requestStreamOptions = asRecord(
-    requestRecord.stream_options ?? requestRecord.streamOptions
-  );
-  const expectsOpenAIUsageOnlyChunk =
-    requestStreamOptions.include_usage === true || requestStreamOptions.includeUsage === true;
-
   // Per-stream instances to avoid shared state with concurrent streams
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
@@ -1070,9 +1070,11 @@ export function createSSEStream(options: StreamOptions = {}) {
       const estimated = estimateUsage(body, totalContentLength, sourceFormat);
       itemSanitized.usage = filterUsageForFormat(estimated, sourceFormat);
       state.usage = estimated;
+      if (hasValidUsage(estimated)) translateForwardedUsage = true; // finish chunk carries it
     } else if (state?.finishReason && isFinishChunk && state.usage) {
       const buffered = addBufferToUsage(state.usage);
       itemSanitized.usage = filterUsageForFormat(buffered, sourceFormat);
+      translateForwardedUsage = true;
     }
 
     if (
@@ -1779,7 +1781,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                         !parsed.choices[0]?.finish_reason))
                   ) {
                     const emptyChoicesUsage = extractUsage(parsed) ?? parsed.usage;
-                    if (hasValidUsage(emptyChoicesUsage)) {
+                    if (hasValidUsage(emptyChoicesUsage) && !passthroughForwardedUsage) {
                       // Some upstreams (e.g. Ollama Cloud) emit prompt_tokens: 0
                       // even when input was sent — they simply don't count input
                       // tokens.  When we have a non-zero output but zero input,
@@ -1801,12 +1803,18 @@ export function createSSEStream(options: StreamOptions = {}) {
                         }
                       }
                       usage = emptyChoicesUsage;
+                      passthroughForwardedUsage = true;
                       output = `data: ${JSON.stringify(parsed)}\n\n`;
                       injectedUsage = true;
                       clientPayload = parsed;
                       clientPayloadCollector.push(clientPayload);
                       reqLogger?.appendConvertedChunk?.(output);
                       forward(controller, encoder.encode(output));
+                      continue;
+                    }
+
+                    // If we already forwarded usage, drop any trailing empty-choices valid usage
+                    if (passthroughForwardedUsage && hasValidUsage(emptyChoicesUsage)) {
                       continue;
                     }
 
@@ -1982,6 +1990,14 @@ export function createSSEStream(options: StreamOptions = {}) {
 
                   const isFinishChunk = parsed.choices?.[0]?.finish_reason;
 
+                  // Remember the upstream chat-completion id so the flush-time
+                  // usage-only chunk carries the stream's real id.
+                  if (typeof parsed.id === "string" && parsed.id) {
+                    passthroughLastChatId = parsed.id;
+                  } else if (typeof parsed.id === "number") {
+                    passthroughLastChatId = String(parsed.id);
+                  }
+
                   if (isFinishChunk) {
                     passthroughSawFinishReason = true;
                   }
@@ -2001,25 +2017,18 @@ export function createSSEStream(options: StreamOptions = {}) {
                   ) {
                     parsed.choices[0].finish_reason = "tool_calls";
                     // If we modify it, we must output the modified object
-                    if (!injectedUsage && hasValidUsage(parsed.usage)) {
-                      output = `data: ${JSON.stringify(parsed)}\n\n`;
-                      injectedUsage = true;
-                    }
-                  }
-                  if (
-                    isFinishChunk &&
-                    !hasValidUsage(parsed.usage) &&
-                    !expectsOpenAIUsageOnlyChunk
-                  ) {
-                    const estimated = estimateUsage(body, totalContentLength, FORMATS.OPENAI);
-                    parsed.usage = filterUsageForFormat(estimated, FORMATS.OPENAI);
+                    // (injectedUsage doubles as the "output already rewritten" latch).
                     output = `data: ${JSON.stringify(parsed)}\n\n`;
-                    usage = estimated;
                     injectedUsage = true;
-                  } else if (isFinishChunk && usage) {
+                  }
+                  // #12151: do NOT inject estimated usage into the finish chunk — a real
+                  // OpenAI upstream sends usage in a trailing empty-choices chunk after it.
+                  // The estimate is emitted in flush() only when the upstream stayed silent.
+                  if (isFinishChunk && hasValidUsage(usage) && !passthroughForwardedUsage) {
                     const buffered = addBufferToUsage(usage);
-                    parsed.usage = filterUsageForFormat(buffered, FORMATS.OPENAI);
+                    parsed.usage = filterUsageForFormat(buffered, sourceFormat || FORMATS.OPENAI);
                     output = `data: ${JSON.stringify(parsed)}\n\n`;
+                    passthroughForwardedUsage = true;
                     injectedUsage = true;
                   } else if (textualToolCallConverted) {
                     output = `data: ${JSON.stringify(parsed)}\n\n`;
@@ -2554,6 +2563,20 @@ export function createSSEStream(options: StreamOptions = {}) {
                 forward(controller, encoder.encode(finishOutput));
                 clientPayloadCollector.push(syntheticFinishChunk);
               }
+              // #12151: upstream never reported usage — emit the estimate as a
+              // canonical OpenAI trailing usage-only chunk before [DONE].
+              if (shouldEmitDoneTerminator && !passthroughForwardedUsage && hasValidUsage(usage)) {
+                const usageOnlyChunk = buildUsageOnlyChunk(
+                  passthroughLastChatId ?? passthroughResponsesId,
+                  model,
+                  filterUsageForFormat(usage, sourceFormat || FORMATS.OPENAI)
+                );
+                const usageOutput = `data: ${JSON.stringify(usageOnlyChunk)}\n\n`;
+                reqLogger?.appendConvertedChunk?.(usageOutput);
+                forward(controller, encoder.encode(usageOutput));
+                clientPayloadCollector.push(usageOnlyChunk);
+                passthroughForwardedUsage = true;
+              }
               await emitFinalSseMetadata(controller, usage);
               doneSent = true;
               if (shouldEmitDoneTerminator) {
@@ -2865,8 +2888,26 @@ export function createSSEStream(options: StreamOptions = {}) {
            * emitted once at stream end when merged into the final translated chunk.
            */
 
+          // Estimate usage if provider didn't return valid usage (for translate mode)
+          if (!hasValidUsage(state?.usage) && totalContentLength > 0) {
+            state.usage = estimateUsage(body, totalContentLength, sourceFormat);
+          }
+
           // Send [DONE] (only if not already sent during transform)
           if (!doneSent) {
+            // Upstream stayed silent on usage: send the estimate as the canonical
+            // trailing usage-only chunk before [DONE], like the passthrough flush.
+            if (!translateForwardedUsage && hasValidUsage(state?.usage)) {
+              const usageOnlyChunk = buildUsageOnlyChunk(
+                (state as unknown as Record<string, unknown>)?.chatId,
+                model,
+                filterUsageForFormat(state.usage, sourceFormat)
+              );
+              const usageOutput = `data: ${JSON.stringify(usageOnlyChunk)}\n\n`;
+              reqLogger?.appendConvertedChunk?.(usageOutput);
+              forward(controller, encoder.encode(usageOutput));
+              clientPayloadCollector.push(usageOnlyChunk);
+            }
             await emitFinalSseMetadata(controller, state?.usage as Record<string, unknown> | null);
             doneSent = true;
             if (shouldEmitDoneTerminator) {
@@ -2875,11 +2916,6 @@ export function createSSEStream(options: StreamOptions = {}) {
               reqLogger?.appendConvertedChunk?.(doneOutput);
               forward(controller, encoder.encode(doneOutput));
             }
-          }
-
-          // Estimate usage if provider didn't return valid usage (for translate mode)
-          if (!hasValidUsage(state?.usage) && totalContentLength > 0) {
-            state.usage = estimateUsage(body, totalContentLength, sourceFormat);
           }
 
           if (hasValidUsage(state?.usage)) {

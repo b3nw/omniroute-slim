@@ -6,6 +6,7 @@ import { register } from "../registry.ts";
 import { FORMATS } from "../formats.ts";
 import { appendToolCallArgumentDelta } from "../../utils/toolCallArguments.ts";
 import { fallbackToolCallId } from "../helpers/toolCallHelper.ts";
+import { finalizeResponsesTerminalStatus } from "../helpers/responsesTerminalStatus.ts";
 import { shouldParseTextualReasoningTags } from "../../handlers/responseSanitizer.ts";
 import { getReadableReasoningValue } from "../../utils/reasoningFields.ts";
 import {
@@ -345,6 +346,7 @@ export function openaiToOpenAIResponsesResponse(chunk, state) {
 
   // Handle finish_reason
   if (choice.finish_reason) {
+    state.finishReason = choice.finish_reason; // read by sendCompleted() → finalizeResponsesTerminalStatus
     for (const i in state.msgItemAdded) closeMessage(state, emit, i);
     closeReasoning(state, emit);
     for (const i in state.funcCallIds) closeToolCall(state, emit, i);
@@ -838,10 +840,8 @@ function sendCompleted(state, emit) {
       response.usage = state.usage;
     }
 
-    emit("response.completed", {
-      type: "response.completed",
-      response,
-    });
+    const eventType = finalizeResponsesTerminalStatus(response, state.finishReason, !!upstreamErr);
+    emit(eventType, { type: eventType, response });
   }
 }
 

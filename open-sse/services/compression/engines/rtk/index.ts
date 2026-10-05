@@ -312,7 +312,13 @@ export function processRtkText(
     }
   }
 
-  const deduped = deduplicateRepeatedLines(result, { threshold: config.deduplicateThreshold });
+  // #13388: skip dedup for non-shell tool results (file reads, grep, glob, etc.)
+  // where repeated structural lines are semantically meaningful. Also skip when
+  // the content is a document-like read to avoid false-positive dedup on code files.
+  const shouldSkipDedup = options.skipFilters || isDocumentLikeRead;
+  const deduped = shouldSkipDedup
+    ? { text: result, collapsed: 0 }
+    : deduplicateRepeatedLines(result, { threshold: config.deduplicateThreshold });
   if (deduped.collapsed > 0) {
     result = deduped.text;
     techniquesUsed.push("rtk-dedup");
@@ -345,6 +351,10 @@ export function processRtkText(
   });
   // #4559: skip the generic line/char hard-cap for document/file reads (see
   // isDocumentLikeRead above) so the middle of a code/prose read is not dropped.
+  // Non-shell results that are NOT document-like (grep/glob/search output) still
+  // get the generic cap — #13388 only exempted dedup, which is what corrupts
+  // structured JSON; unlimited truncation-skip would reopen the problem #4559 fixed
+  // for a different class of tools.
   const truncated = isDocumentLikeRead
     ? { text: result, truncated: false, droppedLines: 0 }
     : smartTruncate(result, {

@@ -7,6 +7,8 @@ import {
 } from "../utils/reasoningPlaceholder.ts";
 import * as fs from "fs";
 import * as path from "path";
+import { finalizeResponsesTerminalStatus } from "../translator/helpers/responsesTerminalStatus.ts";
+import { resolveRequestToolIdentity } from "../translator/response/openai-responses/requestToolIdentity.ts";
 
 // #10223: threshold for detecting corrupted request_id fields. Normal
 // request IDs are <100 chars. DeepSeek's SSE encoder bug produces 200+
@@ -192,9 +194,15 @@ export function createResponsesLogger(model, logsDir = null) {
 export function createResponsesApiTransformStream(
   logger = null,
   keepaliveIntervalMs = 3000,
-  options: { customToolNames?: Iterable<string> } = {}
+  options: {
+    customToolNames?: Iterable<string>;
+    requestToolIdentityMap?: ReadonlyMap<string, unknown> | null;
+  } = {}
 ) {
   const customToolNames = new Set(options.customToolNames || []);
+  // Request-declared {namespace, name} identities (#7936) so function_call /
+  // custom_tool_call items round-trip their namespace on this emitter too.
+  const requestToolIdentityMap = options.requestToolIdentityMap ?? null;
   const state = {
     seq: 0,
     responseId: `resp_${Date.now()}`,
@@ -232,6 +240,7 @@ export function createResponsesApiTransformStream(
     buffer: "",
     completedSent: false,
     usage: null,
+    finishReason: null as string | null,
     keepaliveTimer: null,
     // #6906: true once a finish_reason chunk closed all output items but deferred
     // response.completed — a trailing usage-only chunk (choices: [], usage: {...}) may
@@ -446,6 +455,8 @@ export function createResponsesApiTransformStream(
     const itemType = customTool ? "custom_tool_call" : "function_call";
     state.funcItemTypes[idx] = itemType;
     state.funcItemAdded[idx] = true;
+    const name = state.funcNames[idx] || "";
+    const identity = resolveRequestToolIdentity(requestToolIdentityMap, name);
 
     emit(controller, "response.output_item.added", {
       type: "response.output_item.added",
@@ -455,7 +466,8 @@ export function createResponsesApiTransformStream(
         type: itemType,
         ...(customTool ? { input: "" } : { arguments: "" }),
         call_id: state.funcCallIds[idx],
-        name: state.funcNames[idx] || "",
+        name: identity?.name ?? name,
+        ...(identity ? { namespace: identity.namespace } : {}),
         ...(customTool ? { status: "in_progress" } : {}),
       },
     });
@@ -540,6 +552,12 @@ export function createResponsesApiTransformStream(
         };
       }
 
+      const identity = resolveRequestToolIdentity(requestToolIdentityMap, toolName);
+      if (identity) {
+        funcItem.namespace = identity.namespace;
+        funcItem.name = identity.name;
+      }
+
       emit(controller, "response.output_item.done", {
         type: "response.output_item.done",
         output_index: normalizedIndex,
@@ -579,8 +597,9 @@ export function createResponsesApiTransformStream(
         response.usage = state.usage;
       }
 
-      emit(controller, "response.completed", {
-        type: "response.completed",
+      const eventType = finalizeResponsesTerminalStatus(response, state.finishReason);
+      emit(controller, eventType, {
+        type: eventType,
         response,
       });
     }
@@ -919,6 +938,8 @@ export function createResponsesApiTransformStream(
 
           // Handle finish_reason
           if (choice.finish_reason) {
+            // Read by sendCompleted() → finalizeResponsesTerminalStatus (length/filter → incomplete).
+            state.finishReason = choice.finish_reason;
             for (const i in state.msgItemAdded) closeMessage(controller, i);
             closeReasoning(controller);
             for (const i in state.funcCallIds) closeToolCall(controller, i);

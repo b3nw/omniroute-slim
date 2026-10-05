@@ -36,6 +36,8 @@ import {
 } from "@omniroute/open-sse/utils/proxyDispatcher";
 import { fetch as undiciFetch } from "undici";
 import {
+  applyCrossProbeEvidence,
+  buildTargetEvidenceMap,
   classifyProbeStatus,
   decideProxyHealthAction,
   type ProxyProbeOutcome,
@@ -96,6 +98,170 @@ export function formatEgressSharingSummaryLine(
   return detail ? `${base} — ${detail}` : base;
 }
 
+/**
+ * Answered-target evidence of the immediately previous sweep generation:
+ * URL → true when at least one probe received any HTTP status. Replaced
+ * wholesale at the end of every sweep (never merged) so a silent generation
+ * drops stale proof — an absent URL is no proof (no ghost evidence, no clock).
+ */
+const priorAnsweredTargetEvidence = new Map<string, boolean>();
+const MAX_TARGET_EVIDENCE_ENTRIES = 100;
+
+/** Test-only: forget the previous-generation target evidence. */
+export function __resetTargetEvidenceForTesting(): void {
+  priorAnsweredTargetEvidence.clear();
+}
+
+interface CollectedProbe {
+  id: string;
+  proxy: { id: string };
+  outcome: ProxyProbeOutcome;
+  status: number | null;
+  target: string | null;
+}
+
+interface DecisionContext {
+  failureMap: Map<string, number>;
+  removeAfter: number;
+  autoRemove: boolean;
+  autoDisable: boolean;
+}
+
+/** Phase 1 of the sweep: probe every proxy in batches, decide nothing yet. */
+async function collectProbeResults<P extends { id: string }>(
+  proxies: P[],
+  probe: (proxy: P) => Promise<CollectedProbe>
+): Promise<CollectedProbe[]> {
+  const collected: CollectedProbe[] = [];
+  for (let i = 0; i < proxies.length; i += CONCURRENCY) {
+    const batch = proxies.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map(async (proxy, indexInBatch) => {
+        // Spread the departures: without this the whole batch leaves at the same tick and a
+        // shared egress IP hits the target with CONCURRENCY simultaneous requests.
+        await waitForProbeSlot(indexInBatch, STAGGER_MS);
+        return probe(proxy);
+      })
+    );
+    for (const result of results) {
+      if (result.status !== "fulfilled") continue;
+      collected.push(result.value);
+    }
+  }
+  return collected;
+}
+
+/** Refresh the previous-generation evidence wholesale (never merged). */
+function refreshTargetEvidence(collected: CollectedProbe[]): void {
+  priorAnsweredTargetEvidence.clear();
+  for (const [target, answered] of buildTargetEvidenceMap(collected)) {
+    if (priorAnsweredTargetEvidence.size >= MAX_TARGET_EVIDENCE_ENTRIES) break;
+    priorAnsweredTargetEvidence.set(target, answered);
+  }
+}
+
+export interface SweepTally {
+  tested: number;
+  alive: number;
+  inconclusive: number;
+  blocked: number;
+  removed: number;
+  disabled: number;
+  promoted: number;
+}
+
+/** Phase 2 of the sweep: apply cross-proxy evidence, then decide per proxy. */
+async function decideCollectedResults(
+  collected: CollectedProbe[],
+  ctx: DecisionContext
+): Promise<SweepTally> {
+  const tally: SweepTally = {
+    tested: 0,
+    alive: 0,
+    inconclusive: 0,
+    blocked: 0,
+    removed: 0,
+    disabled: 0,
+    promoted: 0,
+  };
+  const evidenced = applyCrossProbeEvidence(collected, priorAnsweredTargetEvidence);
+  for (let i = 0; i < collected.length; i++) {
+    const wasPromoted = evidenced[i].outcome !== collected[i].outcome;
+    if (wasPromoted) tally.promoted++;
+    await decideOneResult(
+      collected[i],
+      { ...collected[i], ...evidenced[i] },
+      wasPromoted,
+      ctx,
+      tally
+    );
+  }
+  return tally;
+}
+
+export type CollectedProbeForTesting = CollectedProbe;
+
+/** Test-only: run one per-proxy decision with injected raw/final verdicts. */
+export async function __decideOneResultForTesting(
+  raw: CollectedProbeForTesting,
+  final: CollectedProbeForTesting,
+  wasPromoted: boolean,
+  ctx: DecisionContext,
+  tally: SweepTally
+): Promise<void> {
+  return decideOneResult(raw, final, wasPromoted, ctx, tally);
+}
+
+async function decideOneResult(
+  raw: CollectedProbe,
+  _final: CollectedProbe,
+  _wasPromoted: boolean,
+  ctx: DecisionContext,
+  tally: SweepTally
+): Promise<void> {
+  const { id, outcome: rawOutcome } = raw;
+  tally.tested++;
+  if (rawOutcome === "ok") tally.alive++;
+  else if (rawOutcome === "inconclusive") tally.inconclusive++;
+  else if (rawOutcome === "blocked") tally.blocked++;
+
+  // The status/removal decision and the tally follow the RAW verdict: a promoted
+  // fail never counts toward the removal streak. Upstream feeds a promoted fail
+  // (`_final`/`_wasPromoted`) into the proxy set-aside memory, a subsystem Slim
+  // does not carry, so promotion is observational here (sweep log only).
+  const decision = decideProxyHealthAction({
+    outcome: rawOutcome,
+    priorFailures: ctx.failureMap.get(id) ?? 0,
+    autoRemove: ctx.autoRemove,
+    autoDisable: ctx.autoDisable,
+    removeAfter: ctx.removeAfter,
+  });
+
+  if (decision.clearFailures) ctx.failureMap.delete(id);
+  else ctx.failureMap.set(id, decision.failures);
+
+  // #6246 (policy C) / auto-disable (policy D): only mutate the operator-owned
+  // status when the decision explicitly asks for it. With both flags off,
+  // setStatus is null, so a transient probe failure never flips a healthy
+  // proxy's status.
+  if (decision.setStatus) {
+    await updateProxy(id, { status: decision.setStatus }).catch(() => {});
+    if (decision.setStatus === "dead") tally.disabled++;
+  }
+
+  if (decision.remove) {
+    if (await deleteProxyById(id, { force: true }).catch(() => false)) {
+      ctx.failureMap.delete(id);
+      tally.removed++;
+      try {
+        clearDispatcherCache();
+      } catch {
+        /* non-critical */
+      }
+    }
+  }
+}
+
 function isEnabled(): boolean {
   return process.env.PROXY_HEALTH_ENABLED !== "false";
 }
@@ -140,6 +306,14 @@ function isBackgroundServicesDisabled(): boolean {
  *                      penalizes the proxy.
  *   - "fail"         — a proxy-level connection error (refused/unreachable/TLS).
  */
+export interface ProxyProbeResult {
+  outcome: ProxyProbeOutcome;
+  /** HTTP status when the target answered; null on connection-level errors. */
+  status: number | null;
+  /** URL actually probed (generic or provider-resolved); null when config invalid. */
+  target: string | null;
+}
+
 async function testOneProxy(proxy: {
   id: string;
   type: string;
@@ -148,14 +322,14 @@ async function testOneProxy(proxy: {
   username?: string;
   password?: string;
   family?: string;
-}): Promise<ProxyProbeOutcome> {
+}): Promise<ProxyProbeResult> {
   let proxyUrl: string | null;
   try {
     proxyUrl = proxyConfigToUrl(proxy);
   } catch {
     proxyUrl = null;
   }
-  if (!proxyUrl) return "fail";
+  if (!proxyUrl) return { outcome: "fail", status: null, target: null };
   // A provider's models endpoint is a real GET-only API surface, unlike httpbin.org/ip: many
   // reject HEAD outright. HEAD stays the default for the generic target — this changes nothing
   // for a proxy with no eligible provider assignment.
@@ -172,16 +346,18 @@ async function testOneProxy(proxy: {
       dispatcher,
       headers: { "User-Agent": "OmniRoute/1.0" },
     });
-    return classifyProbeStatus(resp.status);
+    return { outcome: classifyProbeStatus(resp.status), status: resp.status, target };
   } catch {
     // Our own deadline elapsed → inconclusive (slow, not necessarily dead).
-    if (controller.signal.aborted) return "inconclusive";
+    if (controller.signal.aborted) return { outcome: "inconclusive", status: null, target };
     // A provider-resolved target's connection health is not proven the way the
     // operator-configured generic target is: a registry baseUrl can be a placeholder that
     // never resolves for anyone (e.g. databricks's default azuredatabricks.net host is
     // literally 16 zeros). A connection failure there says nothing about this proxy —
     // same principle as the 5xx case above, extended to connection-level errors.
-    return providerTarget ? "inconclusive" : "fail";
+    return providerTarget
+      ? { outcome: "inconclusive", status: null, target }
+      : { outcome: "fail", status: null, target };
   } finally {
     clearTimeout(timeout);
   }
@@ -211,70 +387,26 @@ async function sweep(): Promise<void> {
   const autoRemove = isAutoRemoveEnabled();
   const autoDisable = isAutoDisableEnabled();
 
-  let tested = 0;
-  let alive = 0;
-  let inconclusive = 0;
-  let blocked = 0;
-  let removed = 0;
-  let disabled = 0;
+  // Phase 1 — collect raw probe results across all batches WITHOUT deciding
+  // (cross-proxy evidence requires every response of the target first).
+  const collected = await collectProbeResults(proxies, async (proxy) => {
+    const { outcome, status, target } = await testOneProxy(proxy);
+    return { id: proxy.id, proxy, outcome, status, target };
+  });
 
-  for (let i = 0; i < proxies.length; i += CONCURRENCY) {
-    const batch = proxies.slice(i, i + CONCURRENCY);
-    const results = await Promise.allSettled(
-      batch.map(async (proxy, indexInBatch) => {
-        // Spread the departures: without this the whole batch leaves at the same tick and a
-        // shared egress IP hits the target with CONCURRENCY simultaneous requests.
-        await waitForProbeSlot(indexInBatch, STAGGER_MS);
-        const outcome = await testOneProxy(proxy);
-        return { id: proxy.id, outcome };
-      })
-    );
-
-    for (const result of results) {
-      if (result.status !== "fulfilled") continue;
-      const { id, outcome } = result.value;
-      tested++;
-      if (outcome === "ok") alive++;
-      else if (outcome === "inconclusive") inconclusive++;
-      else if (outcome === "blocked") blocked++;
-
-      const decision = decideProxyHealthAction({
-        outcome,
-        priorFailures: failureMap.get(id) ?? 0,
-        autoRemove,
-        autoDisable,
-        removeAfter,
-      });
-
-      if (decision.clearFailures) failureMap.delete(id);
-      else failureMap.set(id, decision.failures);
-
-      // #6246 (policy C) / auto-disable (policy D): only mutate the operator-owned
-      // status when the decision explicitly asks for it. With both flags off,
-      // setStatus is null, so a transient probe failure never flips a healthy
-      // proxy's status.
-      if (decision.setStatus) {
-        await updateProxy(id, { status: decision.setStatus }).catch(() => {});
-        if (decision.setStatus === "dead") disabled++;
-      }
-
-      if (decision.remove) {
-        if (await deleteProxyById(id, { force: true }).catch(() => false)) {
-          failureMap.delete(id);
-          removed++;
-          try {
-            clearDispatcherCache();
-          } catch {
-            /* non-critical */
-          }
-        }
-      }
-    }
-  }
+  // Phase 2 — lift the abstention only where proof exists (same sweep or the
+  // immediately previous generation), then decide per proxy. Received HTTP
+  // statuses are never reclassified — only status-less `inconclusive` probes
+  // can become `fail`. The current sweep's answered targets then replace the
+  // previous generation wholesale (never merged).
+  const { tested, alive, inconclusive, blocked, removed, disabled, promoted } =
+    await decideCollectedResults(collected, { failureMap, removeAfter, autoRemove, autoDisable });
+  refreshTargetEvidence(collected);
 
   console.log(
-    `${LOG_PREFIX} Sweep complete: ${tested} tested, ${alive} alive, ${blocked} blocked by target, ` +
-      `${inconclusive} inconclusive, ${removed} auto-removed, ${disabled} auto-disabled`
+    `${LOG_PREFIX} Sweep complete: ${tested} tested, ${alive} alive, ` +
+      `${blocked} blocked by target, ${inconclusive} inconclusive, ${promoted} promoted, ` +
+      `${removed} auto-removed, ${disabled} auto-disabled`
   );
 }
 

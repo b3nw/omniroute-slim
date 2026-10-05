@@ -317,6 +317,8 @@ export type ExecutorExecuteResult =
       headers?: Record<string, string>;
       transformedBody?: unknown;
       transport?: string;
+      /** Wire model id actually sent upstream (from the serialized body). */
+      model?: unknown;
     };
 
 export class BaseExecutor {
@@ -370,6 +372,26 @@ export class BaseExecutor {
 
   getCountTokensTimeoutMs() {
     return this.getTimeoutMs();
+  }
+
+  /**
+   * Build the URL from the payload-rule-prepared body (#12826): a rule may rewrite body.model
+   * (custom-model alias -> real id) and URL-path providers (Gemini /models/{model}:...) must
+   * follow it, or Google 404s on the alias. No string body.model -> executor model (unchanged).
+   */
+  buildUrlForBody(
+    model: string,
+    body: unknown,
+    stream: boolean,
+    urlIndex = 0,
+    credentials: ProviderCredentials | null = null
+  ): string {
+    const bodyModel =
+      body && typeof body === "object" && !Array.isArray(body)
+        ? (body as Record<string, unknown>).model
+        : undefined;
+    const effectiveModel = typeof bodyModel === "string" && bodyModel ? bodyModel : model;
+    return this.buildUrl(effectiveModel, stream, urlIndex, credentials);
   }
 
   buildUrl(
@@ -847,7 +869,7 @@ export class BaseExecutor {
         body,
         activeCredentials
       );
-      const url = this.buildUrl(model, stream, urlIndex, requestCredentials);
+      const url = this.buildUrlForBody(model, body, stream, urlIndex, requestCredentials);
       const headers = this.buildHeaders(
         requestCredentials,
         stream,
@@ -1731,7 +1753,13 @@ export class BaseExecutor {
           continue;
         }
 
-        return { response, url, headers: finalHeaders, transformedBody: serializedBody };
+        return {
+          response,
+          url,
+          headers: finalHeaders,
+          transformedBody: serializedBody,
+          model: (serializedBody as Record<string, unknown> | null)?.model,
+        };
       } catch (error) {
         // Distinguish timeout errors from other abort errors
         const err = error instanceof Error ? error : new Error(String(error));

@@ -13,6 +13,7 @@ import { Agent, buildConnector, fetch as undiciFetch, type Dispatcher } from "un
 import { getSettings, updateSettings } from "@/lib/db/settings";
 import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLeaseIsolation";
 import { getRuntimePorts } from "@/lib/runtime/ports";
+import { timingSafeCompare } from "@/shared/utils/timingSafeCompare";
 
 const DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MODEL_SYNC_SETTING_KEY = "model_sync_last_run";
@@ -141,7 +142,9 @@ export function isModelSyncInternalRequest(request: { headers: Headers }): boole
     internalAuthToken = globalState.__omnirouteModelSyncInternalAuthToken;
   }
   const headerToken = request.headers.get(MODEL_SYNC_INTERNAL_AUTH_HEADER);
-  return Boolean(headerToken && internalAuthToken && headerToken === internalAuthToken);
+  return Boolean(
+    headerToken && internalAuthToken && timingSafeCompare(headerToken, internalAuthToken)
+  );
 }
 
 /**
