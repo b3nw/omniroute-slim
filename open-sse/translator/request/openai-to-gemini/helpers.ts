@@ -12,6 +12,8 @@ export type GeminiGenerationConfig = {
   maxOutputTokens?: unknown;
   thinkingConfig?: {
     thinkingBudget?: number;
+    /** Claude 5.5 on Antigravity: 1 (low) / 2 (medium) / 3 (high); replaces thinkingBudget. */
+    thinkingLevel?: number;
     includeThoughts: boolean;
   };
   responseMimeType?: string;
