@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   BaseExecutor,
   type ExecuteInput,
@@ -12,7 +11,18 @@ import {
   isThinkingMessageModel,
 } from "../utils/reasoningContentInjector.ts";
 import { runWithDirectFetchContext, runWithProxyContext } from "../utils/proxyFetch.ts";
-import { forwardOpencodeClientHeaders } from "../utils/opencodeHeaders.ts";
+import {
+  forwardOpencodeClientHeaders,
+  DEFAULT_OPENCODE_USER_AGENT,
+} from "../utils/opencodeHeaders.ts";
+import {
+  attemptFor,
+  fingerprintRenamesFor,
+  prepareFreeTierRequest,
+  rebuildJsonFromForcedStream,
+  surfaceFromBaseUrl,
+} from "./opencodeFreeTierContract.ts";
+import { restoreFingerprintToolNames } from "../utils/opencodeFingerprint.ts";
 import {
   type AccountProxyConfig,
   type RotatableAccount,
@@ -454,6 +464,30 @@ export class OpencodeExecutor extends BaseExecutor {
     };
   }
 
+  private finalizeForcedStream(
+    input: ExecuteInput,
+    result: ExecutorExecuteResult
+  ): ExecutorExecuteResult {
+    const restored = (r: ExecutorExecuteResult): ExecutorExecuteResult =>
+      this.restoreFingerprintNames(input, r);
+    if (input.stream) return restored(result);
+    if (!("response" in result) || !result.response) return result;
+    const model = attemptFor(input.body)?.model;
+    if (!model) return restored(result);
+    const response = rebuildJsonFromForcedStream(result.response, this._requestFormat, model);
+    return restored(response === result.response ? result : { ...result, response });
+  }
+
+  private restoreFingerprintNames(
+    input: ExecuteInput,
+    result: ExecutorExecuteResult
+  ): ExecutorExecuteResult {
+    const renameMap = fingerprintRenamesFor(input.body);
+    if (!renameMap || !("response" in result) || !result.response) return result;
+    const response = restoreFingerprintToolNames(result.response, renameMap);
+    return response === result.response ? result : { ...result, response };
+  }
+
   async execute(input: ExecuteInput) {
     this._requestFormat = resolveOpencodeTargetFormat(this.provider, input.model);
 
@@ -522,7 +556,10 @@ export class OpencodeExecutor extends BaseExecutor {
                 "OPENCODE",
                 `upstream empty rejection on direct account (${chatcmplId}), retrying once…`
               );
-              return this.normalizeMuseSparkResponse(input, await super.execute(input));
+              return this.finalizeForcedStream(
+                input,
+                this.normalizeMuseSparkResponse(input, await super.execute(input))
+              );
             }
             log?.debug?.(
               "OPENCODE",
@@ -530,7 +567,7 @@ export class OpencodeExecutor extends BaseExecutor {
             );
           }
         }
-        return this.normalizeMuseSparkResponse(input, single);
+        return this.finalizeForcedStream(input, this.normalizeMuseSparkResponse(input, single));
       }
 
       // This loop only ever dispatches through super.execute() (the HTTP request
@@ -660,7 +697,7 @@ export class OpencodeExecutor extends BaseExecutor {
         }
 
         this.markSuccess(account);
-        return this.normalizeMuseSparkResponse(input, result);
+        return this.finalizeForcedStream(input, this.normalizeMuseSparkResponse(input, result));
       }
 
       // The loop exhausted without a result. If it's because every remaining
@@ -674,7 +711,10 @@ export class OpencodeExecutor extends BaseExecutor {
       }
 
       // All accounts returned 429 (or errored) — surface the last response.
-      return this.normalizeMuseSparkResponse(input, lastResult ?? (await super.execute(input)));
+      return this.finalizeForcedStream(
+        input,
+        this.normalizeMuseSparkResponse(input, lastResult ?? (await super.execute(input)))
+      );
     } finally {
       this._requestFormat = null;
     }
@@ -749,7 +789,7 @@ export class OpencodeExecutor extends BaseExecutor {
             userAgent:
               process.env[envUAKey]?.trim() ||
               process.env.OPENCODE_USER_AGENT?.trim() ||
-              "opencode",
+              DEFAULT_OPENCODE_USER_AGENT,
             client: process.env.OPENCODE_CLIENT?.trim() || "desktop",
             project: process.env.OPENCODE_PROJECT?.trim() || "global",
           };
@@ -776,17 +816,10 @@ export class OpencodeExecutor extends BaseExecutor {
       });
     }
 
-    // Muse's Responses endpoint rejects the short conversation fingerprint used
-    // by the Chat endpoint in practice. Keep the workaround scoped to Muse.
-    if (
-      this._requestFormat === "openai-responses" &&
-      model.startsWith("muse-spark") &&
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-        headers["x-opencode-session"] || ""
-      )
-    ) {
-      headers["x-opencode-session"] = randomUUID();
-    }
+    // The Muse Responses workaround that forced a UUID session here is gone: the shape it
+    // produced is exactly what the upstream now refuses, and the canonical session it used
+    // to overwrite is accepted on that surface (measured 2026-09-17, 200 on
+    // muse-spark-1.3-contributor-free via /v1/responses).
 
     void model;
 
@@ -914,6 +947,16 @@ export class OpencodeExecutor extends BaseExecutor {
     if (isThinkingMessageModel(model)) {
       modifiedBody = injectReasoningContentForThinkingModel(modifiedBody);
     }
-    return modifiedBody;
+    const surface = surfaceFromBaseUrl(this.config?.baseUrl);
+    const { body: contractBody } = prepareFreeTierRequest(
+      modifiedBody,
+      this._requestFormat,
+      surface,
+      this.config?.id || this.provider || "opencode",
+      model,
+      undefined,
+      typeof body === "object" && body !== null ? (body as object) : undefined
+    );
+    return contractBody;
   }
 }
