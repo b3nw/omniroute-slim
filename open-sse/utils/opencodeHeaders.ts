@@ -1,6 +1,47 @@
-import { randomUUID } from "crypto";
+import { createHash, randomBytes, randomUUID } from "crypto";
 import { setUserAgentHeader } from "../executors/base.ts";
 import { generateSessionId } from "../services/sessionManager.ts";
+
+/**
+ * Default synthesized User-Agent. The upstream only parses the version, so this literal
+ * exists to be recent enough, not to impersonate a build: any `opencode/<>=1.17>` passes.
+ * Overridable through the existing OPENCODE_USER_AGENT (or <PROVIDER>_USER_AGENT) knob.
+ */
+export const DEFAULT_OPENCODE_USER_AGENT = "opencode/1.18.31";
+
+/** Canonical OpenCode session id shape: `ses_` + 12 hex + 14 base62. */
+export const OPENCODE_SESSION_PATTERN = /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/;
+/** Same shape for the request id, which the upstream accepts but does not validate. */
+export const OPENCODE_REQUEST_PATTERN = /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/;
+
+const MINIMUM_USER_AGENT_MINOR = 17;
+const USER_AGENT_VERSION_RE = /opencode\/(?:[a-z]+\/)?v?(\d+)\.(\d+)/i;
+
+/** Whether a User-Agent already satisfies the upstream contract, so it must be kept. */
+export function satisfiesOpencodeUserAgentContract(userAgent: string | null | undefined): boolean {
+  const match = String(userAgent || "").match(USER_AGENT_VERSION_RE);
+  if (!match) return false;
+  const major = Number.parseInt(match[1], 10);
+  const minor = Number.parseInt(match[2], 10);
+  if (!Number.isFinite(major) || !Number.isFinite(minor)) return false;
+  return major > 1 || (major === 1 && minor >= MINIMUM_USER_AGENT_MINOR);
+}
+
+const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+function base62From(bytes: Buffer, length: number): string {
+  return Array.from(bytes.subarray(0, length), (byte) => BASE62[byte % 62]).join("");
+}
+
+/**
+ * Render an id in the canonical OpenCode shape (`<prefix>` + 12 hex + 14 base62).
+ */
+export function canonicalId(prefix: "ses_" | "msg_", seed?: string): string {
+  const bytes = seed
+    ? createHash("sha256").update(`opencode\u0000${prefix}\u0000${seed}`).digest()
+    : randomBytes(32);
+  return `${prefix}${bytes.subarray(0, 6).toString("hex")}${base62From(bytes.subarray(6), 14)}`;
+}
 
 /**
  * Header keys that are forwarded from the client to the upstream provider.
@@ -49,7 +90,7 @@ function findHeader(headers: Record<string, string>, name: string): string | und
  *   (User-Agent, x-opencode-client, x-opencode-project) plus fresh request/session
  *   UUIDs, but ONLY for keys the client did not already supply. Client values always
  *   win; these defaults only fill gaps. User-Agent is the one exception: a client UA
- *   that is not already the OpenCode CLI (e.g. curl/8.5.0) is REPLACED with the
+ *   that is not already the OpenCode CLI is REPLACED with the
  *   synthesized CLI UA, because opencode.ai's free tier rejects generic client UAs
  *   from datacenter IPs with FreeUsageLimitError 429. (#5997, follow-up #10229)
  * @param options.sessionBody - Request body fields used to generate a
@@ -119,7 +160,7 @@ export function forwardOpencodeClientHeaders(
  * User-Agent is the exception: a non-CLI client UA (curl, python, SDKs) is replaced
  * with the synthesized CLI UA, because opencode.ai's free tier flags generic client
  * UAs from datacenter IPs (FreeUsageLimitError 429). A client UA that already looks
- * like the OpenCode CLI (opencode-cli/...) is preserved so the real CLI's versioned
+ * like the OpenCode CLI is preserved so the real CLI's versioned
  * identity stays intact. (#5997, follow-up)
  */
 function applyCliDefaults(
@@ -133,14 +174,20 @@ function applyCliDefaults(
   }
 ): void {
   const existingUa = headers["User-Agent"] || headers["user-agent"];
-  const clientUaIsCliLike =
-    typeof existingUa === "string" && /^opencode-cli\//i.test(existingUa.trim());
-  if (!clientUaIsCliLike) {
+  if (!satisfiesOpencodeUserAgentContract(existingUa)) {
     setUserAgentHeader(headers, cliDefaults.userAgent);
   }
   headers["x-opencode-client"] ||= cliDefaults.client;
   headers["x-opencode-project"] ||= cliDefaults.project;
-  headers["x-opencode-request"] ||= randomUUID();
-  headers["x-opencode-session"] ||=
-    generateSessionId(sessionBody ?? null) || randomUUID();
+  const clientRequestId = headers["x-opencode-request"]?.trim();
+  headers["x-opencode-request"] =
+    clientRequestId && OPENCODE_REQUEST_PATTERN.test(clientRequestId)
+      ? clientRequestId
+      : canonicalId("msg_", clientRequestId || undefined);
+  const clientSessionId = headers["x-opencode-session"]?.trim();
+  headers["x-opencode-session"] = clientSessionId
+    ? OPENCODE_SESSION_PATTERN.test(clientSessionId)
+      ? clientSessionId
+      : canonicalId("ses_", clientSessionId)
+    : canonicalId("ses_", generateSessionId(sessionBody ?? null) ?? undefined);
 }
