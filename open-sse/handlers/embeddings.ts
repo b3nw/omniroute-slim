@@ -94,6 +94,7 @@ export async function handleEmbedding({
   apiKeyId = null,
   apiKeyName = null,
   connectionId = null,
+  signal = null,
 }: {
   body: Record<string, unknown>;
   credentials: {
@@ -108,6 +109,7 @@ export async function handleEmbedding({
   apiKeyId?: string | null;
   apiKeyName?: string | null;
   connectionId?: string | null;
+  signal?: AbortSignal | null;
 }) {
   // Use pre-resolved provider/model from route handler if available (supports dynamic provider_nodes).
   let provider: string | null;
@@ -412,6 +414,7 @@ export async function handleEmbedding({
       method: "POST",
       headers,
       body: JSON.stringify(upstreamBody),
+      signal: signal ?? undefined,
     });
 
     if (!response.ok) {

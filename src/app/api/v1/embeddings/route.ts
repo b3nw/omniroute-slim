@@ -1,6 +1,7 @@
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import * as log from "@/sse/utils/logger";
+import { isDashboardSessionAuthenticated } from "@/shared/utils/apiAuth";
 import { enforceApiKeyPolicy } from "@/shared/utils/apiKeyPolicy";
 import { isRequireApiKeyEnabled } from "@/shared/utils/featureFlags";
 import { v1EmbeddingsSchema } from "@/shared/validation/schemas";
@@ -55,8 +56,14 @@ async function postHandler(request, context) {
 
   // Auth check — when REQUIRE_API_KEY=false, ignore presented invalid keys
   // so anonymous access works the same as all other client APIs (#7785).
+  // An authenticated dashboard session (playground/testing) satisfies the
+  // requirement without a key, matching clientApiPolicy.
   const apiKeyRaw = extractApiKey(request);
-  if (isRequireApiKeyEnabled() && !apiKeyRaw) {
+  if (
+    isRequireApiKeyEnabled() &&
+    !apiKeyRaw &&
+    !(await isDashboardSessionAuthenticated(request))
+  ) {
     return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Authentication required");
   }
   if (isRequireApiKeyEnabled() && apiKeyRaw && !(await isValidApiKey(apiKeyRaw))) {

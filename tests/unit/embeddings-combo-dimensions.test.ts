@@ -4,8 +4,7 @@
  *
  * Test 1: `dimensions` can be stored on a combo and is read back correctly.
  * Test 2: When the client omits `dimensions`, the combo-stored value is injected
- *         into the body forwarded to handleComboChat (verified by intercepting
- *         handleEmbedding at the upstream fetch boundary).
+ *         into the body forwarded to handleComboChat as an integer.
  * Test 3: A client-supplied `dimensions` value wins over the combo default.
  * Test 4: Combos without `dimensions` leave the upstream body unchanged.
  *
@@ -67,49 +66,47 @@ test("combo created without dimensions has no dimensions field", async () => {
 
 // ─── Test 2–4: dimensions injection logic (unit-level) ───────────────────────
 //
-// We test the injection predicate directly: the logic that decides whether to
-// spread `combo.dimensions` into the body. This is the exact same logic that
-// lives in service.ts and is pure (no I/O), so we can verify it here without
-// needing a full request pipeline.
+// applyComboDimensions is the exact helper createEmbeddingResponse uses before
+// dispatching to handleComboChat.
 
-function applyDimensionsInjection(
-  body: Record<string, unknown>,
-  combo: Record<string, unknown>
-): Record<string, unknown> {
-  // Mirror of the injection logic in src/lib/embeddings/service.ts
-  const comboDimensions =
-    combo.dimensions !== undefined && combo.dimensions !== null
-      ? String(combo.dimensions)
-      : undefined;
-  return comboDimensions !== undefined && body.dimensions === undefined
-    ? { ...body, dimensions: comboDimensions }
-    : body;
-}
+const { applyComboDimensions } = await import("../../src/lib/embeddings/service.ts");
 
-test("combo dimensions injected when client body has no dimensions", () => {
+test("combo dimensions injected as an integer when client body has no dimensions", () => {
   const body = { model: "my-combo", input: "hello" };
   const combo = { name: "my-combo", dimensions: "512" };
-  const result = applyDimensionsInjection(body, combo);
-  assert.equal(result.dimensions, "512", "combo dimensions must be injected");
+  const result = applyComboDimensions(body, combo);
+  assert.strictEqual(result.dimensions, 512, "combo dimensions must be injected as a number");
+});
+
+test("numeric combo dimensions are injected unchanged", () => {
+  const result = applyComboDimensions({ model: "my-combo" }, { dimensions: 768 });
+  assert.strictEqual(result.dimensions, 768);
 });
 
 test("client-supplied dimensions take precedence over combo dimensions", () => {
-  const body = { model: "my-combo", input: "hello", dimensions: "256" };
+  const body = { model: "my-combo", input: "hello", dimensions: 256 };
   const combo = { name: "my-combo", dimensions: "512" };
-  const result = applyDimensionsInjection(body, combo);
-  assert.equal(result.dimensions, "256", "client dimensions must not be overridden");
+  const result = applyComboDimensions(body, combo);
+  assert.strictEqual(result.dimensions, 256, "client dimensions must not be overridden");
 });
 
 test("no dimensions injected when combo has none", () => {
   const body = { model: "my-combo", input: "hello" };
   const combo = { name: "my-combo" }; // no dimensions
-  const result = applyDimensionsInjection(body, combo);
+  const result = applyComboDimensions(body, combo);
   assert.equal(result.dimensions, undefined, "dimensions must not appear when combo has none");
 });
 
 test("null combo dimensions treated as absent — no injection", () => {
   const body = { model: "my-combo", input: "hello" };
   const combo = { name: "my-combo", dimensions: null };
-  const result = applyDimensionsInjection(body, combo);
+  const result = applyComboDimensions(body, combo);
   assert.equal(result.dimensions, undefined, "null combo dimensions must not be injected");
+});
+
+test("non-integer or non-positive combo dimensions are ignored", () => {
+  for (const dimensions of ["abc", "12.5", "0", "-8", ""]) {
+    const result = applyComboDimensions({ model: "my-combo" }, { dimensions });
+    assert.equal(result.dimensions, undefined, `invalid dimensions ${JSON.stringify(dimensions)}`);
+  }
 });
