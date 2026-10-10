@@ -140,9 +140,17 @@ export async function createEmbeddingResponse(
           combo: combo as any,
           handleSingleModel: async (reqBody: any, targetModelStr: string, target?: any) => {
             const newBody = { ...reqBody, model: targetModelStr };
+            // Abort the upstream fetch when the combo target times out or loses
+            // a hedged race, not only when the client request is aborted.
+            const signals = [options.signal, target?.modelAbortSignal].filter(
+              (s): s is AbortSignal => Boolean(s)
+            );
+            const combinedSignal =
+              signals.length > 1 ? AbortSignal.any(signals) : (signals[0] ?? null);
             return createEmbeddingResponse(newBody, {
               ...options,
               connectionId: target?.connectionId || options.connectionId,
+              signal: combinedSignal,
             });
           },
           isModelAvailable: undefined,
@@ -158,6 +166,7 @@ export async function createEmbeddingResponse(
     }
   }
   let dynamicProviders: ReturnType<typeof buildDynamicEmbeddingProvider>[] = [];
+  const dynamicProviderNodeIds = new Map<string, string>();
   try {
     const nodes = (await getCachedProviderNodes()) as unknown as EmbeddingProviderNodeRow[];
     dynamicProviders = (Array.isArray(nodes) ? nodes : [])
@@ -173,7 +182,9 @@ export async function createEmbeddingResponse(
       })
       .map((n) => {
         try {
-          return buildDynamicEmbeddingProvider(n);
+          const dynamicProvider = buildDynamicEmbeddingProvider(n);
+          if (n.id) dynamicProviderNodeIds.set(dynamicProvider.id, n.id);
+          return dynamicProvider;
         } catch (err) {
           log.error("EMBED", `Skipping invalid provider_node ${n.prefix}: ${err}`);
           return null;
@@ -227,7 +238,7 @@ export async function createEmbeddingResponse(
     dynamicProviders.find((dp) => dp.id === provider) ||
     getEmbeddingProvider(provider) ||
     null;
-  let credentialsProviderId = provider;
+  let credentialsProviderId = dynamicProviderNodeIds.get(provider) || provider;
 
   if (syncedEndpointRoute) {
     credentials = noEligibleConnection
@@ -321,6 +332,10 @@ export async function createEmbeddingResponse(
     );
   }
 
+  // Restricted when the API key carries an allowlist (an empty intersection is
+  // still a restriction — it matches nothing) or a connection is pinned.
+  const isRestricted = allowedConnections !== null || Boolean(options.connectionId);
+
   if (!credentials && providerConfig.authType !== "none") {
     credentials = noEligibleConnection
       ? null
@@ -351,18 +366,19 @@ export async function createEmbeddingResponse(
         `[${provider}] All ${credentials.expiredCount || 1} connection(s) authentication expired — please reconnect in the dashboard`
       );
     }
-  } else if (provider === "ollama-local" || provider === "lmstudio") {
-    // Ollama and LM Studio are keyless, but a configured connection can still
-    // provide a custom local host. Hydrate that optional connection without
-    // imposing an authentication requirement, then keep the static localhost
-    // default when no connection exists. getProviderCredentials("lmstudio")
-    // resolves the dashboard's hyphenated "lm-studio" connection via the
-    // provider search pool/alias (#11233). When unrestricted, a selection or
-    // rate-limit failure must not break the flow — proceed without credentials
-    // against the static localhost default. When the API key restricts
-    // connections, fail closed instead: an anonymous localhost dispatch would
-    // bypass the allowlist.
-    const isRestricted = allowedConnections !== null;
+  } else if (
+    !credentials &&
+    (isRestricted || provider === "ollama-local" || provider === "lmstudio")
+  ) {
+    // No-auth providers (Ollama, LM Studio, private/LAN provider nodes) need no
+    // credentials, but a configured connection can still provide a custom local
+    // host, a pinned proxy, and quota-share scope. getProviderCredentials
+    // ("lmstudio") resolves the dashboard's hyphenated "lm-studio" connection
+    // via the provider search pool/alias (#11233). When unrestricted, a
+    // selection or rate-limit failure must not break the flow — proceed without
+    // credentials against the static/node default. When the API key restricts
+    // connections or a connection is pinned (dashboard test / combo target),
+    // fail closed instead: an anonymous dispatch would bypass the restriction.
     const localCredentials = noEligibleConnection
       ? null
       : await getProviderCredentials(
@@ -407,8 +423,16 @@ export async function createEmbeddingResponse(
   // resolved to "auto") and the selected connection declares a defaultModel,
   // resolve the bare name to that real model ID before the upstream call so the
   // provider receives a concrete model. A "/"-qualified name is left untouched.
+  // Only an unresolved placeholder qualifies: a model the registry (or synced
+  // endpoint route) already recognized must never be swapped for the
+  // connection's default — that is typically a chat model (e.g. gpt-4o).
+  const isUnresolvedModel =
+    !resolvedModel ||
+    (resolvedModel === "auto" && !providerConfig.models.some((m) => m.id === resolvedModel));
   const connectionDefaultModel =
-    credentials && typeof (credentials as { defaultModel?: unknown }).defaultModel === "string"
+    isUnresolvedModel &&
+    credentials &&
+    typeof (credentials as { defaultModel?: unknown }).defaultModel === "string"
       ? ((credentials as { defaultModel?: string }).defaultModel as string)
       : null;
   const effectiveModel = resolveBareModelToConnectionDefault(
