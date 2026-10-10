@@ -82,6 +82,7 @@ async function postHandler(request, context) {
     apiKeyId: apiKeyMeta?.id || null,
     apiKeyName: apiKeyMeta?.name || null,
     connectionId: null,
+    allowedConnections: apiKeyMeta?.allowedConnections ?? null,
   });
 }
 

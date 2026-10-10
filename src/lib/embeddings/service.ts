@@ -10,11 +10,7 @@ import { errorResponse, unavailableResponse } from "@omniroute/open-sse/utils/er
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import * as log from "@/sse/utils/logger";
 import { toJsonErrorPayload } from "@/shared/utils/upstreamError";
-import {
-  getProviderCredentials,
-  clearRecoveredProviderState,
-  markAccountUnavailable,
-} from "@/sse/services/auth";
+import { getProviderCredentials, clearRecoveredProviderState } from "@/sse/services/auth";
 import { getCachedProviderNodes } from "@/lib/db/readCache";
 import { getComboByName, getCombos } from "@/lib/db/combos";
 import { getDatabaseSettings } from "@/lib/db/databaseSettings";
@@ -47,6 +43,23 @@ function isNoAuthLocalEmbeddingHost(hostname: string): boolean {
   return isPrivateHost(hostname) && !isCloudMetadataHost(hostname);
 }
 
+function normalizeAllowedConnectionIds(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const ids = value.filter(
+    (entry): entry is string => typeof entry === "string" && entry.trim().length > 0
+  );
+  return ids.length > 0 ? ids : null;
+}
+
+// Mirrors intersectAllowedConnectionIds in chat.ts: null means "unrestricted",
+// an empty array means the two allowlists are disjoint (no eligible connection).
+function intersectAllowedConnectionIds(primary: unknown, secondary: unknown): string[] | null {
+  const first = normalizeAllowedConnectionIds(primary);
+  const second = normalizeAllowedConnectionIds(secondary);
+  if (first && second) return first.filter((id) => second.includes(id));
+  return first || second || null;
+}
+
 export interface EmbeddingHandlerOptions {
   clientRawRequest?: {
     endpoint: string;
@@ -56,6 +69,8 @@ export interface EmbeddingHandlerOptions {
   apiKeyId?: string | null;
   apiKeyName?: string | null;
   connectionId?: string | null;
+  /** API-key connection allowlist (policy.apiKeyInfo.allowedConnections). */
+  allowedConnections?: string[] | null;
   resolvedProvider?: EmbeddingProvider | null;
   resolvedModel?: string | null;
 }
@@ -183,6 +198,19 @@ export async function createEmbeddingResponse(
     );
   }
 
+  // Credential selection scope: the API key's connection allowlist (narrowed to
+  // the synced route's advertising connections when present), the explicitly
+  // pinned connection (dashboard model test / combo target), and the requested
+  // model so per-model lockouts are honored.
+  const allowedConnections = intersectAllowedConnectionIds(
+    options.allowedConnections ?? null,
+    syncedEndpointRoute?.connectionIds ?? null
+  );
+  const noEligibleConnection = Array.isArray(allowedConnections) && allowedConnections.length === 0;
+  const credentialSelectionOptions = {
+    forcedConnectionId: options.connectionId ?? undefined,
+  };
+
   let credentials: ProviderCredentialsResult | null = null;
   let providerConfig: EmbeddingProvider | null =
     options.resolvedProvider ||
@@ -192,12 +220,15 @@ export async function createEmbeddingResponse(
   let credentialsProviderId = provider;
 
   if (syncedEndpointRoute) {
-    credentials = await getProviderCredentials(
-      provider,
-      null,
-      syncedEndpointRoute.connectionIds,
-      syncedEndpointRoute.model
-    );
+    credentials = noEligibleConnection
+      ? null
+      : await getProviderCredentials(
+          provider,
+          null,
+          allowedConnections,
+          syncedEndpointRoute.model,
+          credentialSelectionOptions
+        );
     if (!credentials) {
       return errorResponse(
         HTTP_STATUS.BAD_REQUEST,
@@ -281,7 +312,15 @@ export async function createEmbeddingResponse(
   }
 
   if (!credentials && providerConfig.authType !== "none") {
-    credentials = await getProviderCredentials(credentialsProviderId);
+    credentials = noEligibleConnection
+      ? null
+      : await getProviderCredentials(
+          credentialsProviderId,
+          null,
+          allowedConnections,
+          resolvedModel || null,
+          credentialSelectionOptions
+        );
     if (!credentials) {
       return errorResponse(
         HTTP_STATUS.BAD_REQUEST,
@@ -310,7 +349,15 @@ export async function createEmbeddingResponse(
     // resolves the dashboard's hyphenated "lm-studio" connection via the
     // provider search pool/alias (#11233); a selection or rate-limit failure
     // must not break the flow — proceed without credentials.
-    const localCredentials = await getProviderCredentials(credentialsProviderId);
+    const localCredentials = noEligibleConnection
+      ? null
+      : await getProviderCredentials(
+          credentialsProviderId,
+          null,
+          allowedConnections,
+          resolvedModel || null,
+          credentialSelectionOptions
+        );
     if (
       localCredentials &&
       !("allRateLimited" in localCredentials) &&
@@ -403,33 +450,10 @@ export async function createEmbeddingResponse(
     });
   }
 
-  // #10347: cool down the account on hard errors (402 subscription expired,
-  // 401 revoked, 403 forbidden, 404 model gone, 429 rate limit, 5xx server
-  // errors) so the next embedding request skips this account. Mirrors chat.ts
-  // behavior.
-  // Skip for 400 (bad request) — the account is fine, the request was wrong.
-  // Best-effort: don't block the error response on the DB write.
-  const HARD_ERROR_STATUSES = new Set([401, 402, 403, 404, 429, 500, 502, 503, 504]);
-  if (
-    credentials &&
-    "connectionId" in credentials &&
-    typeof credentials.connectionId === "string" &&
-    HARD_ERROR_STATUSES.has(result.status)
-  ) {
-    markAccountUnavailable(
-      credentials.connectionId,
-      result.status,
-      result.error || "Embedding provider error",
-      provider,
-      resolvedModel || null
-    ).catch((err) => {
-      log.debug(
-        "EMBED",
-        `Cooldown write failed for ${provider}/${credentials.connectionId?.slice(0, 8)}: ${err}`
-      );
-    });
-  }
-
+  // Upstream hard-failure cooldown (#10347) is owned by handleEmbedding, which
+  // knows whether the status came from the provider. Do NOT mark the account
+  // here: local rejections (e.g. a quota-share 429 from enforceQuotaShare) never
+  // reached upstream and must not cool a healthy connection.
   responseHeaders.set("Content-Type", "application/json");
   const errorPayload = toJsonErrorPayload(result.error, "Embedding provider error");
   return new Response(JSON.stringify(errorPayload), {
