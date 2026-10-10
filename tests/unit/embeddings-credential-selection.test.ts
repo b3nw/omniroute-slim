@@ -13,6 +13,14 @@
  *    API key's allowlist matches no connection, instead of falling back to an
  *    anonymous localhost dispatch.
  *  - options.signal must reach the upstream fetch.
+ *
+ * Round 3:
+ *  - Private/LAN provider nodes (authType "none") must honor the allowlist and
+ *    pinned connection instead of skipping credential selection.
+ *  - A pinned-but-unavailable keyless local connection must fail closed.
+ *  - A registry-recognized bare model must not be replaced by the connection's
+ *    defaultModel.
+ *  - The combo target's abort signal must reach the upstream fetch.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -290,6 +298,190 @@ test("options.signal is forwarded to the upstream embedding fetch", async () => 
     assert.equal(res.status, 200);
     assert.equal(upstream.calls.length, 1);
     assert.equal(upstream.calls[0].signal, controller.signal);
+  } finally {
+    upstream.restore();
+  }
+});
+
+// ─── Round 3 ──────────────────────────────────────────────────────────────────
+
+const { createProviderNode } = await import("../../src/lib/db/providers/nodes.ts");
+const { createCombo } = await import("../../src/lib/db/combos.ts");
+
+/** Mock fetch recording URL, auth header, parsed body, and signal of each call. */
+function mockUpstreamDetailed() {
+  const calls: {
+    url: string;
+    authorization: string;
+    body: Record<string, unknown>;
+    signal: AbortSignal | null | undefined;
+  }[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+    calls.push({
+      url: String(url),
+      authorization: new Headers(init?.headers).get("authorization") || "",
+      body: init?.body ? JSON.parse(String(init.body)) : {},
+      signal: init?.signal,
+    });
+    return new Response(
+      JSON.stringify({
+        data: [{ object: "embedding", embedding: [0.1, 0.2], index: 0 }],
+        usage: { prompt_tokens: 2, total_tokens: 2 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  }) as typeof fetch;
+  return {
+    calls,
+    restore: () => {
+      globalThis.fetch = originalFetch;
+    },
+  };
+}
+
+async function seedLanNode(prefix: string): Promise<string> {
+  const node = (await createProviderNode({
+    type: "openai-compatible-embeddings",
+    name: `LAN ${prefix}`,
+    prefix,
+    apiType: "embeddings",
+    baseUrl: "http://10.20.0.5:11434/v1",
+  })) as Record<string, unknown>;
+  return node.id as string;
+}
+
+test("LAN provider node fails closed when the allowlist matches none of its connections", async () => {
+  await seedLanNode("lanrestrict1");
+  const upstream = mockUpstreamDetailed();
+  try {
+    const res = await createEmbeddingResponse(
+      { model: "lanrestrict1/nomic-embed-text", input: "hello" },
+      { allowedConnections: ["some-other-connection"] }
+    );
+    assert.equal(res.status, 400);
+    assert.equal(upstream.calls.length, 0, "the allowlist must not be bypassed");
+  } finally {
+    upstream.restore();
+  }
+});
+
+test("LAN provider node fails closed when the pinned connection does not exist", async () => {
+  await seedLanNode("lanrestrict2");
+  const upstream = mockUpstreamDetailed();
+  try {
+    const res = await createEmbeddingResponse(
+      { model: "lanrestrict2/nomic-embed-text", input: "hello" },
+      { connectionId: "missing-connection" }
+    );
+    assert.equal(res.status, 400);
+    assert.equal(upstream.calls.length, 0);
+  } finally {
+    upstream.restore();
+  }
+});
+
+test("LAN provider node uses the allowed connection when restricted", async () => {
+  const nodeId = await seedLanNode("lanrestrict3");
+  const conn = (await providersDb.createProviderConnection({
+    provider: nodeId,
+    authType: "apikey",
+    name: "lan-conn",
+    apiKey: "lan-key",
+    priority: 1,
+    isActive: true,
+    testStatus: "active",
+  })) as Record<string, unknown>;
+
+  const upstream = mockUpstreamDetailed();
+  try {
+    const res = await createEmbeddingResponse(
+      { model: "lanrestrict3/nomic-embed-text", input: "hello" },
+      { allowedConnections: [conn.id as string] }
+    );
+    assert.equal(res.status, 200);
+    assert.equal(upstream.calls.length, 1);
+    assert.match(upstream.calls[0].url, /10\.20\.0\.5/);
+  } finally {
+    upstream.restore();
+  }
+});
+
+test("LAN provider node stays keyless when unrestricted", async () => {
+  await seedLanNode("lanrestrict4");
+  const upstream = mockUpstreamDetailed();
+  try {
+    const res = await createEmbeddingResponse({
+      model: "lanrestrict4/nomic-embed-text",
+      input: "hello",
+    });
+    assert.equal(res.status, 200);
+    assert.equal(upstream.calls.length, 1);
+    assert.equal(upstream.calls[0].authorization, "");
+  } finally {
+    upstream.restore();
+  }
+});
+
+test("keyless local provider fails closed when the pinned connection is unavailable", async () => {
+  const upstream = mockUpstreamDetailed();
+  try {
+    const res = await createEmbeddingResponse(
+      { model: "ollama-local/nomic-embed-text", input: "hello" },
+      { connectionId: "missing-connection" }
+    );
+    assert.equal(res.status, 400);
+    assert.equal(upstream.calls.length, 0, "no anonymous localhost dispatch may be made");
+  } finally {
+    upstream.restore();
+  }
+});
+
+test("a registry-recognized bare model is not replaced by the connection defaultModel", async () => {
+  await providersDb.createProviderConnection({
+    provider: "mistral",
+    authType: "apikey",
+    name: "with-default",
+    apiKey: "key-with-default",
+    priority: 1,
+    isActive: true,
+    testStatus: "active",
+    defaultModel: "mistral-large-latest",
+  });
+
+  const upstream = mockUpstreamDetailed();
+  try {
+    const res = await createEmbeddingResponse({ model: MODEL, input: "hello" });
+    assert.equal(res.status, 200);
+    assert.equal(upstream.calls.length, 1);
+    assert.equal(upstream.calls[0].body.model, MODEL);
+  } finally {
+    upstream.restore();
+  }
+});
+
+test("combo target abort signal reaches the upstream embedding fetch", async () => {
+  await seedConnection("combo-target", 1);
+  await createCombo({
+    name: "embed-signal-combo",
+    strategy: "priority",
+    models: [`mistral/${MODEL}`],
+  });
+  const controller = new AbortController();
+
+  const upstream = mockUpstreamDetailed();
+  try {
+    const res = await createEmbeddingResponse(
+      { model: "embed-signal-combo", input: "hello" },
+      { signal: controller.signal }
+    );
+    assert.equal(res.status, 200);
+    assert.equal(upstream.calls.length, 1);
+    const forwarded = upstream.calls[0].signal;
+    assert.ok(forwarded, "a signal must reach the upstream fetch");
+    assert.notEqual(forwarded, controller.signal, "must combine with the target's signal");
+    controller.abort();
+    assert.equal(forwarded!.aborted, true, "client aborts must still propagate");
   } finally {
     upstream.restore();
   }
