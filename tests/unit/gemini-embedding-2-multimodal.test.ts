@@ -12,7 +12,10 @@ import {
   isGeminiCredentialProvider,
   readGeminiEnvApiKey,
 } from "../../src/lib/providers/gemini.ts";
-import { parseEmbeddingModel, getEmbeddingDimension } from "../../open-sse/config/embeddingRegistry.ts";
+import {
+  parseEmbeddingModel,
+  getEmbeddingDimension,
+} from "../../open-sse/config/embeddingRegistry.ts";
 import { v1EmbeddingsSchema } from "../../src/shared/validation/schemas/apiV1.ts";
 import { handleEmbedding } from "../../open-sse/handlers/embeddings.ts";
 
@@ -99,14 +102,40 @@ test("catalog id is gemini/gemini-embedding-2; google/ is an alias", () => {
   assert.equal(custom.model, "gemini-embedding-001");
 });
 
+test("embeddings-2 / embedding-2 shorthands resolve to gemini/gemini-embedding-2", () => {
+  for (const alias of [
+    "gemini/embeddings-2",
+    "gemini/embedding-2",
+    "google/embeddings-2",
+    "google/embedding-2",
+    "embeddings-2",
+    "embedding-2",
+  ]) {
+    assert.deepEqual(
+      parseEmbeddingModel(alias),
+      { provider: "gemini", model: "gemini-embedding-2" },
+      alias
+    );
+  }
+  assert.equal(getEmbeddingDimension("gemini/embeddings-2"), 3072);
+});
+
+test("bare embeddings-2 alias does not rewrite other providers' model IDs", () => {
+  assert.deepEqual(parseEmbeddingModel("openrouter/embeddings-2"), {
+    provider: "openrouter",
+    model: "embeddings-2",
+  });
+  assert.deepEqual(parseEmbeddingModel("custom-node/embedding-2"), {
+    provider: "custom-node",
+    model: "embedding-2",
+  });
+});
+
 test("schema accepts Gemini native text + inline_data mixed batches", () => {
   const parsed = v1EmbeddingsSchema.safeParse({
     model: "gemini/gemini-embedding-2",
     task: "retrieval.query",
-    input: [
-      { text: "a red bicycle" },
-      { inline_data: { mime_type: "image/png", data: PNG_B64 } },
-    ],
+    input: [{ text: "a red bicycle" }, { inline_data: { mime_type: "image/png", data: PNG_B64 } }],
   });
   assert.equal(parsed.success, true);
   if (parsed.success) {
@@ -143,8 +172,11 @@ test("schema accepts fused Gemini Content and rejects unsafe file URIs", () => {
 
 test("handleEmbedding sends N Gemini Embedding 2 inputs as N batch requests", async () => {
   const originalFetch = globalThis.fetch;
-  const seen: Array<{ url: string; headers: Record<string, string>; body: Record<string, unknown> }> =
-    [];
+  const seen: Array<{
+    url: string;
+    headers: Record<string, string>;
+    body: Record<string, unknown>;
+  }> = [];
   globalThis.fetch = async (url, init = {}) => {
     const headers = (init.headers || {}) as Record<string, string>;
     seen.push({

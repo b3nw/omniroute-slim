@@ -430,14 +430,23 @@ const EMBEDDING_MODEL_ALIASES: Record<string, string> = {
   // do not steal a custom provider_node whose prefix is `google`.
   "google/gemini-embedding-2": "gemini/gemini-embedding-2",
   "google/gemini-embedding-2-preview": "gemini/gemini-embedding-2-preview",
+  // Shorthand forms clients send for Gemini Embedding 2.
+  "gemini/embeddings-2": "gemini/gemini-embedding-2",
+  "gemini/embedding-2": "gemini/gemini-embedding-2",
+  "google/embeddings-2": "gemini/gemini-embedding-2",
+  "google/embedding-2": "gemini/gemini-embedding-2",
+  "embeddings-2": "gemini/gemini-embedding-2",
+  "embedding-2": "gemini/gemini-embedding-2",
 };
 
 function applyEmbeddingModelAliases(modelStr: string): string {
   for (const [alias, canonical] of Object.entries(EMBEDDING_MODEL_ALIASES)) {
     if (modelStr === alias) return canonical;
     // Slash-containing aliases are exact-match only so
-    // openrouter/google/gemini-embedding-2 stays on OpenRouter.
-    if (!alias.includes("/") && modelStr.endsWith(`/${alias}`)) {
+    // openrouter/google/gemini-embedding-2 stays on OpenRouter. Bare aliases
+    // that canonicalize to a provider-scoped ID (embeddings-2) are exact-match
+    // only too, so other-provider/embeddings-2 is not rewritten.
+    if (!alias.includes("/") && !canonical.includes("/") && modelStr.endsWith(`/${alias}`)) {
       return `${modelStr.slice(0, -alias.length)}${canonical}`;
     }
   }

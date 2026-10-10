@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { POST as postChatCompletion } from "@/app/api/v1/chat/completions/route";
 import { POST as postAudioTranscription } from "@/app/api/v1/audio/transcriptions/route";
 import { POST as postRerank } from "@/app/api/v1/rerank/route";
+import { createEmbeddingResponse, type ValidatedEmbeddingBody } from "@/lib/embeddings/service";
 import {
   buildComboTestRequestBody,
   extractComboTestResponseText,
@@ -459,17 +460,12 @@ export async function runSingleModelTest(
 
   const runInner = async (signal: AbortSignal): Promise<Response> => {
     if (isEmbedding) {
-      // Embeddings API was excised from OmniRoute-Slim (vector-memory cut, Phase 2).
-      return new Response(
-        JSON.stringify({
-          error: {
-            message: "Embeddings API is not available in OmniRoute-Slim",
-            type: "api_not_available",
-            code: "embeddings_excised",
-          },
-        }),
-        { status: 501, headers: { "Content-Type": "application/json" } }
-      );
+      return createEmbeddingResponse(testBody as ValidatedEmbeddingBody, {
+        clientRawRequest: null,
+        apiKeyId: null,
+        apiKeyName: null,
+        connectionId: connectionId ?? null,
+      });
     }
     if (isRerank) {
       return postRerank(buildInternalRerankRequest(testBody, signal, connectionId));
