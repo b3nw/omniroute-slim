@@ -25,6 +25,9 @@ import {
 } from "./errors";
 import { isPrivateHost, isCloudMetadataHost } from "@/shared/network/outboundUrlGuard";
 import { calculateCost } from "@/lib/usage/costCalculator";
+import { saveRequestUsage } from "@/lib/usage/usageHistory";
+import { recordCost } from "@/domain/costRules";
+import { recordTokenUsage } from "@omniroute/open-sse/services/tokenLimitCounter.ts";
 import { attachOmniRouteMetaHeaders } from "@/domain/omnirouteResponseMeta";
 import { generateRequestId } from "@/shared/utils/requestId";
 import { resolveLocalSyncedEndpointRoute } from "@/lib/providerModels/syncedEndpointRouting";
@@ -74,6 +77,51 @@ export function applyComboDimensions<T extends Record<string, unknown>>(
   const parsed = Number(combo.dimensions);
   if (!Number.isInteger(parsed) || parsed <= 0) return body;
   return { ...body, dimensions: parsed };
+}
+
+/**
+ * Record a successful embedding in the spend, token-limit, and usage-history
+ * ledgers, as chat does — otherwise embeddings bypass budgets and accounting.
+ * Fire-and-forget: accounting failures never break the response.
+ */
+function recordEmbeddingUsage(entry: {
+  provider: string;
+  model: string | null | undefined;
+  usage: Record<string, number> | null;
+  costUsd: number;
+  startTime: number;
+  connectionId: string | null;
+  apiKeyId: string | null;
+  apiKeyName: string | null;
+}): void {
+  const { provider, model, usage, costUsd, startTime, connectionId, apiKeyId } = entry;
+  if (apiKeyId) {
+    try {
+      if (costUsd > 0) recordCost(apiKeyId, costUsd);
+      const tokens = usage?.total_tokens ?? usage?.prompt_tokens ?? 0;
+      if (tokens > 0) recordTokenUsage(apiKeyId, provider || "unknown", model || "unknown", tokens);
+    } catch (err) {
+      log.warn("EMBED", `Failed to record embedding spend: ${(err as Error)?.message}`);
+    }
+  }
+  const latencyMs = Date.now() - startTime;
+  saveRequestUsage({
+    provider: provider || "unknown",
+    model: model || "unknown",
+    tokens: usage ?? { prompt_tokens: 0, total_tokens: 0 },
+    status: "200",
+    success: true,
+    latencyMs,
+    timeToFirstTokenMs: latencyMs,
+    errorCode: null,
+    timestamp: new Date().toISOString(),
+    connectionId: connectionId || undefined,
+    apiKeyId: apiKeyId || undefined,
+    apiKeyName: entry.apiKeyName || undefined,
+    endpoint: "/v1/embeddings",
+  }).catch((err) => {
+    log.warn("EMBED", `Failed to save embedding usage: ${(err as Error)?.message}`);
+  });
 }
 
 export interface EmbeddingHandlerOptions {
@@ -239,6 +287,9 @@ export async function createEmbeddingResponse(
     getEmbeddingProvider(provider) ||
     null;
   let credentialsProviderId = dynamicProviderNodeIds.get(provider) || provider;
+  // Private/LAN provider node (keyless) — its configured connections may still
+  // carry a pinned proxy and connection id even when the request is unrestricted.
+  let isLocalProviderNode = !options.resolvedProvider && dynamicProviderNodeIds.has(provider);
 
   if (syncedEndpointRoute) {
     credentials = noEligibleConnection
@@ -315,6 +366,7 @@ export async function createEmbeddingResponse(
           models: [],
         };
         credentialsProviderId = matchingNode.id || provider;
+        isLocalProviderNode = isNoAuthLocal;
         log.info(
           "EMBED",
           `Resolved custom embedding provider: ${provider} -> ${providerConfig.baseUrl}`
@@ -368,7 +420,7 @@ export async function createEmbeddingResponse(
     }
   } else if (
     !credentials &&
-    (isRestricted || provider === "ollama-local" || provider === "lmstudio")
+    (isRestricted || isLocalProviderNode || provider === "ollama-local" || provider === "lmstudio")
   ) {
     // No-auth providers (Ollama, LM Studio, private/LAN provider nodes) need no
     // credentials, but a configured connection can still provide a custom local
@@ -504,6 +556,16 @@ export async function createEmbeddingResponse(
       costUsd,
       latencyMs: Date.now() - startTime,
       requestId: generateRequestId(),
+    });
+    recordEmbeddingUsage({
+      provider,
+      model: effectiveModel,
+      usage,
+      costUsd,
+      startTime,
+      connectionId: (credentials as { connectionId?: string } | null)?.connectionId || null,
+      apiKeyId: options.apiKeyId || null,
+      apiKeyName: options.apiKeyName || null,
     });
     return new Response(JSON.stringify(result.data), {
       status: result.status,

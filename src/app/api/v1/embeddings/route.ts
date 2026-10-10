@@ -9,6 +9,7 @@ import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 
 import { createEmbeddingResponse, type EmbeddingHandlerOptions } from "@/lib/embeddings/service";
 import { extractApiKey, isValidApiKey } from "@/sse/services/auth";
+import { extractGoogApiKeyHeader } from "@/sse/services/googApiKeyAuth";
 import { getSpecialtyModelsResponse } from "@/app/api/v1/_shared/specialtyCatalog";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +29,24 @@ export async function GET(request?: Request) {
     "/v1/embeddings",
     (model) => model.type === "embedding"
   );
+}
+
+/**
+ * Mirrors extractBearer in clientApiPolicy: a Bearer token, then x-api-key and
+ * x-goog-api-key unconditionally. extractApiKey() alone gates x-api-key on
+ * Anthropic headers, which would 401 a valid OmniRoute key sent via x-api-key.
+ */
+function extractClientApiKey(request: Request): string | null {
+  const authHeader = request.headers.get("authorization")?.trim();
+  if (authHeader?.toLowerCase().startsWith("bearer ")) {
+    const token = authHeader.slice(7).trim();
+    if (token) return token;
+  }
+  const xApiKey = request.headers.get("x-api-key")?.trim();
+  if (xApiKey) return xApiKey;
+  const googKey = extractGoogApiKeyHeader(request.headers);
+  if (googKey) return googKey;
+  return extractApiKey(request);
 }
 
 type ValidatedEmbeddingBody = Record<string, unknown> & { model: string };
@@ -58,12 +77,8 @@ async function postHandler(request, context) {
   // so anonymous access works the same as all other client APIs (#7785).
   // An authenticated dashboard session (playground/testing) satisfies the
   // requirement without a key, matching clientApiPolicy.
-  const apiKeyRaw = extractApiKey(request);
-  if (
-    isRequireApiKeyEnabled() &&
-    !apiKeyRaw &&
-    !(await isDashboardSessionAuthenticated(request))
-  ) {
+  const apiKeyRaw = extractClientApiKey(request);
+  if (isRequireApiKeyEnabled() && !apiKeyRaw && !(await isDashboardSessionAuthenticated(request))) {
     return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Authentication required");
   }
   if (isRequireApiKeyEnabled() && apiKeyRaw && !(await isValidApiKey(apiKeyRaw))) {
