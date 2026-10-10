@@ -21,6 +21,12 @@
  *  - A registry-recognized bare model must not be replaced by the connection's
  *    defaultModel.
  *  - The combo target's abort signal must reach the upstream fetch.
+ *
+ * Round 4:
+ *  - A successful embedding must be recorded in the spend, token-limit, and
+ *    usage-history ledgers.
+ *  - A valid OmniRoute key sent via x-api-key (no Anthropic headers) is accepted.
+ *  - An unrestricted LAN provider node still hydrates its configured connection.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -485,4 +491,120 @@ test("combo target abort signal reaches the upstream embedding fetch", async () 
   } finally {
     upstream.restore();
   }
+});
+
+// ─── Round 4 ──────────────────────────────────────────────────────────────────
+
+const { updatePricing } = await import("../../src/lib/db/settings.ts");
+const { getDailyTotal } = await import("../../src/domain/costRules.ts");
+const { upsertTokenLimit, getWindowUsage, resetWindowIfElapsed, incrementWindowTokens } =
+  await import("../../src/lib/db/tokenLimits.ts");
+
+async function waitFor(check: () => boolean, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!check() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+test("successful embedding is recorded in the spend, token, and usage ledgers", async () => {
+  const connId = await seedConnection("ledger", 1);
+  const apiKey = await apiKeysDb.createApiKey("embed-ledger-key", "machine-embed");
+  await updatePricing({ mistral: { [MODEL]: { input: 1_000_000, output: 0 } } });
+  const limit = upsertTokenLimit({ apiKeyId: apiKey.id, scopeType: "global", tokenLimit: 1000 });
+  // Warm the window so the counter does not re-seed from usage_history (which
+  // already holds this request's row) on its first write.
+  incrementWindowTokens(limit.id, resetWindowIfElapsed(limit).windowStart, 0);
+
+  const upstream = mockUpstream();
+  try {
+    const res = await createEmbeddingResponse(
+      { model: `mistral/${MODEL}`, input: "hello" },
+      { apiKeyId: apiKey.id, apiKeyName: "embed-ledger-key" }
+    );
+    assert.equal(res.status, 200);
+  } finally {
+    upstream.restore();
+  }
+
+  // 2 tokens at $1/token.
+  assert.equal(getDailyTotal(apiKey.id), 2);
+
+  await waitFor(() => getWindowUsage(limit) > 0);
+  assert.equal(getWindowUsage(limit), 2);
+
+  const db = core.getDbInstance();
+  type UsageRow = { endpoint: string; api_key_id: string; connection_id: string };
+  let row: UsageRow | undefined;
+  await waitFor(() => {
+    row = db.prepare("SELECT endpoint, api_key_id, connection_id FROM usage_history").get() as
+      UsageRow | undefined;
+    return Boolean(row);
+  });
+  assert.deepEqual(row, {
+    endpoint: "/v1/embeddings",
+    api_key_id: apiKey.id,
+    connection_id: connId,
+  });
+});
+
+test("POST /v1/embeddings accepts a valid key sent via x-api-key", async () => {
+  await seedConnection("xapikey", 1);
+  const apiKey = await apiKeysDb.createApiKey("embed-xapikey", "machine-embed");
+  const originalRequireApiKey = process.env.REQUIRE_API_KEY;
+  process.env.REQUIRE_API_KEY = "true";
+
+  const upstream = mockUpstream();
+  try {
+    const res = await POST(
+      new Request("http://localhost/v1/embeddings", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": apiKey.key },
+        body: JSON.stringify({ model: `mistral/${MODEL}`, input: "hello" }),
+      }),
+      undefined
+    );
+    assert.equal(res.status, 200);
+    assert.deepEqual(upstream.usedKeys, ["key-xapikey"]);
+  } finally {
+    upstream.restore();
+    if (originalRequireApiKey === undefined) delete process.env.REQUIRE_API_KEY;
+    else process.env.REQUIRE_API_KEY = originalRequireApiKey;
+  }
+});
+
+test("unrestricted LAN provider node hydrates its configured connection", async () => {
+  const nodeId = await seedLanNode("lanhydrate1");
+  const conn = (await providersDb.createProviderConnection({
+    provider: nodeId,
+    authType: "apikey",
+    name: "lan-hydrate-conn",
+    apiKey: "lan-hydrate-key",
+    priority: 1,
+    isActive: true,
+    testStatus: "active",
+  })) as Record<string, unknown>;
+  const apiKey = await apiKeysDb.createApiKey("embed-lan-hydrate", "machine-embed");
+
+  const upstream = mockUpstreamDetailed();
+  try {
+    const res = await createEmbeddingResponse(
+      { model: "lanhydrate1/nomic-embed-text", input: "hello" },
+      { apiKeyId: apiKey.id }
+    );
+    assert.equal(res.status, 200);
+    assert.equal(upstream.calls.length, 1);
+    assert.match(upstream.calls[0].url, /10\.20\.0\.5/);
+  } finally {
+    upstream.restore();
+  }
+
+  // The hydrated connection id reaches the usage ledger (and proxy resolution).
+  const db = core.getDbInstance();
+  let row: { connection_id: string } | undefined;
+  await waitFor(() => {
+    row = db.prepare("SELECT connection_id FROM usage_history").get() as typeof row;
+    return Boolean(row);
+  });
+  assert.equal(row?.connection_id, conn.id);
 });
