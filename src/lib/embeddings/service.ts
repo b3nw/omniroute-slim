@@ -60,6 +60,22 @@ function intersectAllowedConnectionIds(primary: unknown, secondary: unknown): st
   return first || second || null;
 }
 
+/**
+ * Inject a combo's configured `dimensions` into an embedding body the client
+ * left unset. Upstream embedding APIs require a positive integer, so the
+ * stored value (persisted as a string) is converted and invalid values ignored.
+ */
+export function applyComboDimensions<T extends Record<string, unknown>>(
+  body: T,
+  combo: Record<string, unknown>
+): T {
+  if (body.dimensions !== undefined) return body;
+  if (combo.dimensions === undefined || combo.dimensions === null) return body;
+  const parsed = Number(combo.dimensions);
+  if (!Number.isInteger(parsed) || parsed <= 0) return body;
+  return { ...body, dimensions: parsed };
+}
+
 export interface EmbeddingHandlerOptions {
   clientRawRequest?: {
     endpoint: string;
@@ -73,6 +89,8 @@ export interface EmbeddingHandlerOptions {
   allowedConnections?: string[] | null;
   resolvedProvider?: EmbeddingProvider | null;
   resolvedModel?: string | null;
+  /** Aborts the upstream embedding fetch (e.g. dashboard model-test timeout). */
+  signal?: AbortSignal | null;
 }
 
 export async function createEmbeddingResponse(
@@ -115,15 +133,7 @@ export async function createEmbeddingResponse(
         // every upstream embedding call within this combo receives the same
         // dimensions override. The client's own dimensions value takes precedence
         // if already set. Ported from decolua/9router#1530.
-        const comboRecord = combo as Record<string, unknown>;
-        const comboDimensions =
-          comboRecord.dimensions !== undefined && comboRecord.dimensions !== null
-            ? String(comboRecord.dimensions)
-            : undefined;
-        const bodyWithDimensions =
-          comboDimensions !== undefined && body.dimensions === undefined
-            ? { ...body, dimensions: comboDimensions }
-            : body;
+        const bodyWithDimensions = applyComboDimensions(body, combo as Record<string, unknown>);
 
         return handleComboChat({
           body: bodyWithDimensions,
@@ -140,7 +150,7 @@ export async function createEmbeddingResponse(
           settings,
           allCombos: allCombos as any,
           relayOptions: undefined,
-          signal: undefined,
+          signal: options.signal ?? undefined,
         });
       }
     } catch (err) {
@@ -347,8 +357,12 @@ export async function createEmbeddingResponse(
     // imposing an authentication requirement, then keep the static localhost
     // default when no connection exists. getProviderCredentials("lmstudio")
     // resolves the dashboard's hyphenated "lm-studio" connection via the
-    // provider search pool/alias (#11233); a selection or rate-limit failure
-    // must not break the flow — proceed without credentials.
+    // provider search pool/alias (#11233). When unrestricted, a selection or
+    // rate-limit failure must not break the flow — proceed without credentials
+    // against the static localhost default. When the API key restricts
+    // connections, fail closed instead: an anonymous localhost dispatch would
+    // bypass the allowlist.
+    const isRestricted = allowedConnections !== null;
     const localCredentials = noEligibleConnection
       ? null
       : await getProviderCredentials(
@@ -358,6 +372,28 @@ export async function createEmbeddingResponse(
           resolvedModel || null,
           credentialSelectionOptions
         );
+    if (isRestricted) {
+      if (!localCredentials) {
+        return errorResponse(
+          HTTP_STATUS.BAD_REQUEST,
+          `No matching connection for embedding provider: ${provider}`
+        );
+      }
+      if ("allRateLimited" in localCredentials && localCredentials.allRateLimited) {
+        return unavailableResponse(
+          HTTP_STATUS.RATE_LIMITED,
+          `[${provider}] All accounts rate limited`,
+          localCredentials.retryAfter,
+          localCredentials.retryAfterHuman
+        );
+      }
+      if ("allExpired" in localCredentials && localCredentials.allExpired) {
+        return errorResponse(
+          HTTP_STATUS.UNAUTHORIZED,
+          `[${provider}] All ${localCredentials.expiredCount || 1} connection(s) authentication expired — please reconnect in the dashboard`
+        );
+      }
+    }
     if (
       localCredentials &&
       !("allRateLimited" in localCredentials) &&
@@ -423,6 +459,7 @@ export async function createEmbeddingResponse(
         options.connectionId ||
         connectionIdForProxy ||
         null,
+      signal: options.signal ?? null,
     });
 
   const result = connectionIdForProxy

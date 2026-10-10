@@ -465,6 +465,7 @@ export async function runSingleModelTest(
         apiKeyId: null,
         apiKeyName: null,
         connectionId: connectionId ?? null,
+        signal,
       });
     }
     if (isRerank) {

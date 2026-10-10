@@ -106,6 +106,36 @@ test("POST /v1/embeddings authentication", async (t) => {
     }
   );
 
+  await t.test(
+    "should NOT return 401 without an API key when a dashboard session is authenticated",
+    async () => {
+      const originalJwtSecret = process.env.JWT_SECRET;
+      process.env.REQUIRE_API_KEY = "true";
+      process.env.JWT_SECRET = "embeddings-dashboard-session-secret";
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async () => new Response(JSON.stringify({ data: [] }), { status: 200 });
+      try {
+        const { SignJWT } = await import("jose");
+        const token = await new SignJWT({ sub: "dashboard" })
+          .setProtectedHeader({ alg: "HS256" })
+          .setExpirationTime("1h")
+          .sign(new TextEncoder().encode(process.env.JWT_SECRET));
+        const req = new Request("http://localhost/v1/embeddings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Cookie: `auth_token=${token}` },
+          body: JSON.stringify({ model: "mistral/mistral-embed", input: "test" }),
+        });
+        const res = await POST(req);
+        assert.notStrictEqual(res.status, 401, "dashboard session must satisfy auth");
+      } finally {
+        globalThis.fetch = originalFetch;
+        delete process.env.REQUIRE_API_KEY;
+        if (originalJwtSecret === undefined) delete process.env.JWT_SECRET;
+        else process.env.JWT_SECRET = originalJwtSecret;
+      }
+    }
+  );
+
   await t.test("should NOT return 401 when a valid API key is provided", async () => {
     process.env.OMNIROUTE_API_KEY = "valid-key";
     const originalFetch = globalThis.fetch;

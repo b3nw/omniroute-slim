@@ -7,6 +7,12 @@
  *  - The requested model must reach getProviderCredentials so per-model
  *    lockouts skip the locked account.
  *  - A local quota-share 429 (enforceQuotaShare) must NOT cool the connection.
+ *
+ * Round 2:
+ *  - Keyless local providers (ollama-local/lmstudio) must fail closed when the
+ *    API key's allowlist matches no connection, instead of falling back to an
+ *    anonymous localhost dispatch.
+ *  - options.signal must reach the upstream fetch.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -215,6 +221,75 @@ test("local quota-share 429 does not mark the connection unavailable", async () 
     const conn = (await providersDb.getProviderConnectionById(connId)) as Record<string, unknown>;
     assert.equal(conn.testStatus, "active", "healthy connection must not be cooled");
     assert.ok(!conn.rateLimitedUntil, "no rate-limit cooldown may be recorded");
+  } finally {
+    upstream.restore();
+  }
+});
+
+/** Mock fetch recording every upstream URL and the signal it was given. */
+function mockUpstreamCalls() {
+  const calls: { url: string; signal: AbortSignal | null | undefined }[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+    calls.push({ url: String(url), signal: init?.signal });
+    return new Response(
+      JSON.stringify({
+        data: [{ object: "embedding", embedding: [0.1, 0.2], index: 0 }],
+        usage: { prompt_tokens: 2, total_tokens: 2 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  }) as typeof fetch;
+  return {
+    calls,
+    restore: () => {
+      globalThis.fetch = originalFetch;
+    },
+  };
+}
+
+test("keyless local provider fails closed when the allowlist matches no connection", async () => {
+  const upstream = mockUpstreamCalls();
+  try {
+    const res = await createEmbeddingResponse(
+      { model: "ollama-local/nomic-embed-text", input: "hello" },
+      { allowedConnections: ["some-other-connection"] }
+    );
+    assert.equal(res.status, 400);
+    assert.equal(upstream.calls.length, 0, "no anonymous localhost dispatch may be made");
+  } finally {
+    upstream.restore();
+  }
+});
+
+test("keyless local provider still falls back to localhost when unrestricted", async () => {
+  const upstream = mockUpstreamCalls();
+  try {
+    const res = await createEmbeddingResponse({
+      model: "ollama-local/nomic-embed-text",
+      input: "hello",
+    });
+    assert.equal(res.status, 200);
+    assert.equal(upstream.calls.length, 1);
+    assert.match(upstream.calls[0].url, /localhost|127\.0\.0\.1/);
+  } finally {
+    upstream.restore();
+  }
+});
+
+test("options.signal is forwarded to the upstream embedding fetch", async () => {
+  await seedConnection("preferred", 1);
+  const controller = new AbortController();
+
+  const upstream = mockUpstreamCalls();
+  try {
+    const res = await createEmbeddingResponse(
+      { model: `mistral/${MODEL}`, input: "hello" },
+      { signal: controller.signal }
+    );
+    assert.equal(res.status, 200);
+    assert.equal(upstream.calls.length, 1);
+    assert.equal(upstream.calls[0].signal, controller.signal);
   } finally {
     upstream.restore();
   }
