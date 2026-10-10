@@ -48,6 +48,7 @@ const EXPECTED: Record<InventoryKind, Record<string, number>> = {
     // credentials through getProviderCredentials with the connection allowlist
     // from resolveLocalSyncedEndpointRoute, and handles allRateLimited, so it is
     // fenced the same way as the two pre-existing sites.
+    "src/lib/embeddings/service.ts": 3,
     "src/lib/search/executeWebSearch.ts": 2,
     "src/lib/search/executeWebFetch.ts": 1,
     "src/sse/handlers/chat.ts": 2,
