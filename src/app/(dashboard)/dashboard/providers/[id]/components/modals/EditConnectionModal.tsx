@@ -719,7 +719,7 @@ export default function EditConnectionModal({
           tag: formData.tag.trim() || undefined,
           tags: parseRoutingTagsInput(formData.routingTags),
           excludedModels: parseExcludedModelsInput(formData.excludedModels),
-          allowedModels: parseAllowedModelsInput(formData.allowedModels),
+          allowedModels: parseAllowedModelsInput(formData.allowedModels) ?? [],
         };
         if (isClaude) {
           updates.providerSpecificData.blockExtraUsage = formData.blockExtraUsage;

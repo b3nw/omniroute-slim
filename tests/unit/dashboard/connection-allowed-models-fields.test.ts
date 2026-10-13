@@ -121,7 +121,7 @@ test("assignEditApiKeyProviderSpecificData sets and clears allowedModels", () =>
   assert.deepEqual(target.allowedModels, ["gpt-5*"]);
 
   assignEditApiKeyProviderSpecificData(editOptions(BASE_FORM_DATA, target));
-  assert.equal(target.allowedModels, undefined);
+  assert.deepEqual(target.allowedModels, []);
 });
 
 test("normalizeProviderSpecificData canonicalises allowedModels / allowed_models", () => {

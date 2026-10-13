@@ -1292,7 +1292,11 @@ export async function getProviderCredentials(
         excludeConnectionId,
         options.excludeConnectionIds
       );
-      const optionalKey = await loadOptionalNoAuthApiKeyCredentials(resolvedId, excludedForNoAuth);
+      const optionalKey = await loadOptionalNoAuthApiKeyCredentials(
+        resolvedId,
+        excludedForNoAuth,
+        requestedModel
+      );
       if (
         optionalKey &&
         (!allowedConnections ||

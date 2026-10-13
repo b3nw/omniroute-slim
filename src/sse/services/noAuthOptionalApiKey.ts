@@ -10,6 +10,10 @@
  */
 import { REGISTRY } from "@omniroute/open-sse/config/providerRegistry.ts";
 import { isAccountUnavailable } from "@omniroute/open-sse/services/accountFallback.ts";
+import {
+  isModelAllowedByConnection,
+  isModelExcludedByConnection,
+} from "@/domain/connectionModelRules";
 import { createLazyConnectionView } from "@/lib/db/providers/lazyConnectionView";
 import type { ProviderConnectionView } from "@/lib/db/providers/lazyConnectionView";
 import { getCachedRawProviderConnections } from "@/lib/db/readCache";
@@ -49,7 +53,8 @@ function isConnectionHealthy(connection: ProviderConnectionView): boolean {
 
 export async function loadOptionalNoAuthApiKeyCredentials(
   providerId: string,
-  excludedConnectionIds: Set<string>
+  excludedConnectionIds: Set<string>,
+  requestedModel?: string | null
 ): Promise<{
   apiKey: string;
   accessToken: null;
@@ -96,7 +101,15 @@ export async function loadOptionalNoAuthApiKeyCredentials(
   // Rotate past unhealthy (cooling-down/terminal) stored keys instead of
   // handing one back regardless of health. If every candidate is unhealthy,
   // fall through to the caller's anonymous/synthetic no-auth fallback.
-  const connection = connections.find(isConnectionHealthy);
+  const isConnectionEligible = (conn: ProviderConnectionView): boolean => {
+    if (!isConnectionHealthy(conn)) return false;
+    if (requestedModel) {
+      if (isModelExcludedByConnection(requestedModel, conn.providerSpecificData)) return false;
+      if (!isModelAllowedByConnection(requestedModel, conn.providerSpecificData)) return false;
+    }
+    return true;
+  };
+  const connection = connections.find(isConnectionEligible);
   if (!connection || !hasUsableApiKey(connection.apiKey)) return null;
 
   const providerSpecificData =

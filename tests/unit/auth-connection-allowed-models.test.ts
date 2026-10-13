@@ -112,3 +112,24 @@ test("excludedModels takes precedence over a matching allowlist", async () => {
   const selected = await auth.getProviderCredentials(PROVIDER, null, null, "gpt-5-pro");
   assert.equal(selectedConnectionId(selected), fallbackId);
 });
+
+test("optional-key no-auth provider (aihorde) skips stored key when model is not permitted", async () => {
+  await resetStorage();
+  const hordeId = (await providersDb.createProviderConnection({
+    provider: "aihorde",
+    authType: "apikey",
+    name: "restricted-horde",
+    apiKey: "0000000000-user-key",
+    priority: 1,
+    isActive: true,
+    providerSpecificData: { allowedModels: ["only-this"] },
+  })) as { id: string };
+
+  const permitted = await auth.getProviderCredentials("aihorde", null, null, "only-this");
+  assert.equal(selectedConnectionId(permitted), hordeId.id);
+  assert.equal((permitted as { apiKey?: string })?.apiKey, "0000000000-user-key");
+
+  const skipped = await auth.getProviderCredentials("aihorde", null, null, "not-permitted");
+  assert.notEqual(selectedConnectionId(skipped), hordeId.id);
+  assert.equal(selectedConnectionId(skipped), "noauth");
+});

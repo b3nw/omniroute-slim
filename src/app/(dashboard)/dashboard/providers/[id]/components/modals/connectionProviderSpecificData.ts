@@ -159,7 +159,7 @@ export function assignEditApiKeyProviderSpecificData(options: {
     tag: o.formData.tag.trim() || undefined,
     tags: parseRoutingTagsInput(o.formData.routingTags),
     excludedModels: parseExcludedModelsInput(o.formData.excludedModels),
-    allowedModels: parseAllowedModelsInput(o.formData.allowedModels ?? ""),
+    allowedModels: parseAllowedModelsInput(o.formData.allowedModels ?? "") ?? [],
     customUserAgent: o.formData.customUserAgent.trim(),
     ...o.openRouterPreset.getPatch(),
     ...(o.formData.passthroughModels ? { passthroughModels: true } : {}),
