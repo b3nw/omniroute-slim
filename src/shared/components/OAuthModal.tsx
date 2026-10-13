@@ -32,6 +32,17 @@ export { formatDeviceCodeRemaining } from "./OAuthModalPanels";
 
 const GOOGLE_OAUTH_PROVIDERS = new Set(["antigravity", "agy", "gemini-cli", "gemini_cli"]);
 
+/**
+ * Google-hosted page that displays the Gemini CLI authorization code for copy/paste.
+ * Mirrors GEMINI_CLI_CODE_ASSIST_REDIRECT_URI (server-only oauth constants module).
+ */
+export const GEMINI_CLI_CODE_ASSIST_REDIRECT_URI = "https://codeassist.google.com/authcode";
+
+/** True when the authorize route chose Google's hosted copy/paste code page. */
+export function isCodeAssistPasteRedirect(redirectUri: unknown): boolean {
+  return redirectUri === GEMINI_CLI_CODE_ASSIST_REDIRECT_URI;
+}
+
 /** Providers that use a local callback server on a random port (PKCE browser flow). */
 const PKCE_CALLBACK_SERVER_PROVIDERS = new Set(["codex", "xai-oauth", "grok-cli"]);
 
@@ -156,6 +167,8 @@ export default function OAuthModal({
   // #8046 follow-up: structured diagnosis for the LAN-IP loopback mismatch, rendered
   // by its own step instead of as prose inside the generic red error step.
   const [loopbackHint, setLoopbackHint] = useState<PkceLoopbackMismatchHint | null>(null);
+  const [isExchanging, setIsExchanging] = useState(false);
+  const [projectId, setProjectId] = useState("");
 
   const supportsTokenPaste = TOKEN_PASTE_PROVIDERS.has(provider);
   const importTokenOnly = IMPORT_TOKEN_ONLY_PROVIDERS.has(provider);
@@ -213,6 +226,7 @@ export default function OAuthModal({
   const exchangeTokens = useCallback(
     async (code, state) => {
       if (!authData) return;
+      setIsExchanging(true);
       try {
         if (!authData.redirectUri || !authData.codeVerifier) {
           throw new Error(t("errorSessionIncomplete"));
@@ -228,6 +242,7 @@ export default function OAuthModal({
             redirectUri: authData.redirectUri,
             connectionId: reauthConnection?.id,
             codeVerifier: authData.codeVerifier,
+            ...(projectId.trim() ? { projectId: projectId.trim() } : {}),
             ...(normalizedState ? { state: normalizedState } : {}),
           }),
         });
@@ -266,9 +281,11 @@ export default function OAuthModal({
           setError(err.message);
         }
         setStep("error");
+      } finally {
+        setIsExchanging(false);
       }
     },
-    [authData, provider, onSuccess, reauthConnection, t]
+    [authData, provider, onSuccess, reauthConnection, projectId, t]
   );
 
   // Save a raw API token directly (Devin Desktop / Devin CLI import-token path).
@@ -554,6 +571,8 @@ export default function OAuthModal({
         let redirectUri: string;
         if (provider === "codex" || provider === "openai") {
           redirectUri = "http://localhost:1455/auth/callback";
+        } else if (provider === "gemini-cli" || provider === "gemini_cli") {
+          redirectUri = GEMINI_CLI_CODE_ASSIST_REDIRECT_URI;
         } else if (provider === "xai-oauth" || provider === "grok-cli") {
           // Fixed native-app loopback callback, distinct ports so both can run concurrently (#7013).
           const grokBuildPort = provider === "xai-oauth" ? 56121 : 56122;
@@ -565,6 +584,8 @@ export default function OAuthModal({
         } else if (GOOGLE_OAUTH_PROVIDERS.has(provider)) {
           // Google OAuth built-in credentials only accept loopback redirect URIs.
           // Even in remote deployments we use loopback — user copies the callback URL manually.
+          // Gemini CLI's built-in client is swapped by the authorize route for Google's
+          // hosted copy/paste page (codeassist.google.com/authcode) instead.
           const port = window.location.port || "20128";
           redirectUri = `http://127.0.0.1:${port}/callback`;
         } else if (!isLocalhost) {
@@ -595,7 +616,14 @@ export default function OAuthModal({
           throw new Error(data.error || t("errorBrowserUnavailable"));
         }
 
-        setAuthData({ ...data, redirectUri: data.redirectUri || redirectUri });
+        const effectiveRedirectUri = data.redirectUri || redirectUri;
+        setAuthData({ ...data, redirectUri: effectiveRedirectUri });
+
+        // Gemini CLI (built-in client): Google shows the code on codeassist.google.com
+        // and never redirects back, so always go straight to the paste-code input.
+        if (isCodeAssistPasteRedirect(effectiveRedirectUri)) {
+          forceManual = true;
+        }
 
         // For non-true-localhost (LAN IPs, remote) or manual fallback: use manual input mode (user pastes callback URL)
         if (!isTrueLocalhost || forceManual) {
@@ -679,6 +707,7 @@ export default function OAuthModal({
     setGrokBrowserMode(false);
     setAuthData(null);
     setCallbackUrl("");
+    setProjectId("");
     setError(null);
     setIsDeviceCode(false);
     setDeviceData(null);
@@ -845,6 +874,7 @@ export default function OAuthModal({
 
   // Handle manual URL input
   const handleManualSubmit = async () => {
+    if (isExchanging) return;
     try {
       setError(null);
       if (isCredentialBlob(callbackUrl)) {
@@ -915,8 +945,12 @@ export default function OAuthModal({
       } catch {
         // Claude Code remote auth may provide a raw "Authentication Code" like code#state.
         const [rawCode, rawState] = input.split("#", 2);
-        code = rawCode || null;
-        state = rawState || state;
+        code = rawCode ? rawCode.trim() : null;
+        state = rawState ? rawState.trim() : state;
+      }
+
+      if (code) {
+        code = code.trim().replace(/^["']|["']$/g, "");
       }
 
       if (errorParam) {
@@ -1084,15 +1118,20 @@ export default function OAuthModal({
                 provider={provider}
                 isGoogleOAuth={GOOGLE_OAUTH_PROVIDERS.has(provider)}
                 isTrueLocalhost={isTrueLocalhost}
+                isCodeAssistPaste={isCodeAssistPasteRedirect(authData?.redirectUri)}
                 googleHint={
-                  GOOGLE_OAUTH_PROVIDERS.has(provider)
+                  GOOGLE_OAUTH_PROVIDERS.has(provider) &&
+                  !isCodeAssistPasteRedirect(authData?.redirectUri)
                     ? buildGoogleLoopbackHint(provider, loopbackLocation)
                     : null
                 }
                 authUrl={typeof authData?.authUrl === "string" ? authData.authUrl : ""}
                 callbackUrl={callbackUrl}
                 placeholderUrl={placeholderUrl}
+                projectId={projectId}
+                onProjectIdChange={setProjectId}
                 canSubmit={Boolean(callbackUrl && (authData || isCredentialBlob(callbackUrl)))}
+                isExchanging={isExchanging}
                 onCallbackUrlChange={setCallbackUrl}
                 onSubmit={handleManualSubmit}
                 onClose={handleClose}

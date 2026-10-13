@@ -7,6 +7,7 @@
  * 2. Truly custom credentials trigger the public base URL override.
  * 3. resolvePublicCred() is used dynamically for default ID comparison.
  * 4. The `agy` provider alias inherits antigravity credential detection.
+ * 5. Gemini CLI with built-in credentials uses codeassist.google.com/authcode.
  *
  * All tests run fully offline — no network calls.
  */
@@ -76,7 +77,7 @@ test("agy provider with default antigravity credentials keeps loopback redirect 
   );
 });
 
-test("gemini-cli provider with default credentials keeps loopback redirect URI", () => {
+test("gemini-cli provider with default credentials uses the codeassist.google.com copy/paste redirect", () => {
   const redirectUri = resolveBrowserOAuthRedirectUri(
     "gemini-cli",
     "http://127.0.0.1:20128/callback",
@@ -89,12 +90,12 @@ test("gemini-cli provider with default credentials keeps loopback redirect URI",
 
   assert.equal(
     redirectUri,
-    "http://127.0.0.1:20128/callback",
-    "must stay on loopback when using built-in gemini-cli credentials"
+    "https://codeassist.google.com/authcode",
+    "built-in gemini-cli credentials must use Google's hosted copy/paste code page"
   );
 });
 
-test("gemini_cli provider alias with default credentials keeps loopback redirect URI", () => {
+test("gemini_cli provider alias with default credentials uses the codeassist.google.com copy/paste redirect", () => {
   const redirectUri = resolveBrowserOAuthRedirectUri(
     "gemini_cli",
     "http://127.0.0.1:20128/callback",
@@ -107,8 +108,8 @@ test("gemini_cli provider alias with default credentials keeps loopback redirect
 
   assert.equal(
     redirectUri,
-    "http://127.0.0.1:20128/callback",
-    "must stay on loopback when using built-in gemini_cli credentials"
+    "https://codeassist.google.com/authcode",
+    "built-in gemini_cli credentials must use Google's hosted copy/paste code page"
   );
 });
 

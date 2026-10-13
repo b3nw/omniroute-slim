@@ -27,17 +27,26 @@ describe("agy Project ID UI support", () => {
     );
   });
 
+  it("gates the Cloud Code project panel on supportsCloudCodeProjectId (incl. gemini-cli)", () => {
+    assert.ok(
+      source.includes(
+        "const supportsCloudCodeProjectId = CLOUD_CODE_PROJECT_ID_PROVIDERS.has(provider);"
+      ) && source.includes("{supportsCloudCodeProjectId && (\n          <div"),
+      "project id panel must render for every Cloud Code project-id provider"
+    );
+  });
+
   it("uses isAntigravityFamily for antigravityClientProfile UI", () => {
     assert.ok(
-      source.includes("{isAntigravityFamily && (\n          <div") &&
+      source.includes("{isAntigravityFamily && (\n              <Select") &&
         source.includes('label={t("antigravityClientProfileLabel")}'),
-      "client profile Select must render for isAntigravityFamily"
+      "client profile Select must render only for isAntigravityFamily"
     );
   });
 
   it("uses isAntigravityFamily for client profile save", () => {
     assert.ok(
-      source.includes("if (isAntigravityFamily) {"),
+      source.includes("...(isAntigravityFamily\n            ? {\n                clientProfile:"),
       "client profile save must use isAntigravityFamily"
     );
   });

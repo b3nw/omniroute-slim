@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCachedProviderConnectionById } from "@/lib/db/readCache";
 import { updateProviderConnection, deleteProviderConnection } from "@/lib/db/providers";
-import { isCloudEnabled } from "@/lib/db/settings";
+import { isCloudEnabled, resolveProxyForConnection } from "@/lib/db/settings";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { syncToCloud } from "@/lib/cloudSync";
 import { updateProviderConnectionSchema } from "@/shared/validation/schemas";
@@ -29,6 +29,8 @@ import {
   encodeChatGptWebCodexSecrets,
 } from "@omniroute/open-sse/services/chatgptWebCodexAdmin.ts";
 import { rejectRetiredCommonChatGptWebProvider } from "@/lib/providers/chatgptWebRetirementResponse";
+import { applyGeminiCliTierReprobe } from "@/lib/oauth/geminiCliTierReprobe";
+import { runWithProxyContextOrDirect } from "@omniroute/open-sse/utils/proxyFetch.ts";
 
 function normalizeCodexLimitPolicy(
   incoming: unknown,
@@ -329,6 +331,23 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         }
       }
     }
+
+    // Gemini CLI: once a GCP project is configured, loadCodeAssist reports the real
+    // tier (accounts authorized without a project are stored as free-tier). The probe
+    // goes through the connection's proxy (connection → provider → global). The
+    // probe runs before the row is saved, so honor a proxy toggle in this update.
+    await applyGeminiCliTierReprobe({
+      existing,
+      updateData,
+      runProbe: async (probe) => {
+        const pendingProxyEnabled =
+          updateData.proxyEnabled !== undefined ? Boolean(updateData.proxyEnabled) : undefined;
+        const resolved = await resolveProxyForConnection(id, undefined, undefined, {
+          proxyEnabledOverride: pendingProxyEnabled,
+        });
+        return runWithProxyContextOrDirect(resolved?.proxy ?? null, probe);
+      },
+    });
 
     const updated = await updateProviderConnection(id, updateData);
 

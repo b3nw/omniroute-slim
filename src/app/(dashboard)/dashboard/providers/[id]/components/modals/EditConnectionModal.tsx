@@ -52,8 +52,18 @@ import WebSessionCredentialGuide from "../WebSessionCredentialGuide";
 import HarImportButton from "../HarImportButton";
 import CcCompatibleRequestDefaultsFields from "./CcCompatibleRequestDefaultsFields";
 import { CodexConnectionFields } from "./CodexFingerprintFields";
-import { assignEditApiKeyProviderSpecificData } from "./connectionProviderSpecificData";
+import {
+  assignEditApiKeyProviderSpecificData,
+  CLOUD_CODE_PROJECT_ID_PROVIDERS,
+} from "./connectionProviderSpecificData";
 import { isM365TierCapableProvider, normalizeM365TierValue, type M365TierValue } from "./m365Tier";
+import {
+  GEMINI_CLI_TIER_OPTIONS,
+  applyGeminiCliTier,
+  isGeminiCliTierProvider,
+  readGeminiCliTierSetting,
+  type GeminiCliTierSetting,
+} from "./geminiCliTier";
 import ProviderTierField from "./ProviderTierField";
 import AgentrouterConsoleFields from "./AgentrouterConsoleFields";
 import QuotaScrapingFields, { EMPTY_QUOTA_SCRAPING_FIELDS } from "./QuotaScrapingFields";
@@ -79,6 +89,7 @@ export interface EditConnectionModalConnection {
   defaultModel?: string | null;
   healthCheckInterval?: number;
   projectId?: string | null;
+  errorCode?: string | number | null;
 }
 export interface EditConnectionModalProps {
   isOpen: boolean;
@@ -150,6 +161,7 @@ export default function EditConnectionModal({
     ccCompatibleSummarizeThinking: false,
     cloudCodeProjectId: "",
     antigravityClientProfile: "ide",
+    geminiCliTier: "auto" as GeminiCliTierSetting,
     blockExtraUsage:
       provider === "claude"
         ? isClaudeExtraUsageBlockEnabled(provider, connectionProviderSpecificData)
@@ -223,6 +235,8 @@ export default function EditConnectionModal({
   const isCustomResponsesConnection = isResponsesConnection && !isCodex && provider !== "openai";
   const isClaude = provider === "claude";
   const isAntigravityFamily = provider === "antigravity" || provider === "agy";
+  const supportsCloudCodeProjectId = CLOUD_CODE_PROJECT_ID_PROVIDERS.has(provider);
+  const supportsGeminiCliTier = isGeminiCliTierProvider(provider);
   const localProviderMetadata = getLocalProviderMetadata(provider);
   const isLocalSelfHostedProvider = !!localProviderMetadata;
   const isGooglePse = provider === "google-pse-search";
@@ -391,6 +405,7 @@ export default function EditConnectionModal({
         antigravityClientProfile: normalizeAntigravityClientProfileSetting(
           connection.providerSpecificData?.clientProfile
         ),
+        geminiCliTier: readGeminiCliTierSetting(connection.providerSpecificData),
         blockExtraUsage: isClaudeExtraUsageBlockEnabled(
           effectiveProvider,
           connection.providerSpecificData
@@ -573,8 +588,14 @@ export default function EditConnectionModal({
       if (formData.rateLimitMaxConcurrent.trim())
         overrides.maxConcurrent = Number(formData.rateLimitMaxConcurrent);
       updates.rateLimitOverrides = Object.keys(overrides).length > 0 ? overrides : null;
-      if (isAntigravityFamily) {
+      if (supportsCloudCodeProjectId) {
         updates.projectId = trimmedCloudCodeProjectId || null;
+        if (trimmedCloudCodeProjectId && connection.errorCode === "missing_project_id") {
+          updates.testStatus = "active";
+          updates.errorCode = null;
+          updates.lastError = null;
+          updates.lastErrorType = null;
+        }
       }
       if (isGooglePse && !formData.cx.trim()) {
         setSaveError(t("searchEngineIdRequired"));
@@ -681,7 +702,6 @@ export default function EditConnectionModal({
           defaultRegion,
           isGlm,
           isCloudflare,
-          isAntigravityFamily,
           trimmedCloudCodeProjectId,
           isGooglePse,
           isCcCompatible,
@@ -707,24 +727,31 @@ export default function EditConnectionModal({
             formData.codexOpenaiStoreEnabled === true;
           updates.providerSpecificData.codexFingerprintMode = formData.codexFingerprintMode;
         }
-        if (isAntigravityFamily) {
+        if (supportsCloudCodeProjectId) {
           updates.providerSpecificData.projectId = trimmedCloudCodeProjectId || null;
         }
       }
-      if (isAntigravityFamily) {
+      if (supportsCloudCodeProjectId) {
         updates.providerSpecificData = {
           ...(connection.providerSpecificData || {}),
           ...(updates.providerSpecificData || {}),
-          clientProfile: normalizeAntigravityClientProfileSetting(
-            formData.antigravityClientProfile
-          ),
+          ...(isAntigravityFamily
+            ? {
+                clientProfile: normalizeAntigravityClientProfileSetting(
+                  formData.antigravityClientProfile
+                ),
+              }
+            : {}),
           // A manually-entered project id must not be overwritten by
           // auto-discovery (loadCodeAssist) on later token refreshes. This
           // merge is the single surviving write of providerSpecificData for
-          // antigravity (both OAuth and API-key branches rebuild the object
-          // above), so the flag has to land here to actually persist.
+          // Cloud Code providers (both OAuth and API-key branches rebuild the
+          // object above), so the flag has to land here to actually persist.
           isProjectIdManual: !!trimmedCloudCodeProjectId,
         };
+        if (supportsGeminiCliTier) {
+          applyGeminiCliTier(updates.providerSpecificData, formData.geminiCliTier);
+        }
       }
       if (updates.providerSpecificData) {
         updates.providerSpecificData.disableCooling = formData.disableCooling ? true : undefined;
@@ -894,20 +921,22 @@ export default function EditConnectionModal({
           t={t}
           editMode
         />
-        {isAntigravityFamily && (
+        {supportsCloudCodeProjectId && (
           <div className="flex flex-col gap-4 rounded-lg border border-border/50 bg-surface/20 p-4">
-            <Select
-              label={t("antigravityClientProfileLabel")}
-              value={formData.antigravityClientProfile}
-              options={ANTIGRAVITY_CLIENT_PROFILE_OPTIONS.map((option) => ({
-                value: option.value,
-                label: t(option.labelKey),
-              }))}
-              onChange={(e) =>
-                setFormData({ ...formData, antigravityClientProfile: e.target.value })
-              }
-              hint={t("antigravityClientProfileHint")}
-            />
+            {isAntigravityFamily && (
+              <Select
+                label={t("antigravityClientProfileLabel")}
+                value={formData.antigravityClientProfile}
+                options={ANTIGRAVITY_CLIENT_PROFILE_OPTIONS.map((option) => ({
+                  value: option.value,
+                  label: t(option.labelKey),
+                }))}
+                onChange={(e) =>
+                  setFormData({ ...formData, antigravityClientProfile: e.target.value })
+                }
+                hint={t("antigravityClientProfileHint")}
+              />
+            )}
             <Input
               label={t("antigravityProjectIdLabel")}
               value={formData.cloudCodeProjectId}
@@ -916,6 +945,23 @@ export default function EditConnectionModal({
               hint={t("antigravityProjectIdHint")}
               className="font-mono text-xs"
             />
+            {supportsGeminiCliTier && (
+              <Select
+                label={t("geminiCliTierLabel")}
+                value={formData.geminiCliTier}
+                options={GEMINI_CLI_TIER_OPTIONS.map((option) => ({
+                  value: option.value,
+                  label: t(option.labelKey),
+                }))}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    geminiCliTier: e.target.value as GeminiCliTierSetting,
+                  })
+                }
+                hint={t("geminiCliTierHint")}
+              />
+            )}
           </div>
         )}
         {isOAuth && connection.email && (

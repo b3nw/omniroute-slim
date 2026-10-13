@@ -251,10 +251,19 @@ export const AGY_CONFIG = {
   fetchAvailableModelsEndpoint: ANTIGRAVITY_CONFIG.fetchAvailableModelsEndpoint,
 };
 
+/**
+ * Google-hosted "copy/paste code" page used by upstream google/gemini-cli for
+ * headless / remote logins (NO_BROWSER flow). It is registered on the built-in
+ * Gemini CLI OAuth client and renders the authorization code (`4/0A...`) on
+ * screen instead of redirecting to a loopback port, so it works from any host.
+ */
+export const GEMINI_CLI_CODE_ASSIST_REDIRECT_URI = "https://codeassist.google.com/authcode";
+
 // Gemini CLI OAuth Configuration (Authorization Code Flow with PKCE)
 export const GEMINI_CLI_CONFIG = {
   clientId: resolvePublicCred("gemini_id", "GEMINI_CLI_OAUTH_CLIENT_ID"),
   clientSecret: resolvePublicCred("gemini_alt", "GEMINI_CLI_OAUTH_CLIENT_SECRET"),
+  redirectUri: GEMINI_CLI_CODE_ASSIST_REDIRECT_URI,
   authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
   tokenUrl: "https://oauth2.googleapis.com/token",
   userInfoUrl: "https://www.googleapis.com/oauth2/v1/userinfo",

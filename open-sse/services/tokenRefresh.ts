@@ -324,14 +324,21 @@ async function _getAccessTokenInternal(provider, credentials, log, proxyConfig: 
           const discovered = await discoverGeminiCliProjectAndTier(result.accessToken);
           if (discovered?.projectId) {
             result.projectId = discovered.projectId;
+            // A manually pinned tier (EditConnectionModal) must survive discovery;
+            // only recover the project in that case.
+            const isTierManual = credentials.providerSpecificData?.isTierManual === true;
             result.providerSpecificData = {
               ...(credentials.providerSpecificData || {}),
               ...(result.providerSpecificData || {}),
               clientProfile: "cli",
               projectId: discovered.projectId,
-              tier: discovered.tier,
-              tierCanonical: discovered.tierCanonical,
-              tier_full: discovered.tier_full,
+              ...(isTierManual
+                ? {}
+                : {
+                    tier: discovered.tier,
+                    tierCanonical: discovered.tierCanonical,
+                    tier_full: discovered.tier_full,
+                  }),
             };
             if (credentials.connectionId) {
               try {
@@ -353,6 +360,56 @@ async function _getAccessTokenInternal(provider, credentials, log, proxyConfig: 
           const msg =
             discoveryError instanceof Error ? discoveryError.message : String(discoveryError);
           log?.warn?.("TOKEN", `Gemini CLI project discovery failed: ${msg}`);
+        }
+      }
+
+      // An automatic tier probe that couldn't run at save time (project change or
+      // switch back to "auto" with an expired token / failed probe) is retried
+      // with the fresh token.
+      const pendingProjectId = credentials.projectId || credentials.providerSpecificData?.projectId;
+      if (
+        result?.accessToken &&
+        pendingProjectId &&
+        credentials.providerSpecificData?.pendingTierReprobe === true &&
+        credentials.providerSpecificData?.isTierManual !== true
+      ) {
+        try {
+          const { reprobeGeminiCliTierForProject } = await import("./geminiCliDiscovery.ts");
+          const probed = await runWithProxyContext(proxyConfig, () =>
+            reprobeGeminiCliTierForProject(result.accessToken, pendingProjectId)
+          );
+          if (probed?.tier) {
+            const providerSpecificData = {
+              ...(credentials.providerSpecificData || {}),
+              ...(result.providerSpecificData || {}),
+              tier: probed.tier,
+              tierCanonical: probed.tierCanonical,
+              tier_full: probed.tier_full,
+            };
+            delete providerSpecificData.pendingTierReprobe;
+            result.providerSpecificData = providerSpecificData;
+            if (credentials.connectionId) {
+              try {
+                const { updateProviderConnection } = await import("@/lib/db/providers");
+                await updateProviderConnection(credentials.connectionId, {
+                  providerSpecificData,
+                });
+              } catch (dbErr) {
+                log?.warn?.("TOKEN", `Failed to persist re-probed Gemini CLI tier: ${dbErr}`);
+              }
+            }
+            log?.info?.(
+              "TOKEN",
+              "Gemini CLI pending tier re-probe completed during token refresh",
+              {
+                projectId: pendingProjectId,
+                tier: probed.tierCanonical,
+              }
+            );
+          }
+        } catch (reprobeError) {
+          const msg = reprobeError instanceof Error ? reprobeError.message : String(reprobeError);
+          log?.warn?.("TOKEN", `Gemini CLI pending tier re-probe failed: ${msg}`);
         }
       }
 

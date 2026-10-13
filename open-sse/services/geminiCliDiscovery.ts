@@ -413,33 +413,6 @@ export async function tryOnboardUser(
   return null;
 }
 
-/**
- * Fallback: queries Resource Manager API and selects first active GCP project.
- */
-export async function listFirstActiveGcpProject(
-  accessToken: string,
-  fetchImpl: FetchLike = fetch,
-  signal?: AbortSignal
-): Promise<string | null> {
-  try {
-    const timeoutSignal = AbortSignal.timeout(15_000);
-    const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
-    const res = await fetchImpl(CRM_PROJECTS_URL, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${accessToken}` },
-      signal: combinedSignal,
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as {
-      projects?: Array<{ projectId: string; lifecycleState: string }>;
-    };
-    const active = (data.projects || []).find((p) => p.lifecycleState === "ACTIVE");
-    return active ? active.projectId : null;
-  } catch {
-    return null;
-  }
-}
-
 // In-memory memoization cache for discovered projects/tiers per access token
 const discoveryCache = new Map<string, GeminiCliDiscoveryResult>();
 
@@ -485,7 +458,9 @@ export async function discoverGeminiCliProjectAndTier(
   }
 
   // 3. If tier is present but no project returned, scan GCP projects
+  let gcpScanAttempted = false;
   if (!discoveredProjectId && lcaResult) {
+    gcpScanAttempted = true;
     const scanned = await scanGcpProjectsForCodeAssist(accessToken, fetchImpl, signal);
     if (scanned?.projectId) {
       discoveredProjectId = scanned.projectId;
@@ -515,17 +490,21 @@ export async function discoverGeminiCliProjectAndTier(
     }
   }
 
-  // 5. Last-resort fallback: first active GCP project from Cloud Resource Manager
-  if (!discoveredProjectId) {
-    const activeProject = await listFirstActiveGcpProject(accessToken, fetchImpl, signal);
-    if (activeProject) {
-      discoveredProjectId = activeProject;
+  // 5. Last resort: verified GCP scan (skipped if step 3 already ran it). Never fall
+  // back to an arbitrary active project — one without cloudaicompanion.googleapis.com
+  // enabled makes every chat request fail with 403 "Gemini for Google Cloud API has
+  // not been used in project ... or it is disabled".
+  if (!discoveredProjectId && !gcpScanAttempted) {
+    const scanned = await scanGcpProjectsForCodeAssist(accessToken, fetchImpl, signal);
+    if (scanned?.projectId) {
+      discoveredProjectId = scanned.projectId;
+      if (scanned.tierId) rawTierId = scanned.tierId;
     }
   }
 
   if (!discoveredProjectId) {
     throw new Error(
-      "Could not auto-discover Gemini CLI project ID. Please configure a GCP project ID via GEMINI_CLI_PROJECT_ID or provider settings."
+      "Could not auto-discover a Gemini CLI project with Gemini Code Assist (cloudaicompanion.googleapis.com) enabled. Please configure a GCP project ID via GEMINI_CLI_PROJECT_ID or provider settings."
     );
   }
 
@@ -539,6 +518,45 @@ export async function discoverGeminiCliProjectAndTier(
     tier_full,
   };
 
+  discoveryCache.set(accessToken, result);
+  return result;
+}
+
+/**
+ * Re-probes the subscription tier for an explicitly configured GCP project.
+ *
+ * An account authorized before a project was configured is stored as
+ * `free-tier` (loadCodeAssist without a project falls back to the default
+ * allowed tier). Once the user sets a Project ID, loadCodeAssist with that
+ * project (cloudaicompanionProject + metadata.duetProject) reports the real
+ * paid/current tier. Bypasses the discovery cache and refreshes it on success.
+ *
+ * Returns null when the probe fails (expired token, network, project rejected)
+ * so callers can keep the previously stored tier.
+ */
+export async function reprobeGeminiCliTierForProject(
+  accessToken: string,
+  configuredProjectId: string,
+  options?: { fetchImpl?: FetchLike; signal?: AbortSignal }
+): Promise<GeminiCliDiscoveryResult | null> {
+  const projectId = configuredProjectId?.trim();
+  if (!accessToken || !projectId) return null;
+
+  const lca = await tryLoadCodeAssist(
+    accessToken,
+    projectId,
+    options?.fetchImpl || fetch,
+    options?.signal
+  );
+  if (!lca) return null;
+
+  const result: GeminiCliDiscoveryResult = {
+    // The user's explicit choice wins over whatever project Google echoes back.
+    projectId,
+    tier: lca.tierId,
+    tierCanonical: normalizeTierName(lca.tierId),
+    tier_full: getTierFullName(lca.tierId),
+  };
   discoveryCache.set(accessToken, result);
   return result;
 }

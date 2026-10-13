@@ -47,6 +47,15 @@ type ProviderSpecificData = Record<string, unknown>;
 // newApiUserId (the New-Api-User header value). See agentrouterQuotaFetcher.ts.
 const CONSOLE_API_KEY_PROVIDERS = new Set(["bailian-coding-plan", "agentrouter"]);
 
+// Google Cloud Code providers whose GCP Project ID can be set manually. A manual
+// id is flagged isProjectIdManual so token-refresh auto-discovery leaves it alone.
+export const CLOUD_CODE_PROJECT_ID_PROVIDERS: ReadonlySet<string> = new Set([
+  "antigravity",
+  "agy",
+  "gemini-cli",
+  "gemini_cli",
+]);
+
 export function buildAddProviderSpecificData(options: {
   provider?: string;
   formData: FormData;
@@ -132,7 +141,6 @@ export function assignEditApiKeyProviderSpecificData(options: {
   defaultRegion: string;
   isGlm: boolean;
   isCloudflare: boolean;
-  isAntigravityFamily: boolean;
   trimmedCloudCodeProjectId: string;
   isGooglePse: boolean;
   isCcCompatible: boolean;
@@ -168,7 +176,10 @@ export function assignEditApiKeyProviderSpecificData(options: {
   } else if (o.isCloudflare && o.formData.accountId.trim()) {
     o.target.accountId = o.formData.accountId.trim();
   }
-  if (o.isAntigravityFamily) o.target.projectId = o.trimmedCloudCodeProjectId || null;
+  if (CLOUD_CODE_PROJECT_ID_PROVIDERS.has(o.provider)) {
+    o.target.projectId = o.trimmedCloudCodeProjectId || null;
+    o.target.isProjectIdManual = !!o.trimmedCloudCodeProjectId;
+  }
   if (isM365TierCapableProvider(o.provider)) applyM365Tier(o.target, o.formData.m365Tier ?? "");
   if (o.isCcCompatible) {
     o.target.requestDefaults = mergeCcCompatibleRequestDefaults(
