@@ -123,6 +123,7 @@ export const oauthExchangeSchema = z.object({
   redirectUri: z.string().trim().min(1),
   codeVerifier: z.string().trim().min(1).optional(),
   state: z.string().nullable().optional(),
+  projectId: z.string().trim().optional(),
 });
 
 export const oauthPollSchema = z.object({

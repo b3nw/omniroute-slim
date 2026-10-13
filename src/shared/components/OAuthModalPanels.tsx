@@ -310,9 +310,14 @@ type OAuthManualInputPanelProps = {
   provider: string;
   isGoogleOAuth: boolean;
   isTrueLocalhost: boolean;
+  /** Gemini CLI copy/paste flow: Google shows the code on codeassist.google.com. */
+  isCodeAssistPaste?: boolean;
+  isExchanging?: boolean;
   googleHint?: GoogleLoopbackHint | null;
   authUrl: string;
   callbackUrl: string;
+  projectId?: string;
+  onProjectIdChange?: (value: string) => void;
   placeholderUrl: string;
   canSubmit: boolean;
   onCallbackUrlChange: (value: string) => void;
@@ -324,9 +329,13 @@ export function OAuthManualInputPanel({
   provider,
   isGoogleOAuth,
   isTrueLocalhost,
+  isCodeAssistPaste = false,
+  isExchanging = false,
   googleHint,
   authUrl,
   callbackUrl,
+  projectId,
+  onProjectIdChange,
   placeholderUrl,
   canSubmit,
   onCallbackUrlChange,
@@ -339,11 +348,20 @@ export function OAuthManualInputPanel({
   return (
     <>
       <div className="space-y-4">
-        <OAuthRemoteAccessNotices
-          isGoogleOAuth={isGoogleOAuth}
-          isTrueLocalhost={isTrueLocalhost}
-          googleHint={googleHint}
-        />
+        {isCodeAssistPaste ? (
+          <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-blue-200">
+            <span className="material-symbols-outlined text-sm align-middle mr-1">info</span>
+            {t.rich("codeAssistPasteNotice", {
+              code: (chunks) => <code className="font-mono">{chunks}</code>,
+            })}
+          </div>
+        ) : (
+          <OAuthRemoteAccessNotices
+            isGoogleOAuth={isGoogleOAuth}
+            isTrueLocalhost={isTrueLocalhost}
+            googleHint={googleHint}
+          />
+        )}
         <div>
           <p className="text-sm font-medium mb-2">{t("step1OpenUrl")}</p>
           <div className="flex gap-2">
@@ -359,38 +377,67 @@ export function OAuthManualInputPanel({
         </div>
         <div>
           <p className="text-sm font-medium mb-2">{t("step2PasteCallback")}</p>
-          <p className="text-xs text-text-muted mb-2">
-            {t.rich("step2Hint", {
-              code: (chunks) => <code className="font-mono">{chunks}</code>,
-            })}
-          </p>
+          {!isCodeAssistPaste && (
+            <p className="text-xs text-text-muted mb-2">
+              {t.rich("step2Hint", {
+                code: (chunks) => <code className="font-mono">{chunks}</code>,
+              })}
+            </p>
+          )}
           {provider === "zed-hosted" && (
             <p className="text-xs text-amber-500 mb-2">
               After signing in, Zed redirects to a local address like{" "}
-              <code className="font-mono">http://127.0.0.1:&lt;port&gt;/?user_id=...</code> which the
-              browser may show as unreachable — that is expected. Copy the FULL URL from the
+              <code className="font-mono">http://127.0.0.1:&lt;port&gt;/?user_id=...</code> which
+              the browser may show as unreachable — that is expected. Copy the FULL URL from the
               browser address bar (the access token is inside it) and paste it above.
             </p>
           )}
           <Input
             value={callbackUrl}
             onChange={(event) => onCallbackUrlChange(event.target.value)}
+            disabled={isExchanging}
             placeholder={
-              provider === "claude" || provider === "cline"
-                ? "code#state or /callback?code=..."
-                : provider === "zed-hosted"
-                  ? "http://127.0.0.1:<port>/?user_id=...&access_token=..."
-                  : placeholderUrl
+              isCodeAssistPaste
+                ? t("codeAssistPastePlaceholder")
+                : provider === "claude" || provider === "cline"
+                  ? "code#state or /callback?code=..."
+                  : provider === "zed-hosted"
+                    ? "http://127.0.0.1:<port>/?user_id=...&access_token=..."
+                    : placeholderUrl
             }
             className="font-mono text-xs"
           />
         </div>
+        {isCodeAssistPaste && onProjectIdChange && (
+          <div>
+            <p className="text-sm font-medium mb-1">
+              Google Cloud Project ID{" "}
+              <span className="text-text-muted text-xs font-normal">(Optional / BYOP)</span>
+            </p>
+            <p className="text-xs text-text-muted mb-2">
+              Provide a GCP Project ID if your account uses a dedicated project or enterprise quota.
+              Leave blank for auto-discovery.
+            </p>
+            <Input
+              value={projectId || ""}
+              onChange={(event) => onProjectIdChange(event.target.value)}
+              disabled={isExchanging}
+              placeholder="my-gcp-project-id"
+              className="font-mono text-xs"
+            />
+          </div>
+        )}
       </div>
       <div className="flex gap-2">
-        <Button onClick={onSubmit} fullWidth disabled={!canSubmit}>
-          {t("connect")}
+        <Button
+          onClick={onSubmit}
+          fullWidth
+          disabled={!canSubmit || isExchanging}
+          loading={isExchanging}
+        >
+          {isExchanging ? t("connecting") || "Connecting..." : t("connect")}
         </Button>
-        <Button onClick={onClose} variant="ghost" fullWidth>
+        <Button onClick={onClose} variant="ghost" fullWidth disabled={isExchanging}>
           {t("cancel")}
         </Button>
       </div>

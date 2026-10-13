@@ -21,12 +21,19 @@ export type AntigravityDegradedProjectState = {
 };
 
 /** Providers whose Cloud Code projectId is expected at connect time. */
-const PROJECT_EXPECTED_PROVIDERS = new Set(["antigravity", "agy"]);
+const PROJECT_EXPECTED_PROVIDERS = new Set(["antigravity", "agy", "gemini-cli", "gemini_cli"]);
+const GEMINI_CLI_PROVIDERS = new Set(["gemini-cli", "gemini_cli"]);
 
 const BYOP_WARNING =
   "Connected, but Google did not assign a Cloud Code project to this account (BYOP). " +
   "Create a GCP Project at console.cloud.google.com and complete Gemini Code Assist onboarding; " +
   "the account is marked degraded until then and cannot serve requests.";
+
+const GEMINI_CLI_BYOP_WARNING =
+  "Connected, but no Google Cloud project with Gemini Code Assist " +
+  "(cloudaicompanion.googleapis.com) enabled was found for this account (BYOP). " +
+  "Enable the API in a GCP project at console.cloud.google.com, then set its Google Cloud " +
+  "Project ID in this connection's settings; the account is marked degraded until then.";
 
 const DISCOVERY_FAILED_WARNING =
   "Connected, but the Google Cloud Code projectId could not be discovered during login " +
@@ -48,14 +55,13 @@ export function antigravityDegradedProjectState(
   console.warn(
     `[oauth] ${provider}: marking connection degraded — no Cloud Code projectId (${String(outcome)}) (#11284)`
   );
+  const byopWarning = GEMINI_CLI_PROVIDERS.has(provider) ? GEMINI_CLI_BYOP_WARNING : BYOP_WARNING;
+  const warning = outcome === "requires_manual_project" ? byopWarning : DISCOVERY_FAILED_WARNING;
   return {
     testStatus: "degraded",
     errorCode: "missing_project_id",
     lastErrorType: "oauth_missing_project_id",
-    lastError:
-      outcome === "requires_manual_project"
-        ? BYOP_WARNING
-        : DISCOVERY_FAILED_WARNING,
-    warning: outcome === "requires_manual_project" ? BYOP_WARNING : DISCOVERY_FAILED_WARNING,
+    lastError: warning,
+    warning,
   };
 }

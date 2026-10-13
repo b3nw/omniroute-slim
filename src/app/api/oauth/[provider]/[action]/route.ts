@@ -484,7 +484,7 @@ export async function POST(
     }
 
     if (action === "exchange") {
-      const { code, redirectUri, connectionId, codeVerifier, state } = body;
+      const { code, redirectUri, connectionId, codeVerifier, state, projectId } = body;
       const normalizedState = typeof state === "string" && state.length > 0 ? state : undefined;
       const providerData = getProvider(provider);
 
@@ -517,9 +517,21 @@ export async function POST(
       const proxy = await resolveProxyForProvider(provider);
 
       // Exchange code for tokens (through proxy if configured)
-      const tokenData = await runWithProxyContextOrDirect(proxy, () =>
-        exchangeTokens(provider, code, redirectUri, codeVerifier, normalizedState)
-      );
+      let tokenData: any;
+      try {
+        tokenData = await runWithProxyContextOrDirect(proxy, () =>
+          exchangeTokens(provider, code, redirectUri, codeVerifier, normalizedState, {
+            projectId,
+          })
+        );
+      } catch (exchangeError: any) {
+        console.error(`OAuth ${provider} token exchange error:`, exchangeError);
+        const rawMessage = exchangeError?.message || "Token exchange failed";
+        return NextResponse.json(
+          { error: sanitizeErrorMessage(rawMessage) || rawMessage },
+          { status: 400 }
+        );
+      }
 
       // #11284: when Cloud Code projectId discovery failed at connect time,
       // SAVE the connection but mark it degraded (maintainer direction on

@@ -10,6 +10,7 @@
 import { generatePKCE, generateState } from "./utils/pkce";
 import { PROVIDERS } from "./providers/index";
 import { resolvePublicCred } from "@omniroute/open-sse/utils/publicCreds.ts";
+import { GEMINI_CLI_CODE_ASSIST_REDIRECT_URI } from "./constants/oauth";
 
 const GOOGLE_BROWSER_PROVIDERS = new Set(["antigravity", "agy", "gemini-cli", "gemini_cli"]);
 
@@ -44,9 +45,7 @@ function hasCustomGoogleOAuthCredentials(
     const clientId = env?.GEMINI_CLI_OAUTH_CLIENT_ID;
     const clientSecret = env?.GEMINI_CLI_OAUTH_CLIENT_SECRET;
     return (
-      hasValue(clientId) &&
-      hasValue(clientSecret) &&
-      clientId !== resolvePublicCred("gemini_id")
+      hasValue(clientId) && hasValue(clientSecret) && clientId !== resolvePublicCred("gemini_id")
     );
   }
 
@@ -77,6 +76,11 @@ function upgradeLoopbackToPublic(redirectUri: string, publicBaseUrl: string): st
  * provide their own Google OAuth client IDs for a remote deployment, prefer the
  * public callback URL documented in .env.example / docs/README so the popup can
  * navigate back to OmniRoute instead of stalling on localhost.
+ *
+ * Gemini CLI with the built-in client is the exception: like upstream
+ * google/gemini-cli it uses Google's hosted copy/paste page
+ * (codeassist.google.com/authcode), which works on remote servers where a
+ * loopback redirect would hit "connection refused".
  */
 export function resolveBrowserOAuthRedirectUri(
   providerName: string,
@@ -88,6 +92,9 @@ export function resolveBrowserOAuthRedirectUri(
   }
 
   if (!hasCustomGoogleOAuthCredentials(providerName, env)) {
+    if (providerName === "gemini-cli" || providerName === "gemini_cli") {
+      return GEMINI_CLI_CODE_ASSIST_REDIRECT_URI;
+    }
     return redirectUri;
   }
 
@@ -221,7 +228,14 @@ export function generateAuthData(providerName, redirectUri) {
 /**
  * Exchange code for tokens
  */
-export async function exchangeTokens(providerName, code, redirectUri, codeVerifier, state) {
+export async function exchangeTokens(
+  providerName: string,
+  code: string,
+  redirectUri: string,
+  codeVerifier?: string,
+  state?: string,
+  context?: { projectId?: string }
+) {
   const provider = getProvider(providerName);
 
   const tokens = await provider.exchangeToken(
@@ -234,7 +248,7 @@ export async function exchangeTokens(providerName, code, redirectUri, codeVerifi
 
   let extra = null;
   if (provider.postExchange) {
-    extra = await provider.postExchange(tokens);
+    extra = await provider.postExchange(tokens, context);
   }
 
   return provider.mapTokens(tokens, extra);

@@ -42,7 +42,7 @@ export function bumpProxyConfigGeneration() {
   proxyResolutionCache.clear();
 }
 
-function cacheProxyResolution(
+function cacheProxyResolutionEntry(
   connectionId: string,
   generation: number,
   registryGeneration: number,
@@ -522,8 +522,16 @@ export async function deleteProxyForLevel(level: string, id: string | null) {
 export async function resolveProxyForConnection(
   connectionId: string,
   apiKeyId?: string,
-  providerId?: string
+  providerId?: string,
+  options: { proxyEnabledOverride?: boolean } = {}
 ) {
+  // proxyEnabledOverride resolves against a pending (not yet persisted)
+  // connection-level proxy toggle. Such results must not touch the cache.
+  const { proxyEnabledOverride } = options;
+  const hasOverride = typeof proxyEnabledOverride === "boolean";
+  const cacheProxyResolution: typeof cacheProxyResolutionEntry = hasOverride
+    ? () => {}
+    : cacheProxyResolutionEntry;
   const cacheKey = providerId
     ? `${connectionId}:${apiKeyId || ""}:${providerId}`
     : apiKeyId
@@ -531,7 +539,7 @@ export async function resolveProxyForConnection(
       : connectionId;
   const startGeneration = proxyConfigGeneration;
   const startRegistryGeneration = getProxyRegistryGeneration();
-  const cached = proxyResolutionCache.get(cacheKey);
+  const cached = hasOverride ? undefined : proxyResolutionCache.get(cacheKey);
   if (
     cached &&
     cached.generation === startGeneration &&
@@ -577,7 +585,9 @@ export async function resolveProxyForConnection(
     connectionRecord = toRecord(row);
     connectionProvider =
       typeof connectionRecord.provider === "string" ? connectionRecord.provider : null;
-    connectionProxyEnabled = connectionRecord.proxy_enabled !== 0;
+    connectionProxyEnabled = hasOverride
+      ? proxyEnabledOverride
+      : connectionRecord.proxy_enabled !== 0;
     connectionPerKeyProxyEnabled = connectionRecord.per_key_proxy_enabled === 1;
   }
 

@@ -73,7 +73,6 @@ function baseEditOptions(
     defaultRegion: "us-central1",
     isGlm: false,
     isCloudflare: false,
-    isAntigravityFamily: false,
     trimmedCloudCodeProjectId: "",
     isGooglePse: false,
     isCcCompatible: false,
