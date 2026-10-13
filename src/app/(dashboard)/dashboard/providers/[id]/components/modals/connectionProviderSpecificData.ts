@@ -1,4 +1,8 @@
-import { parseExcludedModelsInput, parseRoutingTagsInput } from "../../providerInputParsers";
+import {
+  parseAllowedModelsInput,
+  parseExcludedModelsInput,
+  parseRoutingTagsInput,
+} from "../../providerInputParsers";
 import {
   assignCcCompatibleRequestDefaults,
   mergeCcCompatibleRequestDefaults,
@@ -16,6 +20,7 @@ import {
 type FormData = QuotaScrapingFieldValues &
   GlmTeamQuotaFieldValues & {
     accountId: string;
+    allowedModels?: string;
     apiRegion: string;
     awsAccessKeyId: string;
     awsSessionToken: string;
@@ -91,6 +96,9 @@ export function buildAddProviderSpecificData(options: {
   if (formData.excludedModels.trim()) {
     data.excludedModels = parseExcludedModelsInput(formData.excludedModels);
   }
+  if (formData.allowedModels?.trim()) {
+    data.allowedModels = parseAllowedModelsInput(formData.allowedModels);
+  }
   if (formData.passthroughModels) data.passthroughModels = true;
   if (showFreeModelsToggle && formData.importFreeModelsOnly) data.importFreeModelsOnly = true;
   if (CONSOLE_API_KEY_PROVIDERS.has(provider ?? "") && formData.consoleApiKey.trim()) {
@@ -151,6 +159,7 @@ export function assignEditApiKeyProviderSpecificData(options: {
     tag: o.formData.tag.trim() || undefined,
     tags: parseRoutingTagsInput(o.formData.routingTags),
     excludedModels: parseExcludedModelsInput(o.formData.excludedModels),
+    allowedModels: parseAllowedModelsInput(o.formData.allowedModels ?? ""),
     customUserAgent: o.formData.customUserAgent.trim(),
     ...o.openRouterPreset.getPatch(),
     ...(o.formData.passthroughModels ? { passthroughModels: true } : {}),

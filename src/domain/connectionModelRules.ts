@@ -70,14 +70,45 @@ export function isModelExcludedByConnection(
   );
 }
 
+export function normalizeAllowedModelPatterns(value: unknown): string[] {
+  return uniquePatterns(toPatternList(value));
+}
+
+export function getConnectionAllowedModels(providerSpecificData: unknown): string[] {
+  const data = asRecord(providerSpecificData);
+  return normalizeAllowedModelPatterns(data.allowedModels ?? data.allowed_models);
+}
+
+/**
+ * Per-connection allowlist (`allowedModels`). Default open: an absent or empty
+ * allowlist permits every model. When populated, only models matching one of
+ * the wildcard patterns are permitted. The `excludedModels` denylist always
+ * takes precedence — a model matching both lists is rejected.
+ */
+export function isModelAllowedByConnection(
+  modelId: unknown,
+  providerSpecificData: unknown
+): boolean {
+  if (isModelExcludedByConnection(modelId, providerSpecificData)) return false;
+
+  const allowedModels = getConnectionAllowedModels(providerSpecificData);
+  if (allowedModels.length === 0) return true;
+  if (typeof modelId !== "string" || modelId.trim().length === 0) return true;
+
+  const candidates = getModelMatchCandidates(modelId);
+  return allowedModels.some((pattern) =>
+    candidates.some((candidate) => wildcardMatch(candidate, pattern))
+  );
+}
+
 export function hasEligibleConnectionForModel(
   connections: ConnectionLike[] | null | undefined,
   modelId: unknown
 ): boolean {
   if (!Array.isArray(connections) || connections.length === 0) return false;
 
-  return connections.some(
-    (connection) => !isModelExcludedByConnection(modelId, connection?.providerSpecificData)
+  return connections.some((connection) =>
+    isModelAllowedByConnection(modelId, connection?.providerSpecificData)
   );
 }
 

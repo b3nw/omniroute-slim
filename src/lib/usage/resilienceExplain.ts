@@ -1,6 +1,9 @@
 import pino from "pino";
 
-import { isModelExcludedByConnection } from "@/domain/connectionModelRules";
+import {
+  isModelAllowedByConnection,
+  isModelExcludedByConnection,
+} from "@/domain/connectionModelRules";
 import { getProviderConnections } from "@/lib/db/providers";
 import { getCircuitBreaker } from "@/shared/utils/circuitBreaker";
 import { getModelLockoutInfo } from "@omniroute/open-sse/services/accountFallback.ts";
@@ -203,6 +206,18 @@ function accountReason(
         code: "model_excluded",
         connectionId,
         message: `Model ${options.model} is excluded by this connection's model rules.`,
+      },
+    };
+  }
+
+  if (!isModelAllowedByConnection(options.model, connection.providerSpecificData)) {
+    return {
+      state: "skipped",
+      reason: {
+        scope: "model",
+        code: "model_not_allowed",
+        connectionId,
+        message: `Model ${options.model} is not in this connection's allowed models.`,
       },
     };
   }

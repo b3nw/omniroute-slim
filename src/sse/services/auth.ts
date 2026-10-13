@@ -139,6 +139,7 @@ import {
   isSelfHostedChatProvider,
 } from "@/shared/constants/providers";
 import {
+  isModelAllowedByConnection,
   isModelExcludedByConnection,
   isModelAdvertisedByConnection,
 } from "@/domain/connectionModelRules";
@@ -1558,6 +1559,10 @@ export async function getProviderCredentials(
         connectionFilterStatus.set(c.id, "modelExcluded");
         return false;
       }
+      if (requestedModel && !isModelAllowedByConnection(requestedModel, c.providerSpecificData)) {
+        connectionFilterStatus.set(c.id, "modelNotAllowed");
+        return false;
+      }
       if (
         requestedModel &&
         !isModelAdvertisedByConnection(requestedModel, advertisedModelsByConnection.get(c.id))
@@ -1636,6 +1641,7 @@ export async function getProviderCredentials(
       const codexScopeLimited = status === "codexScopeLimited";
       const modelLocked = status === "modelLocked";
       const modelExcluded = status === "modelExcluded";
+      const modelNotAllowed = status === "modelNotAllowed";
       const modelNotAdvertised = status === "modelNotAdvertised";
       const claude55NotEntitled = status === "claude55NotEntitled";
       if (excluded || rateLimited) {
@@ -1647,6 +1653,11 @@ export async function getProviderCredentials(
         log.debug(
           "AUTH",
           `  → ${c.id?.slice(0, 8)} | excluded by per-account model rule for ${requestedModel}`
+        );
+      } else if (modelNotAllowed) {
+        log.debug(
+          "AUTH",
+          `  → ${c.id?.slice(0, 8)} | ${requestedModel} not in per-account allowed models`
         );
       } else if (modelNotAdvertised) {
         log.debug(

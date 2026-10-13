@@ -132,6 +132,47 @@ function validateCacheBlock(data: Record<string, unknown>, ctx: z.RefinementCtx)
  * OAuth route's raw entry points (searchParams / device-flow extraData), so a
  * malformed or non-HTTPS enterprise URL is rejected before any upstream fetch.
  */
+// Shared by excludedModels (denylist) and allowedModels (allowlist): array or
+// comma-separated string of wildcard patterns, extracted so
+// validateProviderSpecificData() stays under the complexity gate.
+function validateModelPatternList(
+  field: "excludedModels" | "allowedModels",
+  value: unknown,
+  ctx: z.RefinementCtx
+): void {
+  if (value !== undefined && value !== null) {
+    if (typeof value === "string") {
+      if (value.length > 5000) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `providerSpecificData.${field} string must be up to 5000 chars`,
+          path: [field],
+        });
+      }
+    } else if (!Array.isArray(value) || value.length > 100) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `providerSpecificData.${field} must be an array with at most 100 items`,
+        path: [field],
+      });
+    } else if (
+      value.some(
+        (pattern) =>
+          typeof pattern !== "string" ||
+          pattern.trim().length === 0 ||
+          pattern.trim().length > 200 ||
+          pattern.trim() === "**"
+      )
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `providerSpecificData.${field} must contain non-empty patterns up to 200 characters`,
+        path: [field],
+      });
+    }
+  }
+}
+
 export function isValidGheUrl(raw: string): boolean {
   try {
     return new URL(raw).protocol === "https:";
@@ -504,39 +545,8 @@ export function validateProviderSpecificData(
     }
   }
 
-  const excludedModels = data.excludedModels ?? data.excluded_models;
-  if (excludedModels !== undefined && excludedModels !== null) {
-    if (typeof excludedModels === "string") {
-      if (excludedModels.length > 5000) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "providerSpecificData.excludedModels string must be up to 5000 chars",
-          path: ["excludedModels"],
-        });
-      }
-    } else if (!Array.isArray(excludedModels) || excludedModels.length > 100) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "providerSpecificData.excludedModels must be an array with at most 100 items",
-        path: ["excludedModels"],
-      });
-    } else if (
-      excludedModels.some(
-        (pattern) =>
-          typeof pattern !== "string" ||
-          pattern.trim().length === 0 ||
-          pattern.trim().length > 200 ||
-          pattern.trim() === "**"
-      )
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          "providerSpecificData.excludedModels must contain non-empty patterns up to 200 characters",
-        path: ["excludedModels"],
-      });
-    }
-  }
+  validateModelPatternList("excludedModels", data.excludedModels ?? data.excluded_models, ctx);
+  validateModelPatternList("allowedModels", data.allowedModels ?? data.allowed_models, ctx);
 
   const clientProfile = data.clientProfile;
   if (clientProfile !== undefined && clientProfile !== null) {

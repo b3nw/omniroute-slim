@@ -31,7 +31,9 @@ import {
   isGlmProvider,
   parseRoutingTagsInput,
   parseExcludedModelsInput,
+  parseAllowedModelsInput,
   formatRoutingTagsInput,
+  formatAllowedModelsInput,
   formatExcludedModelsInput,
   getWebSessionCredentialLabel,
   getWebSessionCredentialHint,
@@ -142,6 +144,7 @@ export default function EditConnectionModal({
     tag: "",
     routingTags: "",
     excludedModels: "",
+    allowedModels: "",
     customUserAgent: "",
     accountId: "",
     codexReasoningEffort: "medium",
@@ -372,6 +375,10 @@ export default function EditConnectionModal({
         excludedModels: formatExcludedModelsInput(
           connection.providerSpecificData?.excludedModels ??
             connection.providerSpecificData?.excluded_models
+        ),
+        allowedModels: formatAllowedModelsInput(
+          connection.providerSpecificData?.allowedModels ??
+            connection.providerSpecificData?.allowed_models
         ),
         customUserAgent: existingCustomUserAgent,
         accountId: existingAccountId,
@@ -712,6 +719,7 @@ export default function EditConnectionModal({
           tag: formData.tag.trim() || undefined,
           tags: parseRoutingTagsInput(formData.routingTags),
           excludedModels: parseExcludedModelsInput(formData.excludedModels),
+          allowedModels: parseAllowedModelsInput(formData.allowedModels),
         };
         if (isClaude) {
           updates.providerSpecificData.blockExtraUsage = formData.blockExtraUsage;
@@ -853,6 +861,13 @@ export default function EditConnectionModal({
           onChange={(e) => setFormData({ ...formData, excludedModels: e.target.value })}
           placeholder={t("excludedModelsPlaceholder")}
           hint={t("excludedModelsHint")}
+        />
+        <Input
+          label={t("allowedModelsLabel")}
+          value={formData.allowedModels}
+          onChange={(e) => setFormData({ ...formData, allowedModels: e.target.value })}
+          placeholder={t("allowedModelsPlaceholder")}
+          hint={t("allowedModelsHint")}
         />
         {isCodex && (
           <CodexConnectionFields

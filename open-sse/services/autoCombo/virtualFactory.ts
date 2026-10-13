@@ -39,7 +39,7 @@ import {
 } from "./subscriptionLadder";
 import { filterStrictZeroCostCandidates, filterTosAvoidCandidates } from "./strictZeroCostFilter";
 import { resolveFreeAccessState } from "./freeAccessQuota";
-import { isModelExcludedByConnection } from "@/domain/connectionModelRules";
+import { isModelAllowedByConnection } from "@/domain/connectionModelRules";
 import { resolveProviderAlias } from "../model.ts";
 import { filterExcludedCandidates } from "./candidateOverrides";
 import { getExcludedConnectionIds } from "@/lib/db/autoCandidateOverrides";
@@ -418,7 +418,7 @@ function getNoAuthCandidates(
     for (const model of registryModels) {
       const modelId = typeof model?.id === "string" && model.id.trim().length > 0 ? model.id : null;
       if (!modelId) continue;
-      if (isModelExcludedByConnection(modelId, providerSpecificData)) continue;
+      if (!isModelAllowedByConnection(modelId, providerSpecificData)) continue;
       if (hiddenModels?.has(modelId)) continue;
       candidates.push({
         provider: providerId,
@@ -681,7 +681,7 @@ export async function prepareVirtualAutoComboInputs(
 
       const allowedConnectionIds = providerConnections
         .filter((conn) => {
-          if (isModelExcludedByConnection(modelId, conn.providerSpecificData)) return false;
+          if (!isModelAllowedByConnection(modelId, conn.providerSpecificData)) return false;
           if (hasUserModels) {
             // User-synced models are scoped to the connections that carry them;
             // custom models are provider-wide like registry models.
