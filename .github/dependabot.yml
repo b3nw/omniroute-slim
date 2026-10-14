@@ -58,11 +58,30 @@ updates:
       # on the VPS — so keep auto-bumps frozen (no update-types = ignore every version).
       # Migrate it intentionally, not via dependabot (#4050).
       - dependency-name: "@huggingface/transformers"
+      # vitest 5 deprecates/changes pool: "threads" used in vitest.config.ts and vitest.mcp.config.ts.
+      # Needs deliberate migration review.
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      # size-limit 14 switched to rolldown bundler; check-bundle-size.mjs validates .size-limit.json.
+      - dependency-name: "size-limit"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@size-limit/file"
+        update-types: ["version-update:semver-major"]
+      # mermaid 12 major should not be bundled with catch-all deps updates.
+      - dependency-name: "mermaid"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      docker-actions:
+        patterns:
+          - "docker/*"
+      codeql-actions:
+        patterns:
+          - "github/codeql-action/*"
 
   - package-ecosystem: "docker"
     directory: "/"
