@@ -52,6 +52,10 @@ import { getQuotaScopeLabelForProvider } from "@omniroute/open-sse/services/anti
 import { getCreditsMode } from "@omniroute/open-sse/services/antigravityCredits.ts";
 import { preferAntigravityConnectionsWithStoredProject } from "@omniroute/open-sse/services/antigravityProjectPersistence.ts";
 import {
+  isAntigravityClaude55Entitled,
+  isAntigravityClaude55Model,
+} from "@omniroute/open-sse/services/antigravityClaude55.ts";
+import {
   isAccountUnavailable,
   getUnavailableUntil,
   getEarliestRateLimitedUntil,
@@ -62,6 +66,8 @@ import {
   getModelLockoutInfo,
   lockModel,
   hasPerModelQuota,
+  isAntigravityClaude55EntitlementFailure,
+  recordAntigravityClaude55EntitlementLockout,
   getRuntimeProviderProfile,
   recordModelLockoutFailure,
   retryHintBypassesMaxCooldownMs,
@@ -1499,6 +1505,10 @@ export async function getProviderCredentials(
       connections,
       requestedModel
     );
+    const requestsAntigravityClaude55 =
+      (provider === "antigravity" || provider === "agy") &&
+      !!requestedModel &&
+      isAntigravityClaude55Model(requestedModel);
     // Filter out unavailable accounts and excluded connection
     let availableConnections = connections.filter((c) => {
       if (excludedConnectionIds.has(c.id)) {
@@ -1514,6 +1524,12 @@ export async function getProviderCredentials(
         !isModelAdvertisedByConnection(requestedModel, advertisedModelsByConnection.get(c.id))
       ) {
         connectionFilterStatus.set(c.id, "modelNotAdvertised");
+        return false;
+      }
+      // Claude 5.5 needs a paid Pro/Ultra entitlement; Free/lite accounts answer 404.
+      // Skip them up front (Gemini and older Claude on the same account are unaffected).
+      if (requestsAntigravityClaude55 && !isAntigravityClaude55Entitled(c.providerSpecificData)) {
+        connectionFilterStatus.set(c.id, "claude55NotEntitled");
         return false;
       }
       if (!allowSuppressedConnections) {
@@ -1582,6 +1598,7 @@ export async function getProviderCredentials(
       const modelLocked = status === "modelLocked";
       const modelExcluded = status === "modelExcluded";
       const modelNotAdvertised = status === "modelNotAdvertised";
+      const claude55NotEntitled = status === "claude55NotEntitled";
       if (excluded || rateLimited) {
         log.debug(
           "AUTH",
@@ -1596,6 +1613,11 @@ export async function getProviderCredentials(
         log.debug(
           "AUTH",
           `  → ${c.id?.slice(0, 8)} | synced inventory does not advertise ${requestedModel}`
+        );
+      } else if (claude55NotEntitled) {
+        log.debug(
+          "AUTH",
+          `  → ${c.id?.slice(0, 8)} | not entitled to Claude 5.5 (${requestedModel})`
         );
       } else if (terminalStatus) {
         log.debug(
@@ -2570,6 +2592,7 @@ export async function markAccountUnavailable(
     /** Caller is the combo engine — it records its own model-level lockouts. */
     isCombo?: boolean;
     headers?: Headers | Record<string, string> | null;
+    dispatchedModel?: string | null;
   } = {}
 ) {
   const currentMutex = markMutexes.get(connectionId) || Promise.resolve();
@@ -2852,6 +2875,54 @@ export async function markAccountUnavailable(
         fallbackResult.reason
       );
       return { shouldFallback: true, cooldownMs: connectionCooldownMs };
+    }
+
+    // Claude 5.5 entitlement miss (404/403 on an account without Pro/Ultra): isolate
+    // just this model on this account for 900s and rotate. Runs before the generic
+    // per-model 404 / 403 handling so a 403 is never escalated to a terminal or
+    // connection-wide state and the account keeps serving Gemini / older Claude.
+    // Lock keys are canonicalized, so a bare `claude-opus-5-5` here also locks the
+    // `-medium` tier it dispatches as.
+    if (
+      provider &&
+      model &&
+      isAntigravityClaude55EntitlementFailure(provider, model, status, errorText)
+    ) {
+      const lockout = recordAntigravityClaude55EntitlementLockout(
+        provider,
+        connectionId,
+        model,
+        status,
+        options?.dispatchedModel
+      );
+      // Persist the denial so the account is filtered out of Claude 5.5 candidate pools
+      // up front (surviving restarts and the in-memory lockout expiry) instead of being
+      // retried every 900s. An operator can set `claude55Entitled: true` to override.
+      // Merge into a fresh read: the selection-time row may predate a concurrent write.
+      try {
+        const fresh = await getProviderConnectionById(connectionId);
+        const freshProviderSpecificData =
+          (fresh?.providerSpecificData as Record<string, unknown> | undefined) ||
+          connProviderSpecificData;
+        await updateProviderConnection(connectionId, {
+          providerSpecificData: {
+            ...freshProviderSpecificData,
+            claude55Entitled: false,
+            claude55EntitlementDeniedAt: new Date().toISOString(),
+          },
+          lastErrorType: "model_entitlement",
+          lastError: `Model ${model} not entitled on this account (${status})`,
+          lastErrorAt: new Date().toISOString(),
+          errorCode: status,
+        });
+      } catch {
+        // Best effort — the in-memory lockout above still rotates this request.
+      }
+      log.info(
+        "AUTH",
+        `Model-only entitlement lockout for ${provider}:${model} — ${status} ${Math.ceil(lockout.cooldownMs / 1000)}s (connection stays active)`
+      );
+      return { shouldFallback: true, cooldownMs: lockout.cooldownMs };
     }
 
     const isNvidiaModelGone = provider === "nvidia" && status === 410;

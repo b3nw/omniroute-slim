@@ -1,3 +1,5 @@
+import { isAntigravityClaude55Model } from "./antigravityClaude55.ts";
+
 export type AntigravityQuotaFamily = "gemini" | "claude" | "other";
 
 function normalizeModelId(model: string | null | undefined): string {
@@ -50,6 +52,10 @@ export function getQuotaScopedModelForProvider(
 ): string | null {
   if (!model) return null;
   if (provider !== "antigravity" && provider !== "agy") return model;
+  // Claude 5.5 is entitlement-gated per account and tier: a lock on it (404/403
+  // entitlement, model_not_found, quota) must never spill onto family:claude and
+  // take down the account's Claude 4.x models.
+  if (isAntigravityClaude55Model(model)) return model;
   const family = getAntigravityQuotaFamily(model);
   return family === "other" ? model : `family:${family}`;
 }
@@ -59,5 +65,6 @@ export function getQuotaScopeLabelForProvider(
   model: string | null | undefined
 ): string {
   if (provider !== "antigravity" && provider !== "agy") return "model";
+  if (isAntigravityClaude55Model(model)) return "model";
   return getAntigravityQuotaFamily(model) === "other" ? "model" : "family";
 }

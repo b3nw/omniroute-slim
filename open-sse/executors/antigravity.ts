@@ -45,6 +45,22 @@ import {
 } from "../services/cloudCodeThinking.ts";
 import { buildGeminiTools } from "../translator/helpers/geminiToolsSanitizer.ts";
 import {
+  buildClaude55ThinkingConfig,
+  collectSignedFunctionCallIds,
+  getClaude55TierFromModel,
+  guardClaude55Contents,
+  guardClaude55ThinkingParts,
+  isAntigravityClaude55Model,
+  isClaude55Signature,
+  isThinkingSignature400,
+  resolveClaude55DispatchTier,
+  toClaude55TieredModelId,
+} from "../services/antigravityClaude55.ts";
+import {
+  buildGeminiThoughtSignatureKey,
+  deleteGeminiThoughtSignature,
+} from "../services/geminiThoughtSignatureStore.ts";
+import {
   type AntigravityCollectedStream,
   processAntigravitySSEText,
   flushAntigravitySSEText,
@@ -304,6 +320,42 @@ async function cleanModelName(model: string, modelIdOverride?: string): Promise<
   return clean;
 }
 
+/**
+ * #3587/#3593 — strip every thinking signature from an in-flight Cloud Code body after
+ * the upstream rejected it: thought parts become `<think>` text, non-functionCall
+ * signatures are removed, functionCall signatures fall back to the bypass sentinel, and
+ * every cached signature that produced them — Claude 5.5 `CAQS…` included, since upstream
+ * just rejected it — is purged so the next turn does not re-attach them. Returns a new
+ * body; the input is not mutated.
+ */
+export function sanitizeThinkingSignatures(
+  transformedBody: Record<string, unknown>,
+  credentials?: AntigravityCredentials | null
+): Record<string, unknown> {
+  const request = asRecord(transformedBody.request);
+  if (!request || !Array.isArray(request.contents)) return transformedBody;
+
+  const credsRecord = credentials as Record<string, unknown> | null | undefined;
+  const namespace =
+    (typeof credsRecord?._signatureNamespace === "string" && credsRecord._signatureNamespace) ||
+    (typeof credsRecord?.connectionId === "string" && credsRecord.connectionId) ||
+    undefined;
+  for (const id of collectSignedFunctionCallIds(request.contents)) {
+    deleteGeminiThoughtSignature(buildGeminiThoughtSignatureKey(namespace, id));
+    deleteGeminiThoughtSignature(id);
+  }
+
+  return {
+    ...transformedBody,
+    request: {
+      ...request,
+      contents: guardClaude55Contents(request.contents as Array<{ parts?: unknown }>, {
+        forceDowngrade: true,
+      }),
+    },
+  };
+}
+
 function applyAntigravityGenerationDefaults(
   request: Record<string, unknown>,
   modelId?: string | null
@@ -524,6 +576,8 @@ type AntigravityAttemptContext = {
   accountId: string;
   creditsMode: ReturnType<typeof getCreditsMode>;
   creditsRetryState: AntigravityCreditsRetryState;
+  /** #3587: the in-place thinking-signature 400 retry fires at most once per execute. */
+  signatureRetryState?: { attempted: boolean };
   urlIndex: number;
   retryAttemptsByUrl: Record<number, number>;
   fallbackCount: number;
@@ -718,8 +772,18 @@ export class AntigravityExecutor extends BaseExecutor {
       return resp as unknown as never;
     }
 
-    const upstreamModel = await cleanModelName(model, modelIdOverride);
+    let upstreamModel = await cleanModelName(model, modelIdOverride);
     const isClaude = upstreamModel.toLowerCase().includes("claude");
+    // Claude 5.5 only accepts tiered upstream ids, and its thinkingLevel must agree with
+    // the tier. An explicit tier in the requested id wins; a bare id (aliased to -medium)
+    // takes the tier the translator already chose (thinkingLevel) or reasoning_effort.
+    const isClaude55 = isAntigravityClaude55Model(upstreamModel);
+    if (isClaude55) {
+      upstreamModel = toClaude55TieredModelId(
+        upstreamModel,
+        resolveClaude55DispatchTier(model, bodyRecord, upstreamModel)
+      );
+    }
     // #10104: newer Gemini endpoints reject a request ending on a `model` turn with
     // HTTP 400 "Requests ending with a model turn are not supported" — the same
     // rejection surface Claude hits via Vertex (see stripTrailingAntigravityAssistantTurn's
@@ -749,10 +813,21 @@ export class AntigravityExecutor extends BaseExecutor {
 
         const hasFunctionCall = c.parts?.some((p) => p.functionCall) || false;
 
+        // #3587 outbound guard: for Claude 5.5, signed thinking is replayed natively and
+        // unsigned/foreign-signed thinking is downgraded to `<think>` text, instead of the
+        // generic path below dropping every thought part.
+        const candidateParts =
+          isClaude55 && Array.isArray(c.parts)
+            ? (guardClaude55ThinkingParts(c.parts) as NonNullable<AntigravityChunkContent["parts"]>)
+            : c.parts;
+
         const parts =
-          c.parts?.filter((p) => {
+          candidateParts?.filter((p) => {
             if (typeof p.text === "string" && p.text === "") return false;
             if (p.functionCall && !p.functionCall.name) return false;
+            if (isClaude55 && p.thought === true && isClaude55Signature(p.thoughtSignature)) {
+              return true;
+            }
 
             // Only strip if it's NOT our bypass sentinel.
             // Antigravity models (like Gemini) need this sentinel to bypass 400 errors.
@@ -801,6 +876,19 @@ export class AntigravityExecutor extends BaseExecutor {
       : isGemini
         ? stripTrailingAntigravityAssistantTurn(rawTransformedRequest)
         : rawTransformedRequest;
+
+    if (isClaude55) {
+      // Claude 5.5 is steered only by thinkingLevel; drop any thinkingBudget a native
+      // Gemini-format client may have sent.
+      const claude55Request = transformedRequest as Record<string, unknown>;
+      const generationConfig = asRecord(claude55Request.generationConfig) ?? {};
+      claude55Request.generationConfig = {
+        ...generationConfig,
+        thinkingConfig: buildClaude55ThinkingConfig(
+          getClaude55TierFromModel(upstreamModel) ?? "medium"
+        ),
+      };
+    }
 
     applyAntigravityGenerationDefaults(transformedRequest, upstreamModel);
 
@@ -1266,6 +1354,7 @@ export class AntigravityExecutor extends BaseExecutor {
     const creditsMode = getCreditsMode();
     const useCreditsFirst = shouldUseCreditsFirst(credentials?.accessToken || "", creditsMode);
     const creditsRetryState: AntigravityCreditsRetryState = { attempted: false };
+    const signatureRetryState = { attempted: false };
 
     for (let urlIndex = 0; urlIndex < fallbackCount; urlIndex++) {
       const url = this.buildUrl(model, upstreamStream, urlIndex);
@@ -1284,7 +1373,13 @@ export class AntigravityExecutor extends BaseExecutor {
         return { response: transformed, url, headers, transformedBody: body };
       }
 
-      const transformedBody = finalizeAntigravityRequestBody(transformed, useCreditsFirst, l);
+      const finalizedBody = finalizeAntigravityRequestBody(transformed, useCreditsFirst, l);
+      // Each attempt is rebuilt from the original `body`. Once the signature circuit
+      // breaker has fired, re-sanitize so a same-URL backoff or the fallback host does
+      // not revive the rejected signatures (the breaker will not fire a second time).
+      const transformedBody = signatureRetryState.attempted
+        ? sanitizeThinkingSignatures(finalizedBody, credentials)
+        : finalizedBody;
 
       // Initialize retry counter for this URL
       if (!retryAttemptsByUrl[urlIndex]) {
@@ -1304,6 +1399,7 @@ export class AntigravityExecutor extends BaseExecutor {
           accountId,
           creditsMode,
           creditsRetryState,
+          signatureRetryState,
           urlIndex,
           retryAttemptsByUrl,
           fallbackCount,
@@ -1347,7 +1443,6 @@ export class AntigravityExecutor extends BaseExecutor {
       url,
       model,
       headers,
-      transformedBody,
       credentials,
       stream,
       signal,
@@ -1357,8 +1452,9 @@ export class AntigravityExecutor extends BaseExecutor {
       retryAttemptsByUrl,
       fallbackCount,
     } = ctx;
+    let { transformedBody } = ctx;
 
-    const { response, finalHeaders } = await sendAntigravityRequest(
+    let { response, finalHeaders } = await sendAntigravityRequest(
       this.provider,
       url,
       model,
@@ -1370,6 +1466,28 @@ export class AntigravityExecutor extends BaseExecutor {
       log,
       retryAttemptsByUrl[urlIndex]
     );
+
+    // #3587/#3593 circuit breaker: a Claude 400 "thinking.signature: Field required"
+    // means history carried a thinking block the upstream cannot verify. Purge the
+    // poisoned signatures, downgrade all thinking to `<think>` text and retry ONCE,
+    // in place, on the same account and URL.
+    const signatureRetry = await this.retryAfterThinkingSignature400(
+      ctx,
+      response,
+      transformedBody
+    );
+    if (signatureRetry) {
+      ({ response, finalHeaders } = signatureRetry.sent);
+      transformedBody = signatureRetry.transformedBody;
+      ctx.transformedBody = transformedBody;
+    }
+
+    // Claude 5.5 404/403 = missing Pro/Ultra entitlement on THIS account. The other
+    // Cloud Code host serves the same entitlement, so skip URL fallback and surface it
+    // immediately; the account layer applies a model-scoped cooldown and rotates.
+    const isClaude55EntitlementMiss =
+      (response.status === HTTP_STATUS.NOT_FOUND || response.status === HTTP_STATUS.FORBIDDEN) &&
+      isAntigravityClaude55Model(transformedBody.model);
 
     let retryMs: number | null = null;
 
@@ -1395,7 +1513,7 @@ export class AntigravityExecutor extends BaseExecutor {
       retryMs = rateLimitOutcome.retryMs;
     }
 
-    if (this.shouldRetry(response.status, urlIndex)) {
+    if (!isClaude55EntitlementMiss && this.shouldRetry(response.status, urlIndex)) {
       log.debug("RETRY", `${response.status} on ${url}, trying fallback ${urlIndex + 1}`);
       return { action: "retry", sameUrl: false, lastStatus: response.status };
     }
@@ -1423,6 +1541,55 @@ export class AntigravityExecutor extends BaseExecutor {
       log
     );
     return { action: "return", result };
+  }
+
+  /**
+   * If `response` is a Claude thinking-signature 400, sanitize the in-flight body and
+   * resend it once. Returns null when the response is not that error (body untouched).
+   */
+  private async retryAfterThinkingSignature400(
+    ctx: AntigravityAttemptContext,
+    response: Response,
+    transformedBody: Record<string, unknown>
+  ): Promise<{
+    sent: { response: Response; finalHeaders: Record<string, string> };
+    transformedBody: Record<string, unknown>;
+  } | null> {
+    if (response.status !== HTTP_STATUS.BAD_REQUEST) return null;
+    if (ctx.signatureRetryState?.attempted) return null;
+    if (
+      !String(transformedBody.model ?? "")
+        .toLowerCase()
+        .includes("claude")
+    )
+      return null;
+    let errorText = "";
+    try {
+      errorText = await response.clone().text();
+    } catch {
+      return null;
+    }
+    if (!isThinkingSignature400(response.status, errorText)) return null;
+    if (ctx.signatureRetryState) ctx.signatureRetryState.attempted = true;
+
+    const sanitizedBody = sanitizeThinkingSignatures(transformedBody, ctx.credentials);
+    ctx.log.warn(
+      "AG_SIGNATURE",
+      `[Antigravity] 400 thinking.signature on ${String(transformedBody.model)} — downgraded thinking to text, retrying in place`
+    );
+    const sent = await sendAntigravityRequest(
+      this.provider,
+      ctx.url,
+      ctx.model,
+      ctx.headers,
+      sanitizedBody,
+      ctx.credentials,
+      ctx.stream,
+      ctx.signal,
+      ctx.log,
+      ctx.retryAttemptsByUrl[ctx.urlIndex]
+    );
+    return { sent, transformedBody: sanitizedBody };
   }
 
   /**

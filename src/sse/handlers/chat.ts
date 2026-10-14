@@ -23,6 +23,7 @@ import {
   lockModel,
   recordModelLockoutFailure,
   isDailyQuotaExhausted,
+  isAntigravityClaude55EntitlementFailure,
 } from "@omniroute/open-sse/services/accountFallback.ts";
 import { getCombo, getComboForModel, getModelInfo } from "../services/model";
 import { stripContextWindowSuffix } from "@omniroute/open-sse/services/model.ts";
@@ -2321,7 +2322,18 @@ async function handleSingleModelChat(
       // to the next target — with ITS own pin. Same rule the antigravity
       // stream-readiness / pre-response-timeout and account-semaphore paths above
       // already apply.
-      if (shouldFallback && !hasForcedConnection) {
+      //
+      // Exception: a Claude 5.5 entitlement denial (404/403 on a Free/lite account) means
+      // the pinned account can never serve this model, so honoring the pin only surfaces a
+      // 404. Rotate in-flight instead (the excluded id drops the forced pin on the next
+      // selection, and the affinity pin is evicted below).
+      const isClaude55EntitlementDenial = isAntigravityClaude55EntitlementFailure(
+        provider,
+        model,
+        result.status,
+        errorStr
+      );
+      if (shouldFallback && (!hasForcedConnection || isClaude55EntitlementDenial)) {
         if (Number.isFinite(cooldownMs) && cooldownMs > 0) {
           lastCooldownMs = cooldownMs;
           requestRetryLastCooldownMs = cooldownMs;

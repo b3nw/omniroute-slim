@@ -41,6 +41,10 @@ import {
   isAccountUnavailable,
   isModelLocked,
 } from "@omniroute/open-sse/services/accountFallback.ts";
+import {
+  isAntigravityClaude55Entitled,
+  isAntigravityClaude55Model,
+} from "@omniroute/open-sse/services/antigravityClaude55.ts";
 import { isComboPerModelTimeoutAbort } from "@omniroute/open-sse/services/combo/comboAbortReasons.ts";
 import * as log from "../utils/logger";
 import { readHeaderValue } from "./headerReader.ts";
@@ -494,6 +498,15 @@ function isConnectionEligibleForAffinityPin(
   if (
     requestedModel &&
     isModelExcludedByConnection(requestedModel, connection.providerSpecificData)
+  ) {
+    return false;
+  }
+  // A session that started on Gemini must not pin a Free/lite account for a Claude 5.5 turn.
+  if (
+    (provider === "antigravity" || provider === "agy") &&
+    requestedModel &&
+    isAntigravityClaude55Model(requestedModel) &&
+    !isAntigravityClaude55Entitled(connection.providerSpecificData)
   ) {
     return false;
   }
