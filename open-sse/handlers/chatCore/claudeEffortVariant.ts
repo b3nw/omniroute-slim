@@ -14,6 +14,7 @@
 
 import { splitClaudeEffortSuffix } from "../../config/providerModels.ts";
 import { isClaudeCodeCompatibleProvider } from "../../services/claudeCodeCompatible.ts";
+import { isAntigravityClaude55Model } from "../../services/antigravityClaude55.ts";
 import { FORMATS } from "../../translator/formats.ts";
 import { isKnownClaudeEffortBaseModel } from "../../utils/claudeEffortVariants.ts";
 
@@ -42,6 +43,13 @@ export function applyClaudeEffortVariant(opts: {
   let log: string | null = null;
 
   if (typeof effectiveModel === "string") {
+    const canonicalProvider = (provider || "").toLowerCase();
+    const isAntigravityProvider =
+      canonicalProvider === "antigravity" || canonicalProvider === "agy";
+    if (isAntigravityProvider && isAntigravityClaude55Model(effectiveModel)) {
+      return { effectiveModel, log: null };
+    }
+
     const { baseModel, effort } = splitClaudeEffortSuffix(effectiveModel);
     const isDirectClaudeLane = provider === "claude" || isClaudeCodeCompatibleProvider(provider);
     if (effort && (isDirectClaudeLane || isKnownClaudeEffortBaseModel(baseModel))) {

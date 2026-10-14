@@ -352,6 +352,7 @@ export function classifyProviderError(
     const p = (provider || "").toLowerCase();
     const isCloudCodeProvider =
       p === "antigravity" ||
+      p === "agy" ||
       p === "gemini-cli" ||
       p === "gemini_cli" ||
       p === "gcli" ||

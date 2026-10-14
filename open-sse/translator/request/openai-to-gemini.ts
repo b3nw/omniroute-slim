@@ -17,6 +17,16 @@ import {
   getDefaultThinkingBudget,
 } from "../../../src/lib/modelCapabilities.ts";
 import { getModelSpec } from "../../../src/shared/constants/modelSpecs.ts";
+import {
+  ANTIGRAVITY_CLAUDE_55_MAX_OUTPUT_TOKENS,
+  buildClaude55ThinkingConfig,
+  extractAssistantReasoningSignature,
+  isAntigravityClaude55Model,
+  isClaude55Signature,
+  resolveClaude55Tier,
+  toClaude55TieredModelId,
+  wrapUnsignedThinkingAsText,
+} from "../../services/antigravityClaude55.ts";
 
 import {
   DEFAULT_SAFETY_SETTINGS,
@@ -422,10 +432,23 @@ function openaiToGeminiBase(
 
         // Thinking/reasoning → thought part with signature
         if (msg.reasoning_content) {
-          parts.push({
-            thought: true,
-            text: msg.reasoning_content,
-          });
+          if (isAntigravityClaude55Model(model)) {
+            // #3587 outbound guard: Claude 5.5 forwards a `thought: true` part as an
+            // Anthropic `thinking` block, which upstream rejects with 400
+            // `thinking.signature: Field required` unless it carries a valid Claude 5.5
+            // signature. Unsigned reasoning is downgraded to plain `<think>` text.
+            const signature = extractAssistantReasoningSignature(msg);
+            parts.push(
+              isClaude55Signature(signature)
+                ? { thought: true, text: msg.reasoning_content, thoughtSignature: signature }
+                : { text: wrapUnsignedThinkingAsText(String(msg.reasoning_content)) }
+            );
+          } else {
+            parts.push({
+              thought: true,
+              text: msg.reasoning_content,
+            });
+          }
         }
 
         if (content) {
@@ -855,12 +878,20 @@ function wrapInCloudCodeEnvelope(model, cloudCodeRequest, credentials = null) {
   return envelope;
 }
 
-function getAntigravityClaudeOutputTokens(body: Record<string, unknown>): number {
+export function getAntigravityClaudeOutputTokens(
+  body: Record<string, unknown>,
+  model?: string | null
+): number {
+  // Claude 5.5 publishes a 128k output ceiling; the 16K wrapper cap applies only to the
+  // older Claude generations it was observed on.
+  const cap = isAntigravityClaude55Model(model)
+    ? ANTIGRAVITY_CLAUDE_55_MAX_OUTPUT_TOKENS
+    : ANTIGRAVITY_CLAUDE_MAX_OUTPUT_TOKENS;
   const requested = body.max_tokens ?? body.max_completion_tokens;
   if (typeof requested === "number" && Number.isFinite(requested) && requested >= 1) {
-    return Math.min(Math.floor(requested), ANTIGRAVITY_CLAUDE_MAX_OUTPUT_TOKENS);
+    return Math.min(Math.floor(requested), cap);
   }
-  return ANTIGRAVITY_CLAUDE_MAX_OUTPUT_TOKENS;
+  return cap;
 }
 
 // OpenAI -> Antigravity (Sandbox Cloud Code with wrapper)
@@ -887,11 +918,25 @@ export function openaiToAntigravityRequest(model, body, stream, credentials = nu
     signaturelessToolCallMode: isThinkingGemini ? "context" : "native",
   });
 
+  const isClaude55 = isAntigravityClaude55Model(model);
   if (isClaude) {
-    cloudCodeRequest.generationConfig.maxOutputTokens = getAntigravityClaudeOutputTokens(body);
+    cloudCodeRequest.generationConfig.maxOutputTokens = getAntigravityClaudeOutputTokens(
+      body,
+      model
+    );
+  }
+  // Claude 5.5 is steered by thinkingLevel (1/2/3), never thinkingBudget. An explicit
+  // tier suffix wins; a bare id takes its tier from reasoning_effort (default medium).
+  const claude55Tier = isClaude55 ? resolveClaude55Tier(model, body.reasoning_effort) : null;
+  if (claude55Tier) {
+    cloudCodeRequest.generationConfig.thinkingConfig = buildClaude55ThinkingConfig(claude55Tier);
   }
 
-  const envelope = wrapInCloudCodeEnvelope(model, cloudCodeRequest, credentials);
+  const envelope = wrapInCloudCodeEnvelope(
+    claude55Tier ? toClaude55TieredModelId(model, claude55Tier) : model,
+    cloudCodeRequest,
+    credentials
+  );
 
   // Match real Antigravity client: don't send maxOutputTokens when the user
   // hasn't explicitly specified max_tokens / max_completion_tokens.
@@ -916,7 +961,8 @@ export function openaiToAntigravityRequest(model, body, stream, credentials = nu
   // maxOutputTokens to thinkingBudget+1 before we get here, so the budget is preserved.
   // Must run AFTER the hasThinking-derived maxOutputTokens decision above so the
   // budget is accounted for before the field is removed.
-  if (isClaude && envelope.request?.generationConfig) {
+  // Claude 5.5 is the exception: its thinkingLevel config is required upstream.
+  if (isClaude && !isClaude55 && envelope.request?.generationConfig) {
     delete envelope.request.generationConfig.thinkingConfig;
   }
 
