@@ -39,36 +39,28 @@ import {
   resolveCodexAccount,
   type CodexPersistedQuotaState,
 } from "@omniroute/open-sse/services/codexAccount/index.ts";
-import { getAntigravityQuotaFamily } from "@omniroute/open-sse/services/antigravityQuotaFamily.ts";
+import { isClaudeExtraUsageAllowed } from "@/lib/providers/claudeExtraUsage";
+import { selectAntigravityQuotaWindowNames } from "@omniroute/open-sse/services/antigravityQuotaFamily.ts";
 import {
   getGeminiCliQuotaTier,
   getGeminiCliTierForQuotaKey,
   isGeminiCliProvider,
 } from "@omniroute/open-sse/services/geminiCliQuotaTier.ts";
+import { resolveQuotaHealthyScope } from "@omniroute/open-sse/services/quotaHealthyScope.ts";
+
+import {
+  EXHAUSTED_MAX_PARK_MS,
+  getQuotaCacheState as getState,
+  type QuotaCacheEntry,
+  type QuotaInfo,
+  unmarkQuotaHealthy,
+  isQuotaHealthy,
+} from "./quotaCacheState";
+
+// #14359 — re-exported so existing callers (chat.ts, tests) keep importing from here.
+export { markQuotaHealthy } from "./quotaCacheState";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
-
-interface QuotaInfo {
-  remainingPercentage: number;
-  resetAt: string | null;
-  // #10095 — upstream explicitly told us it did NOT report this window's
-  // fraction (e.g. a fresh Antigravity account or a newly-launched
-  // -tiered model id Google hasn't wired quota telemetry for yet).
-  // `undefined`/`true` means the value is a real, upstream-reported
-  // percentage; `false` means "unknown", so callers must not treat the
-  // defaulted-to-0 `remainingPercentage` as genuine exhaustion.
-  fractionReported?: boolean;
-}
-
-interface QuotaCacheEntry {
-  connectionId: string;
-  provider: string;
-  quotas: Record<string, QuotaInfo>;
-  fetchedAt: number;
-  exhausted: boolean;
-  nextResetAt: string | null;
-  windowDurationMs?: number | null; // T08: optional rolling window duration
-}
 
 interface QuotaWindowStatus {
   remainingPercentage: number;
@@ -93,40 +85,36 @@ export const DEFAULT_QUOTA_THRESHOLD_PERCENT = 99;
 
 // ─── State ──────────────────────────────────────────────────────────────────
 //
-// #8065 — Next.js `output: "standalone"` builds can load this module from
-// independent webpack chunks (e.g. the instrumentation-hook-started
-// `providerLimitsSyncScheduler` write path vs an API-route/SSE-handler read
-// path such as `auth.ts::evaluateQuotaLimitPolicy()`) — each gets its OWN
-// top-level module state, so a bare module-scope `Map` silently splits the
-// cache in two. Anchor all mutable state on `globalThis` so every chunk
-// shares one instance. Mirrors the identical fix already applied for
-// `src/lib/pricingSync.ts` (commit de9d748dac, #6325) and the same pattern in
-// `src/lib/credentialHealth/cache.ts`.
-
-interface QuotaCacheState {
-  cache: Map<string, QuotaCacheEntry>;
-  refreshingSet: Set<string>;
-  refreshTimer: ReturnType<typeof setInterval> | null;
-  tickRunning: boolean;
-}
-
-declare global {
-  var __omnirouteQuotaCacheState: QuotaCacheState | undefined;
-}
-
-function getState(): QuotaCacheState {
-  if (!globalThis.__omnirouteQuotaCacheState) {
-    globalThis.__omnirouteQuotaCacheState = {
-      cache: new Map(),
-      refreshingSet: new Set(),
-      refreshTimer: null,
-      tickRunning: false,
-    };
-  }
-  return globalThis.__omnirouteQuotaCacheState;
-}
+// Shared `globalThis` state (#8065) and the #14359 healthy override live in the
+// dependency-free leaf `./quotaCacheState` so `open-sse/services/quotaPreflight.ts`
+// can read the override without importing this module (see the import note there).
 
 const MAX_CONCURRENT_REFRESHES = 5;
+
+// ─── #14359 park window ─────────────────────────────────────────────────────
+
+// #14359 — cap the park deadline at `anchorMs + EXHAUSTED_MAX_PARK_MS`; unparseable passes through (fixed EXHAUSTED_TTL applies).
+function capParkWindow(resetAt: string | null, anchorMs: number): string | null {
+  if (!resetAt) return resetAt;
+  const ms = parseDate(resetAt);
+  if (ms === null) return resetAt;
+  if (ms > anchorMs + EXHAUSTED_MAX_PARK_MS) {
+    return new Date(anchorMs + EXHAUSTED_MAX_PARK_MS).toISOString();
+  }
+  return resetAt;
+}
+
+// #14359 — keep the prior deadline while the exhausted streak continues, so the quota monitor's rewrites cannot re-anchor the park.
+function preserveParkDeadline(
+  resetAt: string | null,
+  prior: QuotaCacheEntry | null | undefined
+): string | null {
+  if (prior?.exhausted && prior.nextResetAt) {
+    const priorMs = parseDate(prior.nextResetAt);
+    if (priorMs !== null && priorMs > Date.now()) return prior.nextResetAt;
+  }
+  return capParkWindow(resetAt, Date.now());
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -279,41 +267,7 @@ function resolveAntigravityQuotaWindowsForModel(
   quotaNames: string[],
   requestedModel: string
 ): string[] {
-  const requestedFamily = getAntigravityQuotaFamily(requestedModel);
-  const cleanRequestedModel = requestedModel.replace(/^(antigravity|agy)\//, "");
-  const bareModel = cleanRequestedModel.includes("/")
-    ? cleanRequestedModel.slice(cleanRequestedModel.lastIndexOf("/") + 1)
-    : cleanRequestedModel;
-
-  if (requestedFamily === "other") {
-    return quotaNames.filter((windowName) => {
-      const bare = windowName.replace(/^(antigravity|agy)\//, "");
-      return bare === bareModel || bare === cleanRequestedModel;
-    });
-  }
-
-  const familyAggregates =
-    requestedFamily === "gemini"
-      ? ["gemini_5h", "gemini_weekly"]
-      : requestedFamily === "claude"
-        ? ["claude_gpt_5h", "claude_gpt_weekly", "claude_5h", "claude_weekly"]
-        : [];
-
-  const exactWindows = quotaNames.filter((windowName) => {
-    const bare = windowName.replace(/^(antigravity|agy)\//, "");
-    return bare === bareModel;
-  });
-  const aggregateWindows = familyAggregates.filter((key) => quotaNames.includes(key));
-  const scoped = [...exactWindows, ...aggregateWindows];
-  if (scoped.length > 0) return scoped;
-
-  // For Claude family, all models share the single aggregate quota pool if mapped under Claude model names.
-  // For Gemini family, individual models have separate buckets and MUST NOT fall back to unrelated sibling models.
-  if (requestedFamily === "claude") {
-    return quotaNames.filter((windowName) => getAntigravityQuotaFamily(windowName) === "claude");
-  }
-
-  return [];
+  return selectAntigravityQuotaWindowNames(quotaNames, requestedModel);
 }
 
 function isAntigravityQuotaExhausted(
@@ -492,7 +446,7 @@ export function hydrateCodexQuotaCacheForRequest(
     }
   }
   entry.exhausted = isExhausted(entry.quotas);
-  if (exhaustedResetAt) entry.nextResetAt = exhaustedResetAt;
+  if (exhaustedResetAt) entry.nextResetAt = capParkWindow(exhaustedResetAt, Date.now());
   cache.set(connection.id, entry);
 }
 
@@ -526,8 +480,16 @@ function isStandardQuotaExhausted(entry: QuotaCacheEntry, now: number): boolean 
 export function isQuotaExhaustedForRequest(
   connectionId: string,
   provider: string,
-  requestedModel: string | null = null
+  requestedModel: string | null = null,
+  providerSpecificData?: unknown
 ): boolean {
+  // #14359 — a recent successful dispatch stands the predicates down for a park
+  // window, but only for the quota bucket that success actually drew from.
+  if (isQuotaHealthy(connectionId, resolveQuotaHealthyScope(provider, requestedModel))) {
+    return false;
+  }
+  // #12803 — operator-enabled Claude extra usage is billed past the 5h window; never skip it here.
+  if (isClaudeExtraUsageAllowed(provider, providerSpecificData)) return false;
   const entry = getState().cache.get(connectionId) || hydrateQuotaCacheFromSnapshots(connectionId);
   if (!entry) return false;
 
@@ -576,7 +538,8 @@ export function setQuotaCache(
     quotas,
     fetchedAt: Date.now(),
     exhausted,
-    nextResetAt: exhausted ? earliestResetAt(quotas) : null,
+    // #14359 — cap the park; keep the prior deadline while the streak continues (monitor rewrites must not extend it).
+    nextResetAt: exhausted ? preserveParkDeadline(earliestResetAt(quotas), prior) : null,
   };
   getState().cache.set(connectionId, entry);
 
@@ -687,7 +650,8 @@ function hydrateQuotaCacheFromSnapshots(connectionId: string): QuotaCacheEntry |
     quotas,
     fetchedAt: fetchedAt || Date.now(),
     exhausted,
-    nextResetAt: exhausted ? earliestResetAt(quotas) : null,
+    // #14359 — cap the hydrated park relative to the snapshot's observation time.
+    nextResetAt: exhausted ? capParkWindow(earliestResetAt(quotas), fetchedAt || Date.now()) : null,
     windowDurationMs,
   };
   cache.set(connectionId, entry);
@@ -699,6 +663,8 @@ function hydrateQuotaCacheFromSnapshots(connectionId: string): QuotaCacheEntry |
  * Returns false if no cache entry exists (unknown = assume available).
  */
 export function isAccountQuotaExhausted(connectionId: string): boolean {
+  // #14359 — mirror of the request-time predicate: honour the healthy override.
+  if (isQuotaHealthy(connectionId)) return false;
   const entry = getState().cache.get(connectionId) || hydrateQuotaCacheFromSnapshots(connectionId);
   if (!entry) return false;
   if (!entry.exhausted) return false;
@@ -795,6 +761,8 @@ export function getQuotaWindowObservation(
  * Uses 5-minute fixed TTL since we don't know the actual resetAt.
  */
 export function markAccountExhaustedFrom429(connectionId: string, provider: string) {
+  // #14359 — a real upstream 429 is authoritative: drop any healthy override.
+  unmarkQuotaHealthy(connectionId);
   getState().cache.set(connectionId, {
     connectionId,
     provider,

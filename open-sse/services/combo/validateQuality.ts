@@ -15,6 +15,8 @@ import {
 import { evaluateResponseValidation, type ResponseValidationConfig } from "./responseValidation.ts";
 import { getReasoningTokens } from "../../../src/lib/usage/tokenAccounting.ts";
 import type { ComboRetryAfter } from "./types.ts";
+import { sanitizeErrorMessage } from "../../utils/error.ts";
+import { normalizeStreamFailurePayload } from "../../utils/streamErrorFormat.ts";
 
 export function toRetryAfterDisplayValue(value: ComboRetryAfter): string | Date {
   if (typeof value !== "number") return value;
@@ -236,12 +238,64 @@ function parseJsonRecord(data: string): Record<string, unknown> | null {
   }
 }
 
+/** #14585: structured classification of an in-stream upstream error. */
+export interface StreamingUpstreamFailure {
+  status: number;
+  type?: string;
+  code?: string;
+  message?: string;
+  requestScoped: boolean;
+  retryable: boolean;
+}
+
+export interface ResponseQualityResult {
+  valid: boolean;
+  reason?: string;
+  clonedResponse?: Response;
+  upstreamFailure?: StreamingUpstreamFailure;
+}
+
+// Slim hardening (same rule as comboPredicates.isRequestScopedUpstreamFailure): a
+// dead key / empty balance reported as invalid_request_error is an account fault.
+const ACCOUNT_SCOPED_STREAM_CODES = new Set(["invalid_api_key", "insufficient_quota"]);
+const ACCOUNT_SCOPED_STREAM_STATUSES = new Set([401, 403, 429]);
+
+function classifyStreamingUpstreamFailure(parsed: unknown): StreamingUpstreamFailure | null {
+  const normalized = normalizeStreamFailurePayload(parsed);
+  if (!normalized) return null;
+  const type = normalized.type?.trim().toLowerCase() || "";
+  const code = normalized.code?.trim().toLowerCase() || "";
+  const requestScoped =
+    ((type === "invalid_request_error" || code === "invalid_request_error") &&
+      !ACCOUNT_SCOPED_STREAM_CODES.has(code) &&
+      !ACCOUNT_SCOPED_STREAM_STATUSES.has(normalized.status)) ||
+    code === "context_length_exceeded" ||
+    code === "context_window_exceeded";
+  const message = sanitizeErrorMessage(normalized.message).slice(0, 300);
+  return {
+    status: normalized.status,
+    ...(type ? { type } : {}),
+    ...(code ? { code } : {}),
+    ...(message ? { message } : {}),
+    requestScoped,
+    retryable: !requestScoped && normalized.status >= 500,
+  };
+}
+
+function describeStreamingFailure(failure: StreamingUpstreamFailure | null): string {
+  if (!failure) return "streaming upstream error";
+  const identity = failure.type || failure.code || `HTTP ${failure.status}`;
+  return failure.message
+    ? `streaming upstream error: ${identity}: ${failure.message}`
+    : `streaming upstream error: ${identity}`;
+}
+
 export async function validateResponseQuality(
   response: Response,
   isStreaming: boolean,
   log: { warn?: (...args: unknown[]) => void },
   responseValidation?: ResponseValidationConfig | null
-): Promise<{ valid: boolean; reason?: string; clonedResponse?: Response }> {
+): Promise<ResponseQualityResult> {
   // Issue #3685: For Claude SSE streaming responses, use a BOUNDED PEEK to
   // detect the empty-content-block pattern (content_filter stop_reason with
   // no content_block_* events) WITHOUT de-streaming non-empty responses.
@@ -291,6 +345,7 @@ export async function validateResponseQuality(
       hasLifecycleEnd: false,
     };
     let anyContentFound = false;
+    let upstreamFailure: StreamingUpstreamFailure | null = null;
     // #7285: OpenAI-shape lifecycle tracking, parallel to `sse` above.
     const openAi: OpenAiLifecycleFlags = { hasChoicePayload: false, hasTerminalMarker: false };
     // User log 1784230812441-bf3789: the previous `!sawAnyBytes` gate below let
@@ -387,6 +442,7 @@ export async function validateResponseQuality(
         pendingEventType = "";
 
         if (isStreamingUpstreamError(parsed, eventType)) {
+          upstreamFailure = classifyStreamingUpstreamFailure(parsed) ?? upstreamFailure;
           return "error";
         }
 
@@ -455,11 +511,12 @@ export async function validateResponseQuality(
           const terminalOutcome = parseAccumulatedSse();
 
           if (terminalOutcome === "error") {
+            const reason = describeStreamingFailure(upstreamFailure);
             log.warn?.(
               "COMBO",
-              "Streaming response reported an upstream error before content — marking as invalid for combo failover"
+              `Streaming response reported an upstream error before content (${reason}) — marking as invalid for combo failover`
             );
-            return { valid: false, reason: "streaming upstream error" };
+            return { valid: false, reason, ...(upstreamFailure ? { upstreamFailure } : {}) };
           }
 
           if (sse.hasMessageStart && sse.hasLifecycleEnd && !sse.hasRealContent) {
@@ -552,11 +609,12 @@ export async function validateResponseQuality(
           // Do not await cancellation of a Response.clone() tee branch: the
           // promise may remain pending until the client-facing branch drains.
           reader.cancel().catch(() => {});
+          const reason = describeStreamingFailure(upstreamFailure);
           log.warn?.(
             "COMBO",
-            "Streaming response reported an upstream error before content — marking as invalid for combo failover"
+            `Streaming response reported an upstream error before content (${reason}) — marking as invalid for combo failover`
           );
-          return { valid: false, reason: "streaming upstream error" };
+          return { valid: false, reason, ...(upstreamFailure ? { upstreamFailure } : {}) };
         }
 
         if (outcome === "content") {
@@ -808,4 +866,30 @@ export function releaseRejectedQualityResponse(clone: Response, original: Respon
     void clone.body?.cancel().catch(() => {});
   }
   void original.body?.cancel().catch(() => {});
+}
+
+/**
+ * Handle a pre-content streaming upstream error: nothing reached the client
+ * yet, so re-dispatching the same target cannot duplicate output. Logs and
+ * returns true when the caller should retry, false to fall through.
+ */
+export function handlePreContentStreamRetry(
+  quality: ResponseQualityResult,
+  retry: number,
+  deps: {
+    maxRetries: number;
+    signal?: { aborted?: boolean } | null;
+    log: { info: (tag: string, msg: string) => void };
+  },
+  modelStr: string
+): boolean {
+  if (!quality.upstreamFailure?.retryable || retry >= deps.maxRetries || deps.signal?.aborted) {
+    return false;
+  }
+  deps.log.info(
+    "COMBO",
+    `Retrying ${modelStr} after pre-content streaming upstream error ` +
+      `(attempt ${retry + 2}/${deps.maxRetries + 1})`
+  );
+  return true;
 }

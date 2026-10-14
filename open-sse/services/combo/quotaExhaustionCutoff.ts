@@ -148,12 +148,15 @@ export async function resolveQuotaExhaustionCutoffForTarget(
   } catch {
     scope = undefined;
   }
+  // #12803 — the Claude extra-usage opt-in lives on the connection.
+  scope = { ...(scope ?? {}), provider, providerSpecificData: connection?.providerSpecificData };
 
   try {
     const quota = await fetchResetAwareQuotaWithCache({
       provider,
       connectionId,
-      connection,
+      // #12637 — the generic fetcher and reset-aware cache scope by the target's family.
+      connection: connection ? { ...connection, requestedModel: targetModel ?? null } : connection,
       fetcher,
       config: resetWindowConfig,
       log,

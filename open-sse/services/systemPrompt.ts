@@ -106,8 +106,11 @@ export function injectSystemPrompt(body) {
         msg.content = content;
       }
       result.messages[sysIdx] = msg;
-    } else {
-      // No existing system message — combine both into one
+    } else if (result.system === undefined) {
+      // No existing system message — combine both into one.
+      // Anthropic-shaped bodies get the prompt via the top-level `system`
+      // branch below; a new system entry at messages[0] is rejected upstream
+      // ("messages.0: use the top-level 'system' parameter", #12584).
       const combined = [prefix, suffix].filter(Boolean).join("\n\n");
       if (combined) {
         result.messages = [{ role: "system", content: combined }, ...result.messages];
@@ -117,6 +120,9 @@ export function injectSystemPrompt(body) {
 
   // Claude format (system field)
   if (result.system !== undefined) {
+    // #12584: a malformed non-string/non-array `system` (e.g. `null`) must not
+    // silently swallow the prompt — normalize before the format branch.
+    if (typeof result.system !== "string" && !Array.isArray(result.system)) result.system = "";
     if (typeof result.system === "string") {
       let sys = result.system;
       if (prefix) sys = prefix + "\n\n" + sys;
@@ -166,7 +172,10 @@ export function injectCustomSystemPrompt(body: Record<string, unknown>, prompt: 
         msg.content = (msg.content ? msg.content + "\n\n" : "") + prompt;
       }
       (result.messages as Array<{ role: string; content: unknown }>)[sysIdx] = msg;
-    } else {
+    } else if (result.system === undefined) {
+      // Anthropic-shaped bodies get the prompt via the top-level `system`
+      // branch below; a new system entry at messages[0] is rejected upstream
+      // ("messages.0: use the top-level 'system' parameter", #12584).
       result.messages = [
         { role: "system", content: prompt },
         ...(result.messages as Array<{ role: string; content: unknown }>),
@@ -176,6 +185,9 @@ export function injectCustomSystemPrompt(body: Record<string, unknown>, prompt: 
 
   // Claude direct system field
   if (result.system !== undefined) {
+    // #12584: a malformed non-string/non-array `system` (e.g. `null`) must not
+    // silently swallow the prompt — normalize before the format branch.
+    if (typeof result.system !== "string" && !Array.isArray(result.system)) result.system = "";
     if (typeof result.system === "string") {
       result.system = result.system ? result.system + "\n\n" + prompt : prompt;
     } else if (Array.isArray(result.system)) {

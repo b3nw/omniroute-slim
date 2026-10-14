@@ -30,6 +30,7 @@ import {
   evaluatePeakHourProtection,
 } from "@/lib/providers/peakHourProtection";
 import { buildJinaEnvCredentials } from "@/lib/providers/jina";
+import { isClaudeExtraUsageAllowed } from "@/lib/providers/claudeExtraUsage";
 import { buildGeminiEnvCredentials } from "@/lib/providers/gemini";
 import { isCommonChatGptWebRetiredProviderId } from "@/shared/constants/chatgptWebRetirement";
 import { toNumber } from "@/shared/utils/numeric";
@@ -48,7 +49,15 @@ import {
   hydrateCodexQuotaCacheForRequest,
   isQuotaExhaustedForRequest,
 } from "@/domain/quotaCache";
-import { getQuotaScopeLabelForProvider } from "@omniroute/open-sse/services/antigravityQuotaFamily.ts";
+import {
+  getQuotaScopeLabelForProvider,
+  isAntigravityQuotaProvider,
+} from "@omniroute/open-sse/services/antigravityQuotaFamily.ts";
+import {
+  persistAntigravityFamilyCooldownIfQuota,
+  persistAntigravityPreflightFamilyLock,
+  rehydrateAntigravityFamilyLocksForConnections,
+} from "@omniroute/open-sse/services/antigravityFamilyCooldown.ts";
 import { getCreditsMode } from "@omniroute/open-sse/services/antigravityCredits.ts";
 import { preferAntigravityConnectionsWithStoredProject } from "@omniroute/open-sse/services/antigravityProjectPersistence.ts";
 import {
@@ -400,6 +409,11 @@ export function evaluateQuotaLimitPolicy(
   connection: ProviderConnectionView,
   requestedModel: string | null = null
 ): { blocked: boolean; reasons: string[]; resetAt: string | null } {
+  // Extra-usage switch is opt-in billing, not a pre-dispatch skip. When the
+  // operator allows extra usage, 5h/weekly bars must not hide the account (#12803).
+  if (isClaudeExtraUsageAllowed(provider, connection.providerSpecificData)) {
+    return { blocked: false, reasons: [], resetAt: null };
+  }
   const policy = resolveQuotaLimitPolicy(provider, connection.providerSpecificData);
   if (!policy.enabled || policy.windows.length === 0) {
     return { blocked: false, reasons: [], resetAt: null };
@@ -573,7 +587,12 @@ function getP2CConnectionScore(
     quotaExhausted = cached.exhausted;
   } else {
     quotaBlocked = evaluateQuotaLimitPolicy(provider, connection, requestedModel).blocked;
-    quotaExhausted = isQuotaExhaustedForRequest(connection.id, provider, requestedModel);
+    quotaExhausted = isQuotaExhaustedForRequest(
+      connection.id,
+      provider,
+      requestedModel,
+      connection.providerSpecificData
+    );
   }
 
   const quotaHeadroomPercent = getConnectionQuotaHeadroomPercent(
@@ -892,6 +911,17 @@ async function markQuotaPreflightAccountUnavailable(
       connectionId,
       model: requestedModel,
       rateLimitedUntil: unavailableUntil,
+    });
+    return unavailableUntil;
+  }
+
+  // #12566: an Antigravity preflight block cools the requested family, not the whole account.
+  if (isAntigravityQuotaProvider(provider) && requestedModel?.trim()) {
+    await persistAntigravityPreflightFamilyLock({
+      provider,
+      connectionId,
+      model: requestedModel,
+      unavailableUntil,
     });
     return unavailableUntil;
   }
@@ -1311,6 +1341,8 @@ export async function getProviderCredentials(
         );
       }
     }
+    // #12566: re-arm persisted Antigravity family cooldowns after a process-local lockout wipe.
+    rehydrateAntigravityFamilyLocksForConnections(provider, connections);
     // allowedConnections: restrict to specific connection IDs (from API key policy, #363)
     if (allowedConnections && allowedConnections.length > 0) {
       connections = connections.filter((conn) => allowedConnections.includes(conn.id));
@@ -1354,8 +1386,15 @@ export async function getProviderCredentials(
       connections,
       allowRateLimitedConnections,
       bypassQuotaPolicy,
-      isQuotaExhausted: (connectionId) =>
-        isQuotaExhaustedForRequest(connectionId, provider, requestedModel),
+      isQuotaExhausted: (connectionId) => {
+        const conn = connections.find((candidate) => candidate.id === connectionId);
+        return isQuotaExhaustedForRequest(
+          connectionId,
+          provider,
+          requestedModel,
+          conn?.providerSpecificData
+        );
+      },
       isQuotaPolicyBlocked: (connection) =>
         evaluateQuotaLimitPolicy(provider, connection as ProviderConnectionView, requestedModel)
           .blocked,
@@ -1833,7 +1872,12 @@ export async function getProviderCredentials(
     const withQuota: typeof policyEligibleConnections = [];
     const exhaustedQuota: typeof policyEligibleConnections = [];
     for (const c of policyEligibleConnections) {
-      const exhausted = isQuotaExhaustedForRequest(c.id, provider, requestedModel);
+      const exhausted = isQuotaExhaustedForRequest(
+        c.id,
+        provider,
+        requestedModel,
+        c.providerSpecificData
+      );
       const existing = quotaResults.get(c.id);
       if (existing) existing.exhausted = exhausted;
       if (!exhausted) {
@@ -1868,7 +1912,7 @@ export async function getProviderCredentials(
         allRateLimited: true,
         retryAfter,
         retryAfterHuman: formatRetryAfter(retryAfter),
-        lastError: `All ${provider} accounts have exhausted their quota`,
+        lastError: `All ${provider} accounts have exhausted their quota (cached quota state, no upstream attempt; earliest reset ${formatRetryAfter(retryAfter)})`,
         lastErrorCode: 429,
       };
     }
@@ -2368,7 +2412,9 @@ export async function getProviderCredentialsWithQuotaPreflight(
       return defaultThresholdPercent;
     };
     // #6842: openrouter also needs requestedModel, for the :free-window check.
-    const modelAwarePreflight = provider === "codex" || provider === "openrouter";
+    // agy/antigravity need it so Claude weekly cannot cool a Gemini request (#12566).
+    const modelAwarePreflight =
+      provider === "codex" || provider === "openrouter" || isAntigravityQuotaProvider(provider);
     const preflightCredentials =
       requestedModel && modelAwarePreflight ? { ...credentials, requestedModel } : credentials;
     // Group/family identity of THIS request — a `qtSd/<group>/…` model or an
@@ -2941,6 +2987,13 @@ export async function markAccountUnavailable(
         "AUTH",
         `Model-only lockout for ${provider}:${model} — ${status} ${reason} ${Math.ceil(lockout.cooldownMs / 1000)}s (failureCount=${lockout.failureCount}, connection stays active)`
       );
+      persistAntigravityFamilyCooldownIfQuota({
+        provider,
+        connectionId,
+        model,
+        cooldownMs: lockout.cooldownMs,
+        reason,
+      });
       return { shouldFallback: true, cooldownMs: lockout.cooldownMs };
     }
     const result = fallbackResult;

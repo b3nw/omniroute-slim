@@ -250,6 +250,29 @@ function stripEffortValue(b: Record<string, unknown>, c: EffortCarriers): Record
   return next;
 }
 
+/**
+ * The effort the outgoing body actually asks for, across all three carriers.
+ * Used by the reactive 4xx probe in `base.ts` to decide which tier to step
+ * down to, so it must report what is on the wire — not what the registry says
+ * the model supports.
+ */
+export function readBodyReasoningEffort(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const effort = readEffortCarriers(body as Record<string, unknown>).effort;
+  return typeof effort === "string" ? effort : null;
+}
+
+/**
+ * Write `value` onto every carrier the body already uses, leaving the shape of
+ * the body untouched — the reactive probe rewrites one field of the request
+ * that is already on its way upstream, so it must not reshape anything else.
+ */
+export function writeBodyReasoningEffort(body: unknown, value: string): unknown {
+  if (!body || typeof body !== "object") return body;
+  const record = body as Record<string, unknown>;
+  return writeEffortValue(record, value, readEffortCarriers(record));
+}
+
 export function sanitizeReasoningEffortForProvider(
   body: unknown,
   provider: string,

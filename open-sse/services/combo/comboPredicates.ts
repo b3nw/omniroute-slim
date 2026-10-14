@@ -10,11 +10,26 @@ import { EXECUTOR_CONTRACT_VIOLATION_CODE } from "../../config/constants.ts";
 import { errorResponse } from "../../utils/error.ts";
 import { parseModel } from "../model.ts";
 import { isSelfInflictedUpstreamTimeout } from "../../handlers/chatCore/cooldownClassification.ts";
-import { isLocalStreamLifecycleError, isLocalExecutionError } from "@/shared/utils/circuitBreaker";
-import { CONTEXT_OVERFLOW_PATTERNS, MODEL_ACCESS_DENIED_PATTERNS } from "../accountFallback.ts";
+import {
+  isLocalStreamLifecycleError,
+  isLocalExecutionError,
+  isModelCapacityOverloadError,
+} from "@/shared/utils/circuitBreaker";
+import {
+  AUTH_CREDENTIAL_ERROR_PATTERNS,
+  CONTEXT_OVERFLOW_PATTERNS,
+  MODEL_ACCESS_DENIED_PATTERNS,
+  PARAM_VALIDATION_PATTERNS,
+  RATE_LIMIT_TEXT_PATTERNS,
+  isProviderModelUnsupported400,
+} from "../accountFallback.ts";
+import { isRequestScoped400 } from "../accountFallback/requestScoped400.ts";
+import { remainingPercentFromQuotaWindows } from "../antigravityQuotaFamily.ts";
 import { isResourceNotFoundResponse } from "../errorClassifier.ts";
 import { getTrustedLocalRateLimitResponse } from "../rateLimitManager/errors.ts";
 import type { ResolvedComboTarget } from "./types.ts";
+import { classifyComboOutcome, type ComboOutcomeKind } from "./comboErrorAggregation.ts";
+import type { ResponseQualityResult } from "./validateQuality.ts";
 
 // Status codes that should mark round-robin target semaphores as cooling down.
 export const TRANSIENT_FOR_SEMAPHORE = [429, 502, 503, 504];
@@ -212,6 +227,12 @@ export function shouldRecordProviderBreakerFailure(args: {
 }): boolean {
   return (
     (!args.isStreamReadinessFailure || args.isStreamEarlyEof === true) &&
+    // Overloaded 502 (STREAM_EARLY_EOF wrapping "Overloaded") must not trip
+    // the whole-provider breaker. The status=529 check is defense in depth:
+    // 529 is not in PROVIDER_BREAKER_FAILURE_STATUSES today, but a later
+    // addition of 529 to that set must still stay off the breaker.
+    !isModelCapacityOverloadError(args.error) &&
+    !isModelCapacityOverloadError(args.status) &&
     PROVIDER_BREAKER_FAILURE_STATUSES.has(args.status) &&
     (!args.sameProviderNext || args.isProxyUnreachable === true) &&
     !args.skipProviderBreaker &&
@@ -223,6 +244,7 @@ export function shouldRecordProviderBreakerFailure(args: {
 
 const REQUEST_SCOPED_UPSTREAM_ERROR_CODES: Record<string, true> = {
   context_length_exceeded: true,
+  context_window_exceeded: true,
   upstream_empty_response: true,
   upstream_response_failed: true,
   // Local combo per-target timer (targetTimeoutRunner) — not a connection health signal.
@@ -236,15 +258,55 @@ const REQUEST_SCOPED_UPSTREAM_ERROR_CODES: Record<string, true> = {
   [EXECUTOR_CONTRACT_VIOLATION_CODE]: true,
 };
 
+// Slim hardening of #14585's invalid_request_error clause: OpenAI-style APIs
+// report a dead key / empty balance as type invalid_request_error too. Those are
+// account faults that must keep cooling the connection, so they are excluded.
+const ACCOUNT_SCOPED_INVALID_REQUEST_CODES = new Set(["invalid_api_key", "insufficient_quota"]);
+const ACCOUNT_SCOPED_STATUSES = new Set([401, 403, 429]);
+
+function isRequestScopedInvalidRequest(
+  code: string,
+  status: unknown,
+  message?: string | null
+): boolean {
+  if (ACCOUNT_SCOPED_INVALID_REQUEST_CODES.has(code)) return false;
+  const numStatus = Number(status);
+  if (Number.isFinite(numStatus) && ACCOUNT_SCOPED_STATUSES.has(numStatus)) return false;
+  if (typeof message === "string" && message) {
+    if (RATE_LIMIT_TEXT_PATTERNS.some((p) => p.test(message))) return false;
+    if (AUTH_CREDENTIAL_ERROR_PATTERNS.some((p) => p.test(message))) return false;
+  }
+  return true;
+}
+
 /** Request/model-specific failures must not poison provider-wide resilience state. */
+export function classifyQualityFailure(quality: ResponseQualityResult): {
+  status: number;
+  kind: ComboOutcomeKind;
+  requestScoped: boolean;
+} {
+  const upstream = quality.upstreamFailure;
+  if (!upstream) return { status: 502, kind: "quality", requestScoped: false };
+  const kind: ComboOutcomeKind = classifyComboOutcome(
+    upstream.status,
+    upstream.type || upstream.message || ""
+  );
+  return { status: upstream.status, kind, requestScoped: upstream.requestScoped };
+}
+
 export function isRequestScopedUpstreamFailure(error?: {
   code?: string | null;
   type?: string | null;
+  status?: number | string | null;
+  message?: string | null;
 }): boolean {
   const code = typeof error?.code === "string" ? error.code.toLowerCase() : "";
   const type = typeof error?.type === "string" ? error.type.toLowerCase() : "";
+  const message = typeof error?.message === "string" ? error.message : "";
   return (
     REQUEST_SCOPED_UPSTREAM_ERROR_CODES[code] === true ||
+    (type === "invalid_request_error" &&
+      isRequestScopedInvalidRequest(code, error?.status, message)) ||
     type === "context_length_exceeded" ||
     type === "local_queue_capacity"
   );
@@ -254,16 +316,31 @@ export function isRequestScopedUpstreamFailure(error?: {
 export function isComboRequestScopedFailure(
   response: Response,
   errorText: string,
-  error?: { code?: string | null; type?: string | null }
+  error?: { code?: string | null; type?: string | null; status?: number | string | null }
 ): boolean {
   return (
     getTrustedLocalRateLimitResponse(response) !== null ||
-    isRequestScopedUpstreamFailure(error) ||
+    isRequestScopedUpstreamFailure(
+      error ? { ...error, status: error.status ?? response.status } : error
+    ) ||
     (response.status === 404 && isResourceNotFoundResponse(errorText))
   );
 }
 
 const INPUT_BOUND_ERROR_CODES = new Set(["context_length_exceeded", "context_window_exceeded"]);
+
+/**
+ * Normalized provider+model key for a target. A request-scoped refusal is a
+ * property of the request and the model — another ACL/account/connection of the
+ * same model rejects it identically, so those targets are skipped instead of
+ * being replayed. Distinct models (even aliases) keep their own key.
+ */
+export function requestScopedReplayKey(modelStr: string): string {
+  const parsed = parseModel(modelStr);
+  const model = (parsed.model || modelStr).toLowerCase();
+  const provider = (parsed.provider || parsed.providerAlias || "").toLowerCase();
+  return provider && provider !== "unknown" ? `${provider}/${model}` : model;
+}
 
 /**
  * #8375: Whether an upstream error is input-bound — i.e. determined solely by the
@@ -302,11 +379,42 @@ export function shouldSkipConnDisable(
     errorCode?: string | null;
     errorType?: string | null;
     error?: unknown;
+    rawMessage?: string | null;
   },
   is401: boolean,
   hasExtraKeys: boolean,
   provider: string
 ): boolean {
+  // #13757: a request-level / parameter-validation / malformed / input-bound 400
+  // would fail identically on every account of the same model, so it must not
+  // cool the connection down. Account-specific 400s (credential or throttling
+  // text) still rotate/cooldown.
+  let errorText = "";
+  if (typeof result.rawMessage === "string") {
+    errorText = result.rawMessage;
+  } else if (typeof result.error === "string") {
+    errorText = result.error;
+  } else if (result.error instanceof Error) {
+    errorText = result.error.message;
+  } else if (result.error && typeof result.error === "object") {
+    const errObj = result.error as Record<string, unknown>;
+    if (typeof errObj.message === "string") {
+      errorText = errObj.message;
+    } else if (typeof errObj.error === "string") {
+      errorText = errObj.error;
+    }
+  }
+  const isReqScoped400 =
+    isRequestScoped400(result.status, errorText) ||
+    isProviderModelUnsupported400(result.status, errorText) ||
+    isParamValidation400(errorText) ||
+    (result.status === 400 &&
+      !RATE_LIMIT_TEXT_PATTERNS.some((p) => p.test(errorText)) &&
+      !AUTH_CREDENTIAL_ERROR_PATTERNS.some((p) => p.test(errorText)) &&
+      (isInputBoundRequestFailure({ code: result.errorCode, type: result.errorType }) ||
+        result.errorCode === "context_length_exceeded" ||
+        result.errorType === "context_length_exceeded"));
+
   return (
     result.status === 499 ||
     result.errorCode === "client_disconnected" ||
@@ -319,8 +427,14 @@ export function shouldSkipConnDisable(
     result.errorCode === "plugin_block" ||
     result.errorType === "plugin_block" ||
     (is401 && hasExtraKeys) ||
-    isRequestScopedUpstreamFailure({ code: result.errorCode, type: result.errorType }) ||
-    isSelfInflictedUpstreamTimeout(result.status, result.errorType, provider)
+    isRequestScopedUpstreamFailure({
+      code: result.errorCode,
+      type: result.errorType,
+      status: result.status,
+      message: errorText,
+    }) ||
+    isSelfInflictedUpstreamTimeout(result.status, result.errorType, provider) ||
+    isReqScoped400
   );
 }
 
@@ -431,23 +545,25 @@ export function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
-export function quotaRemainingPercentFromQuota(quota: unknown): number {
+export function quotaRemainingPercentFromQuota(
+  quota: unknown,
+  scope?: { provider?: string | null; requestedModel?: string | null }
+): number {
   if (!quota || typeof quota !== "object") return 100;
   const record = quota as Record<string, unknown>;
-  if (record.limitReached === true) return 0;
 
+  // #12566: windows first, scoped to the request's Antigravity family, so an exhausted
+  // Claude weekly (which also sets the connection-wide `limitReached`) does not rank a
+  // Gemini request's account as empty.
   const windows = record.windows;
   if (windows && typeof windows === "object" && !Array.isArray(windows)) {
-    let minRemaining: number | null = null;
-    for (const windowInfo of Object.values(windows as Record<string, unknown>)) {
-      if (!windowInfo || typeof windowInfo !== "object") continue;
-      const percentUsed = Number((windowInfo as Record<string, unknown>).percentUsed);
-      if (!Number.isFinite(percentUsed)) continue;
-      const remaining = clampPercent((1 - percentUsed) * 100);
-      minRemaining = minRemaining === null ? remaining : Math.min(minRemaining, remaining);
-    }
-    if (minRemaining !== null) return minRemaining;
+    const fromWindows = remainingPercentFromQuotaWindows(
+      windows as Record<string, unknown>,
+      scope
+    );
+    if (fromWindows !== null) return fromWindows;
   }
+  if (record.limitReached === true) return 0;
 
   const percentUsed = Number(record.percentUsed);
   if (Number.isFinite(percentUsed)) return clampPercent((1 - percentUsed) * 100);
@@ -570,7 +686,8 @@ export function isParamValidation400(errorText: string | null | undefined): bool
   return (
     /\bmax_tokens\b.*(?:illegal|must|range|invalid)/i.test(text) ||
     /\bparameter is illegal\b/i.test(text) ||
-    /\bis illegal.*range\b/i.test(text)
+    /\bis illegal.*range\b/i.test(text) ||
+    PARAM_VALIDATION_PATTERNS.some((p) => p.test(text))
   );
 }
 

@@ -36,6 +36,10 @@ import {
   getCircuitBreaker,
 } from "../../src/shared/utils/circuitBreaker";
 import {
+  connectionCircuitBreakerName,
+  failureCircuitBreakerName,
+} from "./connectionCircuitBreaker.ts";
+import {
   classify429FromError,
   looksLikeQuotaExhausted,
   type FailureKind,
@@ -49,7 +53,11 @@ import {
 } from "../../src/shared/constants/providers";
 import { resolveUseUpstream429BreakerHints } from "../../src/shared/utils/providerHints";
 import { getCodexModelScope } from "../config/codexQuotaScopes.ts";
-import { getQuotaScopedModelForProvider } from "./antigravityQuotaFamily.ts";
+import {
+  getQuotaScopedModelForProvider,
+  isAntigravityQuotaProvider,
+} from "./antigravityQuotaFamily.ts";
+import { persistAntigravityFamilyCooldownIfQuota } from "./antigravityFamilyCooldown.ts";
 import {
   classifyGeminiQuotaMetricFromText,
   isRpdExhausted,
@@ -424,7 +432,7 @@ export function isProviderModelUnsupported400(status: number, errorText: string)
 
 // Malformed request patterns — the model rejected the message format but a different
 // provider/model in the combo may accept it.
-const MALFORMED_REQUEST_PATTERNS = [
+export const MALFORMED_REQUEST_PATTERNS = [
   /\bimproperly formed request\b/i,
   /\binvalid.*message.*format/i,
   /\bmessages must alternate\b/i,
@@ -450,12 +458,16 @@ export const RATE_LIMIT_TEXT_PATTERNS = [
 ];
 
 // Parameter validation errors — model-specific constraints (different models = different limits)
-const PARAM_VALIDATION_PATTERNS = [
+// #13757: include extra inputs and unrecognized field rejections from upstream schema validators
+export const PARAM_VALIDATION_PATTERNS = [
   /max_tokens.*illegal/i,
   /max_tokens.*must be/i,
   /max_tokens.*range/i,
   /parameter is illegal/i,
   /is illegal.*range/i,
+  /\b(?:extra|additional)\s+(?:input|inputs|propert(?:y|ies)|field|fields)\b.*(?:not permitted|not allowed)/i,
+  /\b(?:unknown|unrecognized|unexpected)\s+(?:field|fields|property|properties|parameter|parameters|input|inputs)\b/i,
+  /\binvalid\s+(?:field|fields|property|properties|parameter|parameters|input|inputs)\b/i,
 ];
 
 /**
@@ -639,6 +651,16 @@ export async function recordCoreOwnedAntigravityQuotaState({
       exactCooldownIsUpstreamReset: retryHintBypassesMaxCooldownMs(fallback.retryHintSource),
     }
   );
+  // #12566: persist the family cooldown so it survives a process-local lockout wipe.
+  if (lockout.cooldownMs > 0 && isProviderExhaustedReason(fallback)) {
+    persistAntigravityFamilyCooldownIfQuota({
+      provider,
+      connectionId,
+      model,
+      cooldownMs: lockout.cooldownMs,
+      reason: "quota_exhausted",
+    });
+  }
   return { cooldownMs: lockout.cooldownMs, failureCount: lockout.failureCount };
 }
 
@@ -1112,7 +1134,8 @@ function getProviderBreaker(provider: string | null | undefined) {
 
 function configureProviderBreaker(
   provider: string | null | undefined,
-  profile?: ProviderBreakerProfile | null
+  profile?: ProviderBreakerProfile | null,
+  breakerName?: string
 ) {
   if (!provider) return null;
 
@@ -1122,7 +1145,7 @@ function configureProviderBreaker(
   // Stored value type is `boolean | undefined` — never `null` after PATCH.
   const userValue = resolvedProfile.useUpstream429BreakerHints;
   const useHints = resolveUseUpstream429BreakerHints(provider, userValue);
-  return getCircuitBreaker(provider, {
+  return getCircuitBreaker(breakerName || provider, {
     failureThreshold: resolvedProfile.failureThreshold ?? resolvedProfile.circuitBreakerThreshold,
     resetTimeout: resolvedProfile.resetTimeoutMs ?? resolvedProfile.circuitBreakerReset,
     ...(useHints
@@ -1141,11 +1164,18 @@ function configureProviderBreaker(
 }
 
 /**
- * Check if a provider is currently blocked by the shared circuit breaker.
+ * Check if a provider is currently blocked by the shared circuit breaker, or —
+ * when `connectionId` is given — by that connection's own breaker (#14530).
  */
-export function isProviderInCooldown(provider: string | null | undefined): boolean {
-  const breaker = getProviderBreaker(provider);
-  return breaker ? !breaker.canExecute() : false;
+export function isProviderInCooldown(
+  provider: string | null | undefined,
+  connectionId?: string | null
+): boolean {
+  if (!provider) return false;
+  const providerBreaker = getProviderBreaker(provider);
+  if (providerBreaker && !providerBreaker.canExecute()) return true;
+  if (!connectionId) return false;
+  return !getCircuitBreaker(connectionCircuitBreakerName(provider, connectionId)).canExecute();
 }
 
 /**
@@ -1215,7 +1245,13 @@ export function recordProviderFailure(
     pruneConnectionFailureDedupeEntries();
   }
 
-  const breaker = configureProviderBreaker(provider, profile);
+  // #14530: one connection's failures open only that connection's breaker; a
+  // proxy/network failure (or a failure with no connection) stays provider-wide.
+  const breaker = configureProviderBreaker(
+    provider,
+    profile,
+    failureCircuitBreakerName(provider, connectionId, opts?.isNetworkError)
+  );
   if (!breaker) return;
 
   if (!breaker.canExecute()) return;
@@ -1244,7 +1280,9 @@ export function recordProviderSuccess(
 ): void {
   if (!provider || provider === "unknown") return;
 
-  const breaker = getProviderBreaker(provider);
+  const breaker = connectionId
+    ? getCircuitBreaker(connectionCircuitBreakerName(provider, connectionId))
+    : getProviderBreaker(provider);
   if (!breaker) return;
   const breakerState = breaker.getStatus().state;
 
@@ -1261,6 +1299,12 @@ export function recordProviderSuccess(
   // Clear failure-dedup window so the next genuine failure is not suppressed.
   if (connectionId) {
     lastConnectionFailure.delete(`${provider}:${connectionId}`);
+    // #15019: a provider-wide breaker opened by the single-model path must not
+    // stay HALF_OPEN after a successful connection-scoped probe.
+    const providerBreaker = getProviderBreaker(provider);
+    if (providerBreaker && providerBreaker !== breaker && providerBreaker.canExecute()) {
+      providerBreaker._onSuccess();
+    }
   }
 
   // Transition breaker on success, matching execute()'s behavior:
@@ -2392,7 +2436,10 @@ export function applyErrorState<T extends AccountState | null | undefined>(
     typeof connId === "string" &&
     connId.length > 0 &&
     effectiveCooldownMs > 0 &&
-    nextState.rateLimitedUntil
+    nextState.rateLimitedUntil &&
+    // #12566: Antigravity quota is family-scoped (persisted by antigravityFamilyCooldown);
+    // never cool the whole account row for it.
+    !isAntigravityQuotaProvider(prov)
   ) {
     try {
       const untilMs = cooldownUntilMs(nextState.rateLimitedUntil);

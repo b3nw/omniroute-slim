@@ -6,6 +6,7 @@ import {
   withEarlyStreamKeepalive,
   ANTHROPIC_PING_FRAME,
 } from "@omniroute/open-sse/utils/earlyStreamKeepalive";
+import { createStreamDeadlineSignal } from "@omniroute/open-sse/utils/streamDeadlineSignal";
 import { resolveKeepaliveThreshold } from "@omniroute/open-sse/utils/keepaliveThreshold";
 import { resolveStreamFlag } from "@omniroute/open-sse/utils/aiSdkCompat";
 
@@ -66,11 +67,20 @@ async function postHandler(request: any, context: any) {
   const accept = String(request.headers?.get?.("accept") || "");
   const wantsStreaming = resolveStreamFlag(body?.stream, accept, "claude");
   if (wantsStreaming) {
-    return await withEarlyStreamKeepalive(handleChat(request, null, body), {
-      signal: request.signal,
-      thresholdMs: resolveKeepaliveThreshold(body?.model),
-      keepaliveFrame: ANTHROPIC_PING_FRAME,
-    });
+    // #14808/#15010: explicit slow-stream deadline signal handed to handleChat (no
+    // Request rebuild). The outer admission wrapper still owns the route-level lease: on
+    // a stream deadline the synthetic SSE body closes, so its response lifecycle releases
+    // that lease while handleChat receives streamSignal and tears provider work down.
+    const { signal: streamSignal, deadlineController } = createStreamDeadlineSignal(request.signal);
+    return await withEarlyStreamKeepalive(
+      handleChat(request, null, body, undefined, streamSignal),
+      {
+        signal: streamSignal,
+        thresholdMs: resolveKeepaliveThreshold(body?.model),
+        keepaliveFrame: ANTHROPIC_PING_FRAME,
+        deadlineController,
+      }
+    );
   }
   return await handleChat(request, null, body);
 }

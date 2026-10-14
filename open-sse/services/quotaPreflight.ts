@@ -20,6 +20,11 @@
 
 import { isCompatibleProviderConnectionId } from "@/shared/utils/compatibleProviderId";
 import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags";
+// #14359 — import the leaf, NOT "@/domain/quotaCache": quotaCache → usage.ts → usage/openrouter.ts →
+// openrouterQuotaFetcher.ts → this file, so importing quotaCache here would close an ESM init cycle.
+import { isQuotaHealthy } from "@/domain/quotaCacheState";
+import { resolveQuotaHealthyScope } from "./quotaHealthyScope.ts";
+import { isClaudeExtraUsageAllowed } from "@/lib/providers/claudeExtraUsage";
 import { fetchNewApiAggregatorQuota } from "./newApiAggregatorQuotaFetcher.ts";
 import {
   resolveQuotaCutoffWindows,
@@ -34,6 +39,8 @@ export interface PreflightQuotaResult {
   reason?: string;
   quotaPercent?: number;
   resetAt?: string | null;
+  /** #12566 — the blocking quota window, when a per-window cutoff decided. */
+  windowName?: string | null;
 }
 
 export interface QuotaWindowInfo {
@@ -163,12 +170,17 @@ function isRemainingAtOrBelowThreshold(
   return remainingPercent <= thresholdPercent + REMAINING_PERCENT_EPSILON;
 }
 
-function exhaustedResult(quotaPercent: number, resetAt: string | null): PreflightQuotaResult {
+function exhaustedResult(
+  quotaPercent: number,
+  resetAt: string | null,
+  windowName?: string | null
+): PreflightQuotaResult {
   return {
     proceed: false,
     reason: "quota_exhausted",
     quotaPercent,
     resetAt,
+    ...(windowName ? { windowName } : {}),
   };
 }
 
@@ -208,7 +220,7 @@ function quotaWindowCutoffResult(
     worstResetAt = windowInfo.resetAt ?? null;
   }
 
-  return worstWindow === null ? null : exhaustedResult(worstUsedPercent, worstResetAt);
+  return worstWindow === null ? null : exhaustedResult(worstUsedPercent, worstResetAt, worstWindow);
 }
 
 function quotaPercentCutoffResult(
@@ -262,6 +274,22 @@ export function evaluateQuotaCutoff(
   scope?: QuotaCutoffScope | null
 ): PreflightQuotaResult {
   if (!quota) return { proceed: true };
+  // Operator-enabled Claude extra usage is billed after the 5h session quota
+  // is gone. Pre-dispatch must not skip the account before Anthropic sees the
+  // request; blockExtraUsage=false is the only opt-in (#12803).
+  if (isClaudeExtraUsageAllowed(scope?.provider, scope?.providerSpecificData)) {
+    return { proceed: true, quotaPercent: quota.percentUsed };
+  }
+  // #14359 — same escape as the dispatch-time predicates: a recent success is not exhaustion.
+  if (
+    scope?.connectionId &&
+    isQuotaHealthy(
+      scope.connectionId,
+      resolveQuotaHealthyScope(scope.provider, scope.requestedModel)
+    )
+  ) {
+    return { proceed: true, quotaPercent: quota.percentUsed };
+  }
 
   // Scope FIRST, then derive exhaustion — never the other way around (#12161).
   const resolved = resolveQuotaCutoffWindows(quota, scope);
@@ -332,6 +360,18 @@ export async function preflightQuota(
   if (!quota) {
     return { proceed: true };
   }
+  // #12803 — same extra-usage escape as evaluateQuotaCutoff.
+  if (isClaudeExtraUsageAllowed(provider, connection.providerSpecificData)) {
+    return { proceed: true, quotaPercent: quota.percentUsed };
+  }
+  // #14359 — a recent successful dispatch on this connection stands the cutoff
+  // down for the quota bucket that success drew from.
+  const healthyScopeModel =
+    scope?.requestedModel ??
+    (typeof connection.requestedModel === "string" ? connection.requestedModel : null);
+  if (isQuotaHealthy(connectionId, resolveQuotaHealthyScope(provider, healthyScopeModel))) {
+    return { proceed: true, quotaPercent: quota.percentUsed };
+  }
 
   // Per-window evaluation — only when the fetcher surfaces a windows map.
   // We block as soon as ANY single window's remaining quota drops to its
@@ -344,9 +384,14 @@ export async function preflightQuota(
   // Resolution happens BEFORE the `limitReached` shortcut (#12161): that flag is
   // a whole-connection summary, so honoring it first would block a Gemini
   // request on an exhausted Claude bucket the family path is about to drop.
+  // #12566: without an explicit scope, the model-aware caller's `requestedModel` still
+  // scopes the evaluation (Claude weekly must not cool a Gemini request).
+  const requestedModel =
+    typeof connection.requestedModel === "string" ? connection.requestedModel : null;
+  const effectiveScope = scope ?? (requestedModel ? { provider, requestedModel } : null);
   const resolvedWindows = resolveQuotaCutoffWindows(
     quota,
-    scope ? { ...scope, provider: scope.provider ?? provider } : null
+    effectiveScope ? { ...effectiveScope, provider: effectiveScope.provider ?? provider } : null
   );
   if (shouldHonorLimitReached(quota, resolvedWindows)) {
     return limitReachedResult(quota);
@@ -397,6 +442,7 @@ export async function preflightQuota(
         reason: "quota_exhausted",
         quotaPercent: worstUsedPercent,
         resetAt: worstResetAt,
+        windowName: worstWindow,
       };
     }
 

@@ -126,11 +126,19 @@ type DeleteResult = {
   deletedArtifacts: number;
 };
 
-let logIdCounter = 0;
+const CALL_LOG_ID_RETRY_LIMIT = 3;
 
 function generateLogId() {
-  logIdCounter++;
-  return `${Date.now()}-${logIdCounter}`;
+  return globalThis.crypto.randomUUID();
+}
+
+function isCallLogIdCollision(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = String((error as { code?: unknown }).code ?? "");
+  const msg = String((error as { message?: unknown }).message ?? "");
+  if (/SQLITE_CONSTRAINT_PRIMARYKEY/i.test(code)) return true;
+  if (/SQLITE_CONSTRAINT_UNIQUE/i.test(code) && /call_logs\.id/i.test(msg)) return true;
+  return /UNIQUE constraint failed: call_logs\.id/i.test(msg);
 }
 
 async function resolveAccountName(connectionId: string | null | undefined) {
@@ -550,7 +558,7 @@ async function saveCallLogOperation(entry: any): Promise<void> {
     }
 
     const db = getDbInstance();
-    db.prepare(
+    const insertStmt = db.prepare(
       `
       INSERT INTO call_logs (
         id, timestamp, method, path, status, model, requested_model, provider,
@@ -575,7 +583,8 @@ async function saveCallLogOperation(entry: any): Promise<void> {
         @correlationId, @modelPinned, @sessionTag, @responseId, @errorType
       )
     `
-    ).run({
+    );
+    const insertParams = {
       ...logEntry,
       errorSummary: toStoredErrorSummary(protectedError),
       detailState,
@@ -586,7 +595,18 @@ async function saveCallLogOperation(entry: any): Promise<void> {
       hasResponseBody: protectedResponseBody !== null ? 1 : 0,
       hasPipelineDetails: protectedPipelinePayloads ? 1 : 0,
       requestSummary,
-    });
+    };
+    // #14451: a 6-char dashboard traceId (or any reused explicit id) can collide.
+    // Keep the already-written artifact path; only the SQLite primary key is regenerated.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        insertStmt.run(insertParams);
+        break;
+      } catch (error) {
+        if (!isCallLogIdCollision(error) || attempt >= CALL_LOG_ID_RETRY_LIMIT) throw error;
+        insertParams.id = generateLogId();
+      }
+    }
 
     scheduleCallLogRotation();
   } catch (error) {

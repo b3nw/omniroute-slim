@@ -174,7 +174,22 @@ test("#7293: Claude-source request keeps a single leading system message after c
     .filter((i) => i >= 0);
 
   assert.deepEqual(systemIndices, [0]);
-  // Merge, never drop: both the top-level system and the offender survive.
   assert.match(outMessages[0].content, /You are a coding assistant\./);
-  assert.match(outMessages[0].content, /deferred tools list/);
+
+  // #12908 landed after #7293 and resolves the same constraint differently on this
+  // path: instead of folding a mid-array system into index 0, it demotes it to
+  // "user" in place, byte-identical. So the offender no longer merges — but it must
+  // still SURVIVE, which is the half of "merge, never drop" that actually protects
+  // the caller. #13948: the pre-translation hoist is now skipped for
+  // sourceFormat===CLAUDE, so claude-to-openai.ts's demote-in-place is the only
+  // strategy that runs on this path and the demoted turn keeps its original
+  // chronological position instead of being reordered ahead of the conversation.
+  const offender = outMessages.find((m) => m.content === "deferred tools list");
+  assert.ok(offender, "the mid-array system instruction must not be dropped");
+  assert.equal(offender.role, "user", "it is demoted, not merged (#12908)");
+  assert.deepEqual(
+    outMessages.filter((m) => m.role === "user").map((m) => m.content),
+    ["hi", "deferred tools list", "go"],
+    "corrected ordering — the demoted turn keeps its chronological position (#13948)"
+  );
 });

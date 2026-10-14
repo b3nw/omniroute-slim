@@ -119,7 +119,8 @@ export function buildCavemanOutputInstruction(
 export function applyCavemanOutputMode(
   body: ChatRequestBody,
   options?: Partial<CavemanOutputModeConfig>,
-  language = "en"
+  language = "en",
+  format: string | null = null
 ): CavemanOutputModeResult {
   const config: CavemanOutputModeConfig = {
     ...DEFAULT_CAVEMAN_OUTPUT_MODE_CONFIG,
@@ -150,12 +151,14 @@ export function applyCavemanOutputMode(
 
   // Check idempotency before bypass so the marker in an already-injected system
   // message doesn't trigger a false-positive bypass (e.g. SHARED_BOUNDARIES keywords).
-  const alreadyApplied = messages.some(
-    (message) =>
-      message.role === "system" &&
-      typeof message.content === "string" &&
-      message.content.includes(CAVEMAN_OUTPUT_MARKER)
-  );
+  const alreadyApplied =
+    systemFieldIncludesMarker(body.system, CAVEMAN_OUTPUT_MARKER) ||
+    messages.some(
+      (message) =>
+        message.role === "system" &&
+        typeof message.content === "string" &&
+        message.content.includes(CAVEMAN_OUTPUT_MARKER)
+    );
   if (alreadyApplied) return { body, applied: false, skippedReason: "already_applied" };
 
   if (config.autoClarity !== false) {
@@ -164,17 +167,124 @@ export function applyCavemanOutputMode(
   }
 
   const instruction = buildCavemanOutputInstruction(config, language);
-  const nextMessages = [...messages];
-  const first = nextMessages[0];
+  return {
+    body: { ...body, ...placeSystemInstruction(messages, body.system, instruction, format) },
+    applied: true,
+  };
+}
 
-  if (first?.role === "system" && typeof first.content === "string") {
-    nextMessages[0] = {
-      ...first,
-      content: `${first.content.trim()}\n\n${instruction}`,
-    };
-  } else {
-    nextMessages.unshift({ role: "system", content: instruction });
+/**
+ * Minimal message shape accepted by {@link placeSystemInstruction}. Both the
+ * legacy caveman injector and the unified output-styles injector funnel their
+ * instruction placement through it.
+ */
+interface InjectableMessage {
+  role?: unknown;
+  content?: unknown;
+  [key: string]: unknown;
+}
+
+/**
+ * Merge an instruction into an existing system message or create one.
+ *
+ * Rules:
+ * 1. If messages[0] is role:system with string content: append to messages[0].
+ * 2. If body has a top-level `system` string: append to it (Anthropic).
+ * 3. If body has a top-level `system` block array: append a new text block.
+ * 4. If any message at index >= 1 is role:system with string content: append
+ *    to that system message. Leaves messages[0] untouched (preserves user turn).
+ * 5. If messages is empty: route through `system` instead of creating messages[0]
+ *    (#12584: avoids empty-array index-0 crashes).
+ * 6. If format is Claude/Anthropic: route through `system` to preserve system authority
+ *    rather than appending a trailing message that translator demotes to a user turn.
+ * 7. Default: append as a trailing system message (preserves user prompt authority on
+ *    OpenAI-shaped bodies; hoisted by the claude system-role extraction).
+ *
+ * Returns a partial body patch (`messages` and/or `system`) to spread over
+ * the original body.
+ */
+export function placeSystemInstruction<M extends InjectableMessage>(
+  messages: M[],
+  system: unknown,
+  instruction: string,
+  format?: string | null
+): { messages?: Array<M | { role: string; content: string }>; system?: unknown } {
+  const isClaude =
+    format === "claude" ||
+    format === "anthropic" ||
+    format === "messages";
+
+  if (isClaude) {
+    if (typeof system === "string") {
+      const trimmed = system.trim();
+      return { system: trimmed ? `${trimmed}\n\n${instruction}` : instruction };
+    }
+    if (Array.isArray(system)) {
+      return { system: [...system, { type: "text", text: instruction }] };
+    }
+    const mergeIdx = messages.findIndex(
+      (message) => message?.role === "system" && typeof message.content === "string"
+    );
+    if (mergeIdx >= 0) {
+      const nextMessages: Array<M | { role: string; content: string }> = [...messages];
+      const target = messages[mergeIdx];
+      nextMessages[mergeIdx] = {
+        ...target,
+        content: `${(target.content as string).trim()}\n\n${instruction}`,
+      };
+      return { messages: nextMessages };
+    }
+    // #14629 / Codex review: When system is absent in Claude format, preserve system authority
+    // by creating the top-level system field instead of appending a trailing message that
+    // downstream translation (claudeToOpenAIRequest) would demote to a user turn.
+    return { system: instruction };
   }
 
-  return { body: { ...body, messages: nextMessages }, applied: true };
+  const first = messages[0];
+  if (first?.role === "system" && typeof first.content === "string") {
+    const nextMessages: Array<M | { role: string; content: string }> = [...messages];
+    nextMessages[0] = { ...first, content: `${first.content.trim()}\n\n${instruction}` };
+    return { messages: nextMessages };
+  }
+  if (typeof system === "string") {
+    const trimmed = system.trim();
+    return { system: trimmed ? `${trimmed}\n\n${instruction}` : instruction };
+  }
+  if (Array.isArray(system)) {
+    return { system: [...system, { type: "text", text: instruction }] };
+  }
+  const mergeIdx = messages.findIndex(
+    (message) => message?.role === "system" && typeof message.content === "string"
+  );
+  if (mergeIdx >= 0) {
+    const nextMessages: Array<M | { role: string; content: string }> = [...messages];
+    const target = messages[mergeIdx];
+    nextMessages[mergeIdx] = {
+      ...target,
+      content: `${(target.content as string).trim()}\n\n${instruction}`,
+    };
+    return { messages: nextMessages };
+  }
+  if (messages.length === 0) {
+    // #12584: an empty array has no non-zero index to append at; route through
+    // `system` instead of creating messages[0].
+    return { system: instruction };
+  }
+  return { messages: [...messages, { role: "system", content: instruction }] };
+}
+
+/**
+ * True when an idempotency marker is already present in a top-level `system`
+ * field (string or Anthropic content-block array), so instruction injection
+ * that targets that field is not re-applied on retries or follow-up turns.
+ */
+export function systemFieldIncludesMarker(system: unknown, marker: string): boolean {
+  if (typeof system === "string") return system.includes(marker);
+  if (Array.isArray(system)) {
+    return system.some((block) => {
+      const text = (block as { text?: unknown } | null | undefined)?.text;
+      return typeof text === "string" && text.includes(marker);
+    });
+  }
+  return false;
 }

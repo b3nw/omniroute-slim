@@ -1,6 +1,7 @@
 import {
   isLocalStreamLifecycleError,
   isLocalExecutionError,
+  isModelCapacityOverloadError,
 } from "../../shared/utils/circuitBreaker";
 import { isRequestScopedUpstreamFailure } from "./comboFailureLogging";
 import { getTrustedLocalRateLimitResponse } from "@omniroute/open-sse/services/rateLimitManager/errors";
@@ -29,7 +30,11 @@ export function shouldTripProviderBreakerForResult(
   return (
     !forceLiveComboTest &&
     !isCombo &&
-    !isRequestScopedUpstreamFailure({ code: result.errorCode, type: result.errorType }) &&
+    !isRequestScopedUpstreamFailure({
+      code: result.errorCode,
+      type: result.errorType,
+      status: result.status,
+    }) &&
     !(result.response && getTrustedLocalRateLimitResponse(result.response)) &&
     !isLocalStreamLifecycleError(result.error) &&
     !isLocalExecutionError(result.error) &&
@@ -39,6 +44,8 @@ export function shouldTripProviderBreakerForResult(
     result.errorCode !== "proxy_unreachable" &&
     result.errorCode !== "RATE_LIMIT_QUEUE_TIMEOUT" &&
     result.errorCode !== "RATE_LIMIT_QUEUE_WEDGED" &&
+    !isModelCapacityOverloadError(result.error) &&
+    !isModelCapacityOverloadError(result.status) &&
     PROVIDER_BREAKER_FAILURE_STATUSES.has(Number(result.status))
   );
 }

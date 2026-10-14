@@ -35,7 +35,17 @@ import {
   clearComboFailureTracking,
   recordComboFailure,
 } from "./combo/failureTracker.ts";
-import { buildNoUpstreamResponseDiagnostics, buildRecoveryHint } from "./combo/pinRecovery.ts";
+import {
+  buildAllTargetsCoolingDownResponse,
+  buildNoUpstreamResponseDiagnostics,
+  buildRecoveryHint,
+  formatPreDispatchExclusions,
+} from "./combo/pinRecovery.ts";
+import {
+  collectCircuitOpenExclusions,
+  findOpenCircuitBreaker,
+} from "./combo/circuitOpenExclusions.ts";
+import { shouldSurfaceBodySpecific400 } from "./combo/statusDecisionTable.ts";
 import { formatExhaustedConnectionKey } from "./combo/comboDiagFormat.ts";
 import { buildTargetTimeoutRunner } from "./combo/targetTimeoutRunner.ts";
 import { recordComboRequest, recordComboShadowRequest, getComboMetrics } from "./comboMetrics.ts";
@@ -174,9 +184,11 @@ import {
   releaseQualityClone,
   releaseRejectedQualityResponse,
   toRetryAfterDisplayValue,
+  handlePreContentStreamRetry,
 } from "./combo/validateQuality.ts";
 import {
   resolveComboCooldownWaitDecision,
+  resolveCircuitOpenWaitDecision,
   ResolveComboCooldownDecisionResult,
 } from "./combo/comboCooldownRetry.ts";
 import {
@@ -199,6 +211,8 @@ import {
   isComboRequestScopedFailure as isScopedFailure,
   isRequestScopedUpstreamFailure,
   isInputBoundRequestFailure,
+  classifyQualityFailure,
+  requestScopedReplayKey,
   shouldSkipConnDisable,
   resolveDelayMs,
   comboModelNotFoundResponse,
@@ -283,6 +297,7 @@ import {
   buildAutoQuotaThresholds,
   resolveQuotaExhaustionCutoffForTarget,
 } from "./combo/quotaExhaustionCutoff.ts";
+import { getQuotaFetchScope } from "./antigravityQuotaFamily.ts";
 import { expandTargetsByFingerprints } from "./combo/fingerprintExpansion.ts";
 import { resolveComboTargetPipeline } from "./combo/targetResolution.ts";
 import {
@@ -592,14 +607,18 @@ export async function buildAutoCandidates(
         statusPenaltyReason = connectionStatusReason;
       }
       if (fetcher && target.connectionId) {
-        const quotaKey = `${provider}:${target.connectionId}`;
+        // #12637 — Antigravity families have independent quota buckets.
+        const quotaScope = getQuotaFetchScope(provider, target.modelStr);
+        const quotaKey = `${provider}:${target.connectionId}:${quotaScope}`;
         if (!quotaPromises.has(quotaKey)) {
           quotaPromises.set(
             quotaKey,
             fetchResetAwareQuotaWithCache({
               provider,
               connectionId: target.connectionId,
-              connection,
+              connection: connection
+                ? { ...connection, requestedModel: target.modelStr }
+                : connection,
               fetcher,
               config: resetWindowConfig,
               log: {},
@@ -610,12 +629,20 @@ export async function buildAutoCandidates(
         const quota = await quotaPromises.get(quotaKey)!;
         resetWindowAffinity = calculateResetWindowAffinity(quota, resetWindowConfig);
         if (!quotaCutoffBlocked) {
-          quotaRemaining = quotaRemainingPercentFromQuota(quota);
+          quotaRemaining = quotaRemainingPercentFromQuota(quota, {
+            provider,
+            requestedModel: modelStr,
+          });
         }
         if (!quotaCutoffBlocked && quotaCutoffEnabled) {
           const cutoffDecision = evaluateQuotaCutoff(
             quota as QuotaInfo | null,
-            buildAutoQuotaThresholds(provider, connection, resilienceSettings)
+            buildAutoQuotaThresholds(provider, connection, resilienceSettings),
+            {
+              provider,
+              requestedModel: modelStr,
+              providerSpecificData: connection?.providerSpecificData,
+            }
           );
           if (!cutoffDecision.proceed) {
             quotaCutoffBlocked = true;
@@ -932,7 +959,7 @@ async function handleComboChatInner({
     });
   }
 
-  const maxRetries = activeNativeTurnPin ? 0 : (config.maxRetries ?? 1);
+  const maxRetries = config.maxRetries ?? 1;
   const retryDelayMs = resolveDelayMs(config.retryDelayMs, 2000);
   const fallbackDelayMs = resolveDelayMs(config.fallbackDelayMs, 0);
   const maxSetRetries = activeNativeTurnPin ? 0 : (config.maxSetRetries ?? 0);
@@ -1110,6 +1137,9 @@ async function handleComboChatInner({
     let lastError: string | null = null;
     let earliestRetryAfter: ComboRetryAfter | null = null;
     let lastStatus: number | null = null;
+    let requestScopedFailureSeen = false;
+    let skippedForCircuitOpen = false;
+    let earliestCircuitOpenRetryMs = 0;
 
     for (let setTry = 0; setTry <= maxSetRetries; setTry++) {
       // #1731: Per-set-iteration set of providers whose quota is fully exhausted.
@@ -1117,6 +1147,8 @@ async function handleComboChatInner({
       const exhaustedProviders = new Set<string>();
       const exhaustedConnections = new Set<string>();
       const transientRateLimitedProviders = new Set<string>();
+      skippedForCircuitOpen = false;
+      earliestCircuitOpenRetryMs = 0;
       if (setTry > 0) {
         log.info("COMBO", `All targets failed — retrying set (${setTry}/${maxSetRetries})`);
         await new Promise((resolve) => {
@@ -1214,6 +1246,7 @@ async function handleComboChatInner({
         }
       };
       const abortControllers = new Map<number, AbortController>();
+      const rejectedModelKeys = new Set<string>();
       const zeroLatencyOptimizationsEnabled = config.zeroLatencyOptimizationsEnabled === true;
       const hasProtectedPriorityTarget =
         strategy === "priority" &&
@@ -1224,6 +1257,10 @@ async function handleComboChatInner({
       ): Promise<{ ok: boolean; response?: Response } | null> => {
         const target = orderedTargets[i];
         const modelStr = target.modelStr;
+        if (rejectedModelKeys.has(requestScopedReplayKey(modelStr))) {
+          log.info("COMBO", `Skipping ${modelStr} — same request already refused as request-scoped`);
+          return null;
+        }
         const rawModel = parseModel(modelStr).model || modelStr;
         const provider = target.provider;
         const protectedPriorityTarget =
@@ -1236,9 +1273,25 @@ async function handleComboChatInner({
             : null;
         };
 
-        const cb = getCircuitBreaker(provider);
-        if (cb.getStatus().state === "OPEN") {
-          log.info("COMBO", `Skipping ${modelStr} — circuit breaker OPEN for ${provider}`);
+        // #14530: the provider-wide breaker first, then this target's connection breaker.
+        const openBreaker = findOpenCircuitBreaker(provider, target.connectionId);
+        if (openBreaker) {
+          const providerOpen = openBreaker.scope === "provider";
+          const scopedConnectionId = target.connectionId ?? undefined;
+          const cbStatus = openBreaker.status;
+          skippedForCircuitOpen = true;
+          if (
+            cbStatus.retryAfterMs > 0 &&
+            (earliestCircuitOpenRetryMs === 0 || cbStatus.retryAfterMs < earliestCircuitOpenRetryMs)
+          ) {
+            earliestCircuitOpenRetryMs = cbStatus.retryAfterMs;
+          }
+          log.info(
+            "COMBO",
+            providerOpen
+              ? `Skipping ${modelStr} — circuit breaker OPEN for ${provider}`
+              : `Skipping ${modelStr} — circuit breaker OPEN for connection ${scopedConnectionId}`
+          );
           recordComboDecision(traceInvocationId, {
             step: target.executionKey,
             target: modelStr,
@@ -1742,29 +1795,32 @@ async function handleComboChatInner({
                 target: toRecordedTarget(target),
               });
               recordedAttempts++;
-              // Fix #1707: Set terminal state so the fallback doesn't emit
-              // misleading ALL_ACCOUNTS_INACTIVE when the real issue is quality.
+              const qualityFailure = classifyQualityFailure(quality);
               lastError = `Upstream response failed quality validation: ${quality.reason}`;
-              lastStatus = 502;
+              lastStatus = qualityFailure.status;
               // #10314: record quality failures as a FIRST-CLASS per-target outcome
               // so a quality reason is never silently dropped from the aggregated
               // terminal message when a later sibling overwrites lastError.
               comboErrors.push({
                 model: modelStr,
-                status: 502,
+                status: qualityFailure.status,
                 error: quality.reason || "upstream response failed quality validation",
-                kind: "quality",
+                kind: qualityFailure.kind,
               });
               if (i > 0) fallbackCount++;
-              if (provider && rawModel) {
+              requestScopedFailureSeen ||= qualityFailure.requestScoped;
+              if (qualityFailure.requestScoped) {
+                rejectedModelKeys.add(requestScopedReplayKey(modelStr));
+              }
+              if (provider && rawModel && !qualityFailure.requestScoped) {
                 const mlSettings = resolveModelLockoutSettings(settings);
-                if (mlSettings.enabled && mlSettings.errorCodes.includes(502)) {
+                if (mlSettings.enabled && mlSettings.errorCodes.includes(qualityFailure.status)) {
                   recordModelLockoutFailure(
                     provider,
                     target.connectionId || "",
                     rawModel,
                     "quality_failure",
-                    502,
+                    qualityFailure.status,
                     mlSettings.baseCooldownMs,
                     profile,
                     {
@@ -1785,10 +1841,20 @@ async function handleComboChatInner({
                 latencyMs: Date.now() - startTime,
               });
               observeFailure(false, target.executionKey);
+              if (
+                handlePreContentStreamRetry(quality, retry, { maxRetries, signal, log }, modelStr)
+              ) {
+                continue;
+              }
               return protectedPriorityTarget
                 ? {
                     ok: false,
-                    response: errorResponse(502, "Upstream response failed quality validation"),
+                    response: quality.upstreamFailure
+                      ? errorResponse(
+                          quality.upstreamFailure.status,
+                          quality.reason || "Upstream request failed"
+                        )
+                      : errorResponse(502, "Upstream response failed quality validation"),
                   }
                 : null;
             }
@@ -2222,20 +2288,15 @@ async function handleComboChatInner({
           // - Max_tokens / param errors: different models have different output limits
           // - Model access denied / "not supported": different providers serve different
           //   model sets — keep the model in the combo and try the next target (#5249).
-          // Wrapper words like "invalid" / "bad request" still stop only when the text is
-          // NOT model-scoped (e.g. "invalid message format").
+          // #14529: the stop set is COMBO_400_STOP_ROWS (statusDecisionTable.ts).
+          // Model-scoped, overflow, and parameter 400s advance even when the body is
+          // wrapped as invalid_request_error or Bad Request.
           if (
-            result.status === 400 &&
-            fallbackResult.shouldFallback &&
-            !isContextOverflow400(errorText) &&
-            !isParamValidation400(errorText) &&
-            !isModelScoped400(errorText) &&
-            (errorText.toLowerCase().includes("context") ||
-              errorText.toLowerCase().includes("prompt") ||
-              errorText.toLowerCase().includes("token") ||
-              errorText.toLowerCase().includes("malformed") ||
-              errorText.toLowerCase().includes("invalid") ||
-              errorText.toLowerCase().includes("bad request"))
+            shouldSurfaceBodySpecific400({
+              status: result.status,
+              errorText,
+              shouldFallback: fallbackResult.shouldFallback,
+            })
           ) {
             log.warn(
               "COMBO",
@@ -2696,7 +2757,33 @@ async function handleComboChatInner({
       }
 
       // Retry the entire set if more attempts remain
-      if (setTry < maxSetRetries) continue;
+      if (setTry < maxSetRetries && !requestScopedFailureSeen) continue;
+
+      if (!lastStatus && recordedAttempts === 0 && comboCooldownWaitEnabled) {
+        const circuitOpenWait = resolveCircuitOpenWaitDecision({
+          skippedForCircuitOpen,
+          retryAfterMs: earliestCircuitOpenRetryMs,
+          attempt: comboCooldownAttempt,
+          budgetLeftMs: comboCooldownBudgetLeftMs,
+          settings: resilienceSettings.comboCooldownWait,
+        });
+        if (circuitOpenWait.wait) {
+          log.info(
+            "COMBO",
+            `${strategy} circuit-open wait: waiting ${Math.ceil(circuitOpenWait.waitMs / 1000)}s (reason=${circuitOpenWait.reason ?? "circuit_open"}) then retrying (attempt ${comboCooldownAttempt + 1}/${resilienceSettings.comboCooldownWait.maxAttempts})`
+          );
+          const completed = await waitForCooldownAwareRetry(circuitOpenWait.waitMs, signal);
+          if (!completed) {
+            return errorResponse(499, "Request aborted");
+          }
+          comboCooldownAttempt += 1;
+          comboCooldownBudgetLeftMs = Math.max(
+            0,
+            comboCooldownBudgetLeftMs - circuitOpenWait.waitMs
+          );
+          return dispatchWithCooldownRetry();
+        }
+      }
 
       // All set retries exhausted — return the final error
       // #10681: finalize the decision trace (all targets failed or skipped).
@@ -2704,6 +2791,22 @@ async function handleComboChatInner({
       finishComboTrace(traceInvocationId, { status: 503 });
       if (!lastStatus) {
         if (recordedAttempts === 0) {
+          // #14949: every target sat behind an OPEN breaker — say so, with the
+          // providers and the time until the next probe, instead of the generic
+          // skip whose recovery hint points at quota and top-ups.
+          const circuitOpen = skippedForCircuitOpen
+            ? collectCircuitOpenExclusions(orderedTargets)
+            : null;
+          const circuitOpenResponse = circuitOpen
+            ? buildAllTargetsCoolingDownResponse(circuitOpen)
+            : null;
+          if (circuitOpenResponse) {
+            log.warn(
+              "COMBO",
+              `All targets skipped: circuit breaker open — ${formatPreDispatchExclusions(circuitOpen!)}`
+            );
+            return circuitOpenResponse;
+          }
           return withQuotaExhaustionClassification(
             errorResponseWithComboDiagnostics(
               503,
@@ -3226,6 +3329,7 @@ async function handleRoundRobinCombo({
   const exhaustedProviders = new Set<string>();
   const exhaustedConnections = new Set<string>();
   const transientRateLimitedProviders = new Set<string>();
+  const rejectedModelKeys = new Set<string>(); // same-model targets after a request-scoped refusal
 
   // Try each model starting from the round-robin target
   try {
@@ -3236,6 +3340,11 @@ async function handleRoundRobinCombo({
       const target = filteredTargets[modelIndex];
       const modelStr = target.modelStr;
       const provider = target.provider;
+      if (rejectedModelKeys.has(requestScopedReplayKey(modelStr))) {
+        log.info("COMBO-RR", `Skipping ${modelStr} — same request already refused request-scoped`);
+        if (offset > 0) fallbackCount++;
+        continue;
+      }
       const profile = await getRuntimeProviderProfile(provider);
       const semaphoreKey = `combo:${combo.name}:${target.executionKey}`;
       const allowRateLimitedConnection =
@@ -3470,14 +3579,23 @@ async function handleRoundRobinCombo({
               recordedAttempts++;
               // Fix #1707: Set terminal state so the fallback doesn't emit
               // misleading ALL_ACCOUNTS_INACTIVE when the real issue is quality.
+              const qualityFailure = classifyQualityFailure(quality);
+              if (qualityFailure.requestScoped) {
+                rejectedModelKeys.add(requestScopedReplayKey(modelStr));
+              }
               lastError = `Upstream response failed quality validation: ${quality.reason}`;
-              lastStatus = 502;
+              lastStatus = qualityFailure.status;
               rrOutcomes.push({
                 model: modelStr,
-                status: 502,
+                status: qualityFailure.status,
                 error: quality.reason || "upstream response failed quality validation",
-                kind: "quality",
+                kind: qualityFailure.kind,
               });
+              if (
+                handlePreContentStreamRetry(quality, retry, { maxRetries, signal, log }, modelStr)
+              ) {
+                continue;
+              }
               if (offset > 0) fallbackCount++;
               break; // move to next model
             }

@@ -140,6 +140,7 @@ type StreamCompletePayload = {
    * NOT token-level TTFT — see open-sse/utils/streamTiming.ts for what is measured.
    */
   ttft?: number | null;
+  firstOutputMs?: number | null; // StreamTiming.firstOutputMs(); the caller adds pre-stream time
   /** Mean inter-chunk gap in ms (chunk-latency proxy for ITL), or null. */
   itlMs?: number | null;
   /** True when the stream was interrupted (timeout/abort/error) before a clean finish. */
@@ -702,6 +703,7 @@ export function createSSEStream(options: StreamOptions = {}) {
   /** Forward a pre-encoded SSE chunk, marking TTFT/ITL on the way. */
   const forward = (controller: TransformStreamDefaultController<Uint8Array>, bytes: Uint8Array) => {
     timing.markForward();
+    timing.observeOutput(bytes);
     controller.enqueue(bytes);
   };
 
@@ -2657,9 +2659,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                   status: 200,
                   usage,
                   responseBody,
-                  ttft: timing.ttftMs(),
-                  itlMs: timing.avgItlMs(),
-                  interrupted: timing.interrupted,
+                  ...timing.completionTiming(),
                   // #9315 switched the summary to the accumulated responseBody to avoid
                   // stale/truncated event data — but responseBody here is synthesized in
                   // chat-completion shape, which loses the Responses API `response` object.
@@ -2797,9 +2797,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                   status: err.status,
                   usage: state?.usage,
                   responseBody: errorBody,
-                  ttft: timing.ttftMs(),
-                  itlMs: timing.avgItlMs(),
-                  interrupted: timing.interrupted,
+                  ...timing.completionTiming(),
                   error: err.message,
                   errorCode: err.code,
                   providerPayload: providerPayloadCollector.build(
@@ -2994,6 +2992,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                 status: 200,
                 usage: state?.usage,
                 responseBody,
+                ...timing.completionTiming(),
                 // Same OPENAI_RESPONSES carve-out as the passthrough branch above —
                 // the synthesized chat-shaped responseBody drops the `response` object,
                 // and (like the passthrough branch) never carries an `object` marker at

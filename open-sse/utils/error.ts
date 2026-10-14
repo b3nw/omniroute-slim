@@ -23,14 +23,38 @@ interface ErrorResponseBody {
 // Length cap protects against pathological inputs even before tokenization.
 const MAX_ERROR_LEN = 4096;
 const SOURCE_EXT = ["ts", "tsx", "js", "jsx", "mjs", "cjs"] as const;
+const POSIX_FILESYSTEM_ROOTS = [
+  "/bin",
+  "/boot",
+  "/dev",
+  "/etc",
+  "/home",
+  "/lib",
+  "/media",
+  "/mnt",
+  "/opt",
+  "/proc",
+  "/root",
+  "/run",
+  "/sbin",
+  "/srv",
+  "/sys",
+  "/tmp",
+  "/usr",
+  "/var",
+];
 
 function looksLikeAbsolutePath(tok: string): boolean {
-  // POSIX: "/<...>.ts" (optionally followed by :line[:col]).
+  // POSIX: "/<...>.ts" (optionally followed by :line[:col]) or known filesystem root.
   // Windows: "C:\<...>.ts" or "C:/<...>.ts".
   if (tok.length < 4 || tok.length > 2048) return false;
   const isPosix = tok.charCodeAt(0) === 0x2f; // '/'
   const isWindows = tok.length > 2 && tok.charCodeAt(1) === 0x3a && /[A-Za-z]/.test(tok[0]);
   if (!isPosix && !isWindows) return false;
+  if (isWindows) return true;
+  for (const root of POSIX_FILESYSTEM_ROOTS) {
+    if (tok.startsWith(root + "/") || tok === root) return true;
+  }
   const dot = tok.lastIndexOf(".");
   if (dot <= 0 || dot === tok.length - 1) return false;
   const ext = tok
@@ -47,11 +71,11 @@ export function redactSensitiveErrorText(value: string): string {
     .replace(/ya29\.[a-zA-Z0-9_-]+/gi, "[REDACTED_TOKEN]")
     .replace(/GOCSPX-[a-zA-Z0-9_-]+/gi, "[REDACTED_SECRET]")
     .replace(
-      /(["']?(?:api[_-]?key|access[_-]?token|authorization|cookie|secret)["']?\s*[:=]\s*["'])[^"']*(["'])/gi,
+      /(["']?(?:api[_-]?key|access[_-]?token|authorization|cookie|secret|token)["']?\s*[:=]\s*["'])[^"']*(["'])/gi,
       "$1[REDACTED]$2"
     )
     .replace(
-      /(["']?(?:api[_-]?key|access[_-]?token|authorization|cookie|secret)["']?\s*[:=]\s*)[^"',\s}]+/gi,
+      /(["']?(?:api[_-]?key|access[_-]?token|authorization|cookie|secret|token)["']?\s*[:=]\s*)[^"',\s}]+/gi,
       "$1[REDACTED]"
     );
 }
