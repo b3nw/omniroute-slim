@@ -226,3 +226,24 @@ test("isQuotaExhaustedForRequest does not falsely block un-cached Gemini model w
     "un-cached gemini-pro-agent must NOT be blocked by sibling gemini-3.7 exhaustion"
   );
 });
+
+test("isQuotaExhaustedForRequest does not skip Claude extra-usage connections", () => {
+  const connectionId = "conn-claude-extra-usage";
+  quotaCache.setQuotaCache(connectionId, "claude", {
+    "session (5h)": { remainingPercentage: 0, resetAt: null },
+  });
+
+  assert.equal(quotaCache.isQuotaExhaustedForRequest(connectionId, "claude"), true);
+  assert.equal(
+    quotaCache.isQuotaExhaustedForRequest(connectionId, "claude", null, { blockExtraUsage: true }),
+    true
+  );
+  assert.equal(
+    quotaCache.isQuotaExhaustedForRequest(connectionId, "claude", null, { blockExtraUsage: false }),
+    false
+  );
+  assert.equal(
+    quotaCache.isQuotaExhaustedForRequest(connectionId, "codex", null, { blockExtraUsage: false }),
+    true
+  );
+});

@@ -17,6 +17,9 @@ const { clearAllStickyBindings } =
 const { invalidateCodexQuotaCache, registerCodexConnection, registerCodexQuotaFetcher } =
   await import("../../open-sse/services/codexQuotaFetcher.ts");
 const { registerQuotaFetcher } = await import("../../open-sse/services/quotaPreflight.ts");
+const { getQuotaScopedModelForProvider } =
+  await import("../../open-sse/services/antigravityQuotaFamily.ts");
+const genericQuotaFetcher = await import("../../open-sse/services/genericQuotaFetcher.ts");
 const combosDb = await import("../../src/lib/db/combos.ts");
 const providersDb = await import("../../src/lib/db/providers.ts");
 const { recordComboRequest } = await import("../../open-sse/services/comboMetrics.ts");
@@ -432,6 +435,91 @@ test("reset-aware strategy avoids accounts near 5h exhaustion", async (t) => {
   const combo = resetAwareCombo(`reset-aware-guard-${randomUUID()}`, [exhausted5h, healthy5h]);
 
   assert.equal(await selectedConnectionFor(combo), healthy5h.id);
+});
+
+test("Antigravity aliases share one family-scoped cache key", () => {
+  assert.equal(getQuotaScopedModelForProvider("agy", "gemini-3.7-flash-high"), "family:gemini");
+  assert.equal(
+    getQuotaScopedModelForProvider("antigravity", "gemini-3.7-flash-high"),
+    "family:gemini"
+  );
+});
+
+test("reset-aware Antigravity routing scores each target by its own model family (#12637)", async (t) => {
+  const reset5h = new Date(Date.now() + 4 * 3600 * 1000).toISOString();
+  const reset7d = new Date(Date.now() + 6 * 24 * 3600 * 1000).toISOString();
+  const window = (used: number, resetAt: string) => ({
+    used,
+    total: 1000,
+    remainingPercentage: 100 - used / 10,
+    resetAt,
+  });
+  // A: Gemini nearly untouched, Claude family fully exhausted.
+  // B: Gemini half used, Claude family healthy.
+  const geminiFresh = (await providersDb.createProviderConnection({
+    provider: "agy",
+    authType: "oauth",
+    name: `agy-gemini-fresh-${randomUUID()}`,
+    accessToken: "agy-a",
+  })) as { id: string };
+  const claudeFresh = (await providersDb.createProviderConnection({
+    provider: "agy",
+    authType: "oauth",
+    name: `agy-claude-fresh-${randomUUID()}`,
+    accessToken: "agy-b",
+  })) as { id: string };
+  const usageByConnection: Record<string, unknown> = {
+    [geminiFresh.id]: {
+      quotas: {
+        "gemini-3.7-flash-high": window(30, reset5h),
+        gemini_weekly: window(10, reset7d),
+        "claude-opus-4-6-thinking": window(1000, reset7d),
+        claude_gpt_weekly: window(1000, reset7d),
+      },
+    },
+    [claudeFresh.id]: {
+      quotas: {
+        "gemini-3.7-flash-high": window(500, reset5h),
+        gemini_weekly: window(500, reset7d),
+        "claude-opus-4-6-thinking": window(30, reset5h),
+        claude_gpt_weekly: window(10, reset7d),
+      },
+    },
+  };
+  genericQuotaFetcher.__testing.clearCache();
+  genericQuotaFetcher.__testing.setUsageFetcher(
+    async (connection: { id?: string }) => usageByConnection[String(connection.id)] ?? null
+  );
+  registerQuotaFetcher("agy", genericQuotaFetcher.fetchGenericQuota);
+  t.after(() => {
+    genericQuotaFetcher.__testing.resetUsageFetcher();
+    genericQuotaFetcher.__testing.clearCache();
+  });
+
+  const comboFor = (model: string) => ({
+    name: `reset-aware-agy-${randomUUID()}`,
+    strategy: "reset-aware",
+    config: {},
+    models: [geminiFresh.id, claudeFresh.id].map((connectionId, index) => ({
+      kind: "model",
+      provider: "agy",
+      providerId: "agy",
+      model,
+      connectionId,
+      id: `agy-${index}`,
+    })),
+  });
+
+  assert.equal(
+    await selectedConnectionFor(comboFor("gemini-3.7-flash-high")),
+    geminiFresh.id,
+    "an exhausted Claude family must not push a Gemini request off the fresh Gemini account"
+  );
+  assert.equal(
+    await selectedConnectionFor(comboFor("claude-opus-4-6-thinking")),
+    claudeFresh.id,
+    "the Claude request must still see the exhausted Claude family"
+  );
 });
 
 test("reset-aware strategy rotates similar scores with round-robin tie breaking", async () => {

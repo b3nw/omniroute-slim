@@ -18,6 +18,7 @@ import {
   withEarlyStreamKeepalive,
   OPENAI_RESPONSES_ERROR_FRAME,
 } from "@omniroute/open-sse/utils/earlyStreamKeepalive";
+import { createStreamDeadlineSignal } from "@omniroute/open-sse/utils/streamDeadlineSignal";
 import { resolveKeepaliveThreshold } from "@omniroute/open-sse/utils/keepaliveThreshold";
 import { OPENAI_RESPONSES_IN_PROGRESS_FRAME } from "@omniroute/open-sse/utils/sseHeartbeat";
 
@@ -29,7 +30,6 @@ import { OPENAI_RESPONSES_IN_PROGRESS_FRAME } from "@omniroute/open-sse/utils/ss
 // certain Node APIs used by the translator bootstrap are not available.
 // The translators are always initialized via the open-sse side (chatCore),
 // so /v1/responses just delegates to handleChat which handles everything.
-
 
 export async function OPTIONS() {
   return new Response(null, {
@@ -103,7 +103,7 @@ async function postHandler(request: any) {
   const admission = admissionResult;
   request = admission.request;
   const finishAdmission = (response: Response) =>
-    releaseChatAdmissionWhenDone(response, admission.lease);
+    releaseChatAdmissionWhenDone(response, admission.lease, { signal: request.signal });
 
   try {
     let parsedBody;
@@ -142,12 +142,20 @@ async function postHandler(request: any) {
     if (wantsStreaming) {
       const thresholdMs = resolveKeepaliveThreshold(resolvedBody?.model);
       const correlationId = generateRequestId();
+      // #14808/#15010: explicit slow-stream deadline signal, created only on the
+      // streaming branch so non-streaming calls keep the framework Request untouched.
+      // handleChat, the admission lease and the keepalive wrapper all observe it, so a
+      // deadline abort tears the handler down exactly like a client disconnect.
+      const { signal: streamSignal, deadlineController } = createStreamDeadlineSignal(
+        request.signal
+      );
       const handlerResponse = releaseChatAdmissionAfterHandler(
-        handleChat(resolved, null, resolvedBody, correlationId),
-        admission.lease
+        handleChat(resolved, null, resolvedBody, correlationId, streamSignal),
+        admission.lease,
+        { signal: streamSignal }
       );
       return await withEarlyStreamKeepalive(handlerResponse, {
-        signal: request.signal,
+        signal: streamSignal,
         thresholdMs,
         startupFrame: OPENAI_RESPONSES_IN_PROGRESS_FRAME,
         applicationKeepalive: {
@@ -156,6 +164,7 @@ async function postHandler(request: any) {
         },
         errorFrame: OPENAI_RESPONSES_ERROR_FRAME,
         correlationId,
+        deadlineController,
       });
     }
 

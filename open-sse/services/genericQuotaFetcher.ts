@@ -24,29 +24,37 @@ import {
   type QuotaFetcher,
   type QuotaInfo,
 } from "./quotaPreflight.ts";
+import { getAntigravityQuotaFamily, getQuotaFetchScope } from "./antigravityQuotaFamily.ts";
+import { boundedMap } from "../../src/lib/quota/boundedMap.ts";
+
+type UsageFetcher = (connection: Parameters<typeof getUsageForProvider>[0]) => Promise<unknown>;
+
+let usageFetcherOverride: UsageFetcher | null = null;
 
 // 60s — matches Codex's TTL. Long enough to avoid hammering upstream usage
 // endpoints on every routing decision, short enough that a near-exhausted
 // account is skipped within one minute of crossing its threshold.
 const CACHE_TTL_MS = 60_000;
 
-interface CacheEntry {
-  quota: QuotaInfo;
-  fetchedAt: number;
+// One entry per (provider, connection[, Antigravity family]); 4096 keeps very
+// large pools from evicting.
+const cache = boundedMap<QuotaInfo>("quota-fetcher-cache", 4096, "ttl", CACHE_TTL_MS);
+
+function connectionKey(provider: string, connectionId: string): string {
+  return `${provider}::${connectionId}`;
 }
 
-const cache = new Map<string, CacheEntry>();
-
-function cacheKey(provider: string, connectionId: string): string {
-  return `${provider}::${connectionId}`;
+// #12637 — Antigravity Gemini and Claude families have independent quota
+// buckets, so their converted QuotaInfo is cached per family; every other
+// provider keeps one entry per connection (scope `*`).
+function cacheKey(provider: string, connectionId: string, requestedModel?: string | null): string {
+  return `${connectionKey(provider, connectionId)}::${getQuotaFetchScope(provider, requestedModel)}`;
 }
 
 // Auto-cleanup stale entries — same shape as codexQuotaFetcher.
 const _cacheCleanup = setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of cache) {
-    if (now - entry.fetchedAt > CACHE_TTL_MS * 5) cache.delete(key);
-  }
+  // ttl reads purge expired entries.
+  for (const key of cache.keys()) cache.get(key);
 }, 5 * 60_000);
 if (typeof _cacheCleanup === "object" && "unref" in _cacheCleanup) {
   (_cacheCleanup as { unref?: () => void }).unref?.();
@@ -116,7 +124,15 @@ interface ConnectionInputs {
  * / shape-unknown / missing). Exported for unit testing — the production path
  * is `fetchGenericQuota`, which adds caching + the upstream call.
  */
-export function convertUsageToQuotaInfo(usage: unknown): QuotaInfo | null {
+type UsageToQuotaContext = {
+  requestedModel?: string | null;
+  provider?: string | null;
+};
+
+export function convertUsageToQuotaInfo(
+  usage: unknown,
+  context: UsageToQuotaContext = {}
+): QuotaInfo | null {
   if (!usage || typeof usage !== "object") return null;
   const usageRecord = usage as Record<string, unknown>;
   if (
@@ -135,32 +151,63 @@ export function convertUsageToQuotaInfo(usage: unknown): QuotaInfo | null {
   }
 
   const windows: Record<string, { percentUsed: number; resetAt: string | null }> = {};
-  let worstPercent = 0;
-  let worstResetAt: string | null = null;
   for (const [name, entry] of Object.entries(quotasObj as Record<string, unknown>)) {
     const percentUsed = percentUsedForQuota(entry);
     if (percentUsed === null) continue;
-    const resetAt = resetAtForQuota(entry);
-    windows[name] = { percentUsed, resetAt };
-    if (percentUsed > worstPercent) {
-      worstPercent = percentUsed;
-      worstResetAt = resetAt;
-    }
+    windows[name] = { percentUsed, resetAt: resetAtForQuota(entry) };
   }
 
   if (Object.keys(windows).length === 0) return null;
 
-  const normalized = normalizeQuotaWindows(windows);
+  // #12637 — a Gemini request must not see an exhausted Claude family bucket
+  // (and vice versa); only the requested family's windows are evaluated.
+  const requestedFamily = requestedAntigravityFamily(context);
+  const providerScopedWindows =
+    requestedFamily === "gemini" || requestedFamily === "claude"
+      ? Object.fromEntries(
+          Object.entries(windows).filter(([key]) => {
+            if (key.endsWith("_weekly")) {
+              return antigravityWeeklyWindowMatchesFamily(key, requestedFamily);
+            }
+            return getAntigravityQuotaFamily(key) === requestedFamily;
+          })
+        )
+      : windows;
+  if (Object.keys(providerScopedWindows).length === 0) return null;
+
+  const normalized = normalizeQuotaWindows(providerScopedWindows, context);
+  const scopedEntries = Object.values(providerScopedWindows);
+  const percentUsed = scopedEntries.reduce((worst, entry) => Math.max(worst, entry.percentUsed), 0);
+  const resetAt =
+    scopedEntries.reduce<{ percentUsed: number; resetAt: string | null } | null>(
+      (worst, entry) => (!worst || entry.percentUsed > worst.percentUsed ? entry : worst),
+      null
+    )?.resetAt ?? null;
 
   return {
     used: 0,
     total: 0,
-    percentUsed: worstPercent,
-    resetAt: worstResetAt,
-    windows,
+    percentUsed,
+    resetAt,
+    windows: providerScopedWindows,
     ...normalized,
-    limitReached: worstPercent >= 1 - 1e-9,
+    limitReached: percentUsed >= 1 - 1e-9,
   };
+}
+
+function isAntigravityProvider(provider: string | null | undefined): boolean {
+  return provider === "antigravity" || provider === "agy";
+}
+
+function requestedAntigravityFamily(context: UsageToQuotaContext) {
+  return isAntigravityProvider(context.provider) && context.requestedModel
+    ? getAntigravityQuotaFamily(context.requestedModel)
+    : null;
+}
+
+function antigravityWeeklyWindowMatchesFamily(key: string, family: "gemini" | "claude"): boolean {
+  if (!key.endsWith("_weekly")) return false;
+  return family === "gemini" ? key === "gemini_weekly" : key === "claude_gpt_weekly";
 }
 
 /**
@@ -169,12 +216,14 @@ export function convertUsageToQuotaInfo(usage: unknown): QuotaInfo | null {
  * naming convention.
  *
  *   - Claude: "session (5h)" → window5h, "weekly (7d)" → window7d
- *   - Antigravity: worst per-model quota → window5h; worst *_weekly quota → window7d
+ *   - Antigravity: requested-family model quota → window5h; matching family weekly quota → window7d
  */
 function normalizeQuotaWindows(
-  windows: Record<string, { percentUsed: number; resetAt: string | null }>
+  windows: Record<string, { percentUsed: number; resetAt: string | null }>,
+  context: UsageToQuotaContext
 ): Record<string, { percentUsed: number; resetAt: string | null }> {
   const normalized: Record<string, { percentUsed: number; resetAt: string | null }> = {};
+  const requestedFamily = requestedAntigravityFamily(context);
 
   // Claude-style explicit time windows.
   if (windows["session (5h)"] && !normalized.window5h) {
@@ -184,22 +233,31 @@ function normalizeQuotaWindows(
     normalized.window7d = windows["weekly (7d)"];
   }
 
-  // Antigravity-style per-model 5h windows: pick the worst (most used) model quota.
+  // Antigravity-style per-model windows: pick worst only inside requested family.
   const modelWindows = Object.entries(windows).filter(
     ([key]) =>
       key !== "credits" &&
       !key.endsWith("_weekly") &&
       !key.startsWith("window") &&
       !key.includes("(5h)") &&
-      !key.includes("(7d)")
+      !key.includes("(7d)") &&
+      (requestedFamily === null ||
+        requestedFamily === "other" ||
+        getAntigravityQuotaFamily(key) === requestedFamily)
   );
   if (modelWindows.length > 0 && !normalized.window5h) {
     const worst = modelWindows.reduce((a, b) => (a[1].percentUsed > b[1].percentUsed ? a : b));
     normalized.window5h = worst[1];
   }
 
-  // Antigravity-style weekly family buckets: pick the worst *_weekly quota.
-  const weeklyWindows = Object.entries(windows).filter(([key]) => key.endsWith("_weekly"));
+  // Antigravity-style weekly buckets: pick worst only inside requested family.
+  const weeklyWindows = Object.entries(windows).filter(([key]) => {
+    const hasFamilyScope = requestedFamily === "gemini" || requestedFamily === "claude";
+    return (
+      key.endsWith("_weekly") &&
+      (!hasFamilyScope || antigravityWeeklyWindowMatchesFamily(key, requestedFamily))
+    );
+  });
   if (weeklyWindows.length > 0 && !normalized.window7d) {
     const worst = weeklyWindows.reduce((a, b) => (a[1].percentUsed > b[1].percentUsed ? a : b));
     normalized.window7d = worst[1];
@@ -220,27 +278,29 @@ export const fetchGenericQuota: QuotaFetcher = async (connectionId, connection) 
   const provider = typeof conn.provider === "string" ? conn.provider : null;
   if (!provider) return null;
 
-  const key = cacheKey(provider, connectionId);
+  const requestedModel =
+    typeof connection.requestedModel === "string" ? connection.requestedModel : undefined;
+  const key = cacheKey(provider, connectionId, requestedModel);
   const cached = cache.get(key);
-  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
-    return cached.quota;
-  }
+  if (cached !== undefined) return cached;
 
   let usage: unknown;
   try {
-    usage = await getUsageForProvider(conn as Parameters<typeof getUsageForProvider>[0]);
+    const fetchUsage = usageFetcherOverride ?? getUsageForProvider;
+    usage = await fetchUsage(conn as Parameters<typeof getUsageForProvider>[0]);
   } catch {
     return null;
   }
 
-  const quota = convertUsageToQuotaInfo(usage);
+  const quota = convertUsageToQuotaInfo(usage, { provider, requestedModel });
   if (!quota) return null;
 
-  // Refresh the static window catalog so the dashboard can render the right
-  // modal inputs without waiting for the user to open the page.
-  registerQuotaWindows(provider, Object.keys(quota.windows || {}));
+  // Refresh the static window catalog from the unscoped usage payload so a
+  // family-scoped request cannot hide sibling-family dashboard controls.
+  const unscopedQuota = convertUsageToQuotaInfo(usage, { provider });
+  registerQuotaWindows(provider, Object.keys(unscopedQuota?.windows || quota.windows || {}));
 
-  cache.set(key, { quota, fetchedAt: Date.now() });
+  cache.set(key, quota);
   return quota;
 };
 
@@ -250,7 +310,10 @@ export const fetchGenericQuota: QuotaFetcher = async (connectionId, connection) 
  * fresh data instead of a 60s stale window.
  */
 export function invalidateGenericQuotaCache(provider: string, connectionId: string): void {
-  cache.delete(cacheKey(provider, connectionId));
+  const prefix = `${connectionKey(provider, connectionId)}::`;
+  for (const key of cache.keys()) {
+    if (key.startsWith(prefix)) cache.delete(key);
+  }
 }
 
 /**
@@ -266,3 +329,15 @@ export function registerGenericQuotaFetchers(): void {
     registerQuotaFetcher(provider, fetchGenericQuota);
   }
 }
+
+export const __testing = {
+  setUsageFetcher(fetcher: UsageFetcher): void {
+    usageFetcherOverride = fetcher;
+  },
+  resetUsageFetcher(): void {
+    usageFetcherOverride = null;
+  },
+  clearCache(): void {
+    cache.clear();
+  },
+};

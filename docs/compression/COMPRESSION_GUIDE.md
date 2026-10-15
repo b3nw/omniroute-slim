@@ -242,12 +242,17 @@ auto-trigger, and the panel Default. Unknown values are ignored (the request is 
 the global master switch still gates everything: when compression is off globally, the header cannot
 turn it on. Values:
 
-| Value         | Effect                                                               |
-| ------------- | -------------------------------------------------------------------- |
-| `off`         | No compression for this request.                                     |
-| `default`     | The panel-derived Default profile (ignores the active profile).      |
-| `engine:<id>` | A single engine when enabled, e.g. `engine:rtk`.                     |
-| `<combo>`     | A named combo, matched by name (case-insensitive) first, then by id. |
+| Value         | Effect                                                                                           |
+| ------------- | ------------------------------------------------------------------------------------------------ |
+| `off`         | No compression for this request.                                                                 |
+| `default`     | The panel-derived Default profile (ignores the active profile). Lossy engines are left off.      |
+| `safe`        | Same as omitting the header: dedup and whitespace folding only.                                  |
+| `allow-lossy` | Keep this request's operator plan, including summaries, relevance filters, and style rewrites.   |
+| `engine:<id>` | A single engine when enabled, e.g. `engine:rtk`. This is the per-request opt-in for that engine. |
+| `<combo>`     | A named combo, matched by name (case-insensitive) first, then by id.                             |
+
+Without `allow-lossy`, `engine:<id>`, or a named combo, lossy engines are not applied. The
+request still gets session dedup and whitespace folding when compression is on.
 
 The applied plan is echoed back in the `X-OmniRoute-Compression: <mode>; source=<source>` response
 header, where `<source>` is one of `request-header`, `routing-override`, `active-profile`,

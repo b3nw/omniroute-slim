@@ -15,6 +15,7 @@ import {
 } from "../../config/providerRegistry.ts";
 import { collectResponsesTools } from "./openai-responses/additionalTools.ts";
 import { flattenNamespaceToolName } from "./openai-responses/namespaceFlatten.ts";
+import { markDeclaredFlatToolNames } from "../response/openai-responses/requestToolIdentity.ts";
 import { openaiToOpenAIResponsesRequest } from "./openai-responses/toResponses.ts";
 import {
   JsonRecord,
@@ -933,6 +934,27 @@ export function openaiResponsesToOpenAIRequest(
   delete result.conversation;
   delete result.prompt_cache_options;
   delete result.prompt_cache_retention;
+
+  // A flat function tool declared as `mcp__a__b` must keep its flat identity on
+  // the response side. Carry it on the ledger (attached below even when no
+  // namespace tool was declared) so the follow-up-turn split fallback skips it.
+  const declaredFlatToolNames = Array.isArray(result.tools)
+    ? result.tools
+        .map((toolValue) => toString(toRecord(toRecord(toolValue).function).name))
+        .filter(Boolean)
+    : [];
+  const hasDeclaredFlatToolNames = markDeclaredFlatToolNames(
+    namespaceToolIdentityMap,
+    declaredFlatToolNames
+  );
+  if (hasDeclaredFlatToolNames && namespaceToolIdentityMap.size === 0) {
+    Object.defineProperty(result, "_namespaceToolIdentityMap", {
+      value: namespaceToolIdentityMap,
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+  }
 
   if (namespaceToolIdentityMap.size > 0) {
     // chatCore extracts and deletes these transient side channels before dispatch.

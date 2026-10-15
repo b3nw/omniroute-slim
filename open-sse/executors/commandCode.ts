@@ -8,6 +8,7 @@ import {
   sanitizeReasoningEffortForProvider,
   type ExecuteInput,
 } from "./base.ts";
+import { applyReasoningEffortRecovery } from "./base/reasoningEffortRecovery.ts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -898,8 +899,10 @@ export class CommandCodeExecutor extends BaseExecutor {
     const apiKey = credentials?.apiKey || credentials?.accessToken;
     if (!apiKey) throw new Error("Command Code API key required");
 
+    const abortSignal = signal || undefined;
     const sanitizedBody = sanitizeReasoningEffortForProvider(body, this.provider, model);
-    const { body: transformedBody } = buildOpenAiBody(model, sanitizedBody, stream);
+    const { body: initialTransformedBody } = buildOpenAiBody(model, sanitizedBody, stream);
+    let transformedBody: unknown = initialTransformedBody;
     const url = this.buildUrl();
 
     const headers: Record<string, string> = {
@@ -909,12 +912,27 @@ export class CommandCodeExecutor extends BaseExecutor {
     };
     mergeUpstreamExtraHeaders(headers, upstreamExtraHeaders);
 
-    const upstream = await fetch(url, {
+    let upstream = await fetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(transformedBody),
-      signal: signal || undefined,
+      signal: abortSignal,
     });
+
+    // #14629: reach the reactive reasoning_effort 400 clamp-and-retry chain,
+    // otherwise unreachable here since this override never calls
+    // super.execute() (see open-sse/executors/base/reasoningEffortRecovery.ts).
+    const recovery = await applyReasoningEffortRecovery({
+      response: upstream,
+      url,
+      provider: this.provider,
+      model,
+      body: transformedBody,
+      fetchOptions: { method: "POST", headers, signal: abortSignal },
+      fetchFn: (fetchUrl, fetchOpts) => fetch(fetchUrl, fetchOpts),
+    });
+    upstream = recovery.response;
+    transformedBody = recovery.body;
 
     if (upstream.ok) {
       return { response: upstream, url, headers, transformedBody };
@@ -936,18 +954,32 @@ export class CommandCodeExecutor extends BaseExecutor {
       };
       mergeUpstreamExtraHeaders(cliHeaders, upstreamExtraHeaders);
 
-      const { body: cliTransformedBody, toolNameMap } = buildCommandCodeCliBody(
+      const { body: initialCliTransformedBody, toolNameMap } = buildCommandCodeCliBody(
         model,
         sanitizedBody,
         stream
       );
+      let cliTransformedBody: unknown = initialCliTransformedBody;
 
-      const cliUpstream = await fetch(cliUrl, {
+      let cliUpstream = await fetch(cliUrl, {
         method: "POST",
         headers: cliHeaders,
         body: JSON.stringify(cliTransformedBody),
-        signal: signal || undefined,
+        signal: abortSignal,
       });
+
+      // #14629: same reactive reasoning_effort recovery for the CLI fallback fetch.
+      const cliRecovery = await applyReasoningEffortRecovery({
+        response: cliUpstream,
+        url: cliUrl,
+        provider: this.provider,
+        model,
+        body: cliTransformedBody,
+        fetchOptions: { method: "POST", headers: cliHeaders, signal: abortSignal },
+        fetchFn: (fetchUrl, fetchOpts) => fetch(fetchUrl, fetchOpts),
+      });
+      cliUpstream = cliRecovery.response;
+      cliTransformedBody = cliRecovery.body;
 
       if (!cliUpstream.ok) {
         const errorText = await cliUpstream.text().catch(() => {

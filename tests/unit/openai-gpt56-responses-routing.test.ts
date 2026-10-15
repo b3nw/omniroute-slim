@@ -15,7 +15,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { getModelTargetFormat } from "../../open-sse/config/providerModels.ts";
+import { getModelTargetFormat, PROVIDER_MODELS } from "../../open-sse/config/providerModels.ts";
 import { DefaultExecutor } from "../../open-sse/executors/default.ts";
 
 test("getModelTargetFormat routes the public OpenAI GPT-5.6 family through Responses", () => {
@@ -30,6 +30,30 @@ test("getModelTargetFormat routes the public OpenAI GPT-5.6 family through Respo
 
 test("GPT-5.4 (non-5.6) stays on Chat Completions", () => {
   assert.equal(getModelTargetFormat("openai", "gpt-5.4"), null);
+});
+
+// Upstream #14652 asserts this against `gpt-6-astra`, a catalog row added by upstream #13026
+// (not in Slim's catalog — that PR also carries a static Codex client pin that Slim's
+// client-versions registry supersedes). The mechanism under test is catalog-agnostic, so it is
+// asserted here against every Responses-tagged row Slim's `openai` catalog actually ships.
+test("effort suffixes keep the base model's Responses endpoint", () => {
+  assert.equal(getModelTargetFormat("openai", "gpt-5.6-sol-xhigh"), "openai-responses");
+  assert.equal(getModelTargetFormat("openai", "openai/gpt-5.6-terra-high"), "openai-responses");
+  const responsesRows = (PROVIDER_MODELS.openai ?? []).filter(
+    (m) => m.targetFormat === "openai-responses"
+  );
+  assert.ok(responsesRows.length > 0, "Slim's openai catalog must tag Responses-only rows");
+  for (const row of responsesRows) {
+    for (const suffix of ["ultra", "max", "xhigh", "high", "medium", "low", "none"]) {
+      assert.equal(
+        getModelTargetFormat("openai", `${row.id}-${suffix}`),
+        "openai-responses",
+        `${row.id}-${suffix} must keep the base row's Responses endpoint`
+      );
+    }
+  }
+  // A suffix on a Chat-Completions row must not be promoted to Responses.
+  assert.notEqual(getModelTargetFormat("openai", "gpt-5.4-high"), "openai-responses");
 });
 
 test("DefaultExecutor builds the /v1/responses URL for gpt-5.6-sol", () => {

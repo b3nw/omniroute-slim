@@ -141,6 +141,7 @@ import {
   withBodyTimeout,
 } from "../utils/stream.ts";
 import { ensureStreamReadiness } from "../utils/streamReadiness.ts";
+import { requestTtftMs } from "../utils/streamTiming.ts";
 import { resolveSuppressThinkClose, THINKING_MARKER_HEADER } from "../utils/thinkCloseMarker.ts";
 import { resolveStreamReadinessTimeout } from "../utils/streamReadinessPolicy.ts";
 import { resolveAgentGoalPolicy } from "../utils/agentGoalPolicy.ts";
@@ -371,6 +372,7 @@ import { isCompactResponsesEndpoint } from "../executors/codex.ts";
 import { persistCodexChildQuotaResponse } from "../services/codexAccount/index.ts";
 import { invalidateCodexQuotaCache } from "../services/codexQuotaFetcher.ts";
 import { translateNonStreamingResponse } from "./responseTranslator.ts";
+import { applyFunctionCallIdentity } from "../translator/response/openai-responses/functionCallIdentity.ts";
 import { extractToolSchemaMap } from "../translator/response/openai-responses/toolSchemas.ts";
 import { unwrapClineNonStreamingEnvelope } from "./chatCore/clineResponseEnvelope.ts";
 import { extractUsageFromResponse } from "./usageExtractor.ts";
@@ -538,8 +540,9 @@ export async function handleChatCore({
   // Per-request trace id + checkpoint helper. Lets us see exactly which await
   // a hung request was sitting on in `[STAGE_TRACE]` log lines. Uses crypto RNG
   // (not Math.random) purely to satisfy CodeQL js/insecure-randomness — this id
-  // is a log-correlation token, not a security secret.
-  const traceId = globalThis.crypto.randomUUID().slice(0, 6);
+  // is a log-correlation token, not a security secret. Keep the full UUID:
+  // a 6-char prefix collides in call_logs under production volume (#14451).
+  const traceId = globalThis.crypto.randomUUID();
   // Emit request.started event for real-time dashboard
   setImmediate(() => {
     emit("request.started", {
@@ -5076,18 +5079,48 @@ export async function handleChatCore({
     // Source format determines output shape. If we are outputting OpenAI shape or pseudo-OpenAI shape, sanitize.
     if (clientResponseFormat === FORMATS.OPENAI_RESPONSES) {
       translatedResponse = sanitizeResponsesApiResponse(translatedResponse);
-      // Responses-API non-stream path: restore `{namespace, name}` on every
-      // `function_call` item that was flattened from a namespace sub-tool on
-      // the request side (#7936 round-trip closure).
       const responseOutput = translatedResponse?.output;
-      if (requestToolIdentityMap && Array.isArray(responseOutput)) {
+      // #13128: a Responses custom/freeform tool travels upstream as a Chat
+      // function with an { input: string } schema; turn its function_call back
+      // into a custom_tool_call carrying the raw input. Classification uses the
+      // wire name, so it must run before the identity restore below.
+      if (customToolNames && Array.isArray(responseOutput)) {
         for (const item of responseOutput) {
-          if (item?.type !== "function_call") continue;
-          const identity = requestToolIdentityMap.get(item.name);
-          if (identity) {
-            item.namespace = identity.namespace;
-            item.name = identity.name;
+          if (item?.type !== "function_call" || !customToolNames.has(item.name)) continue;
+
+          let rawInput = item.arguments;
+          if (typeof item.arguments === "string") {
+            try {
+              const parsed = JSON.parse(item.arguments);
+              if (parsed && typeof parsed.input === "string") rawInput = parsed.input;
+            } catch {
+              // Non-JSON arguments are already the best available raw input.
+            }
+          } else if (
+            item.arguments &&
+            typeof item.arguments === "object" &&
+            typeof item.arguments.input === "string"
+          ) {
+            rawInput = item.arguments.input;
           }
+
+          item.type = "custom_tool_call";
+          item.input = typeof rawInput === "string" ? rawInput : JSON.stringify(rawInput ?? "");
+          item.status ??= "completed";
+          delete item.arguments;
+        }
+      }
+      // Responses-API non-stream path: restore `{namespace, name}` on every
+      // `function_call` / `custom_tool_call` item that was flattened from a
+      // namespace sub-tool on the request side (#7936 round-trip closure), and
+      // stamp the Codex collaboration plaintext-delivery marker on the restored
+      // identity (#14154). resolveRequestToolIdentity() only yields full
+      // {namespace, name} shapes, so a stray non-identity value can never blank
+      // a valid `item.name` (#12370).
+      if (Array.isArray(responseOutput)) {
+        for (const item of responseOutput) {
+          if (item?.type !== "function_call" && item?.type !== "custom_tool_call") continue;
+          applyFunctionCallIdentity(item, requestToolIdentityMap, item.name);
         }
       }
     } else if (clientResponseFormat === FORMATS.OPENAI) {
@@ -5450,6 +5483,7 @@ export async function handleChatCore({
   let streamFailureCompletionRecorded = false;
 
   // Callback to save call log when stream completes (include responseBody when provided by stream)
+  let streamTimingOriginOffsetMs: number | null = null; // startTime → StreamTiming start
   const onStreamComplete = ({
     status: streamStatus,
     usage: streamUsage,
@@ -5458,10 +5492,14 @@ export async function handleChatCore({
     clientPayload,
     error: streamError,
     errorCode: streamErrorCode,
-    ttft,
+    firstOutputMs,
     itlMs: streamItlMs,
     interrupted: streamInterrupted,
   }) => {
+    // #14919: TTFT = request start → first forwarded chunk carrying text, reasoning or a
+    // tool call (lifecycle/keepalive/role-only frames skipped); undefined keeps the
+    // usage row's latency fallback.
+    const ttft = requestTtftMs(streamTimingOriginOffsetMs, firstOutputMs);
     const normalizedStreamStatus = streamStatus || 200;
     if (streamCompletionRecorded) return;
     streamCompletionRecorded = true;
@@ -5700,6 +5738,7 @@ export async function handleChatCore({
     !isDroidCLI;
   const streamStateBody = finalBody || body;
 
+  streamTimingOriginOffsetMs = Date.now() - startTime;
   if (needsResponsesTranslation) {
     // Provider returns openai-responses, translate to openai (Chat Completions) that clients expect
     log?.debug?.("STREAM", `Responses translation mode: openai-responses → openai`);

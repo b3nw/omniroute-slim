@@ -80,6 +80,10 @@ export interface QuotaCutoffScope {
    * quotas are unrelated). Supplied by `buildQuotaCutoffScope`.
    */
   memberWindows?: ReadonlyArray<Readonly<Record<string, QuotaCutoffWindow>>>;
+  /** #12803 — connection settings; Claude `blockExtraUsage: false` stands the cutoff down. */
+  providerSpecificData?: unknown;
+  /** #14359 — recent successful dispatch stands the cutoff down for this connection. */
+  connectionId?: string | null;
 }
 
 export interface ResolvedQuotaCutoffWindows {

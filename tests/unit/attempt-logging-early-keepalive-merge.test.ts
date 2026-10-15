@@ -17,7 +17,7 @@ const testDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "omni-keepalive-merge-
 process.env.DATA_DIR = testDataDir;
 
 const coreDb = await import("../../src/lib/db/core.ts");
-const { getCallLogById } = await import("../../src/lib/usage/callLogs.ts");
+const { getCallLogById, getCallLogs } = await import("../../src/lib/usage/callLogs.ts");
 const { persistAttemptLogs } = await import("../../open-sse/handlers/chatCore/attemptLogging.ts");
 const { recordEarlyKeepaliveBytes, takeEarlyKeepaliveBytes } =
   await import("../../open-sse/utils/earlyKeepaliveByteBuffer.ts");
@@ -50,10 +50,15 @@ function baseCtx(overrides: Record<string, unknown> = {}) {
   } as Parameters<typeof persistAttemptLogs>[1];
 }
 
-async function pollForCallLog(id: string, tries = 120) {
+async function pollForCallLog(traceId: string, tries = 120) {
+  // #14451: call_logs.id is a fresh UUID. The dashboard traceId is stored on
+  // correlation_id so a test can still find the attempt without sharing a PK.
   for (let i = 0; i < tries; i++) {
-    const row = await getCallLogById(id);
-    if (row) return row as Record<string, unknown>;
+    const rows = await getCallLogs({ correlationId: traceId, limit: 5 });
+    if (rows[0]?.id) {
+      const row = await getCallLogById(rows[0].id);
+      if (row) return row as Record<string, unknown>;
+    }
     await new Promise((r) => setTimeout(r, 20));
   }
   return null;
@@ -90,7 +95,7 @@ test("bytes recorded before persistAttemptLogs are prepended into pipeline.strea
     })
   );
 
-  const row = await pollForCallLog(id);
+  const row = await pollForCallLog(correlationId);
   assert.ok(row, "call log row should be persisted");
   const pipeline = row.pipelinePayloads as { streamChunks?: { client?: string[] } };
   assert.deepEqual(pipeline.streamChunks?.client, [
@@ -149,7 +154,7 @@ test("detailedLoggingEnabled=false skips the merge even when early bytes are buf
     })
   );
 
-  const row = await pollForCallLog(id);
+  const row = await pollForCallLog(correlationId);
   assert.ok(row);
   // Buffer must still hold the entry — a disabled-detailed-logging attempt
   // must not silently drain another (later, detailed-logging-enabled) attempt's

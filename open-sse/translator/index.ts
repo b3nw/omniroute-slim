@@ -409,7 +409,21 @@ export function translateRequest(
   // execute — so a client-injected mid-array system message (OpenCode/Kilo Code style
   // clients) is still normalized before reaching the upstream. No-op for non-strict
   // providers and for already-compliant requests (prompt-cache prefix stability).
-  if (targetFormat === FORMATS.OPENAI && result.messages && Array.isArray(result.messages)) {
+  //
+  // #13948: excluded when sourceFormat===CLAUDE, because claude-to-openai.ts's
+  // demoteMidSystem already enforces this same restriction, in position, for every
+  // provider on that path. Running this pre-translation hoist first relocated the
+  // mid-array system message to index 0 of the *Claude* array before translation, so
+  // the demote-in-place downstream inherited the wrong (hoisted) position instead of
+  // the original chronological one — reordering the conversation. claude-to-openai.ts
+  // is the only request translator registered for CLAUDE→OPENAI (bootstrap.ts), so no
+  // other path is left unprotected by skipping the hoist here.
+  if (
+    targetFormat === FORMATS.OPENAI &&
+    sourceFormat !== FORMATS.CLAUDE &&
+    result.messages &&
+    Array.isArray(result.messages)
+  ) {
     result.messages = hoistLeadingSystemMessage(result.messages, provider);
   }
 

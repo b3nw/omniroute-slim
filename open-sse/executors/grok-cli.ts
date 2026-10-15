@@ -16,7 +16,22 @@ import {
   GROK_BUILD_TOKEN_URL,
 } from "../config/grokBuild.ts";
 import { resolvePublicCred } from "../utils/publicCreds.ts";
-import { BaseExecutor, type ExecutorLog, type ProviderCredentials } from "./base.ts";
+import {
+  BaseExecutor,
+  type ExecuteInput,
+  type ExecutorLog,
+  type ProviderCredentials,
+} from "./base.ts";
+import { hoistGrokBuildAdditionalTools } from "./grokCliAdditionalTools.ts";
+import {
+  convertGrokBuildCustomTools,
+  restoreGrokBuildCustomToolCalls,
+} from "./grokCliCustomTools.ts";
+import {
+  flattenGrokBuildNamespaceTools,
+  restoreGrokBuildNamespaceToolCalls,
+} from "./grokCliNamespaceTools.ts";
+import { normalizeGrokBuildToolSchemas } from "./grokCliToolSchema.ts";
 
 const GROK_BUILD_MAX_TOOLS = 200;
 const GROK_BUILD_REASONING_EFFORT_SET = new Set(GROK_BUILD_SUPPORTED_REASONING_EFFORTS);
@@ -211,6 +226,35 @@ export class GrokCliExecutor extends BaseExecutor {
     return GROK_BUILD_RESPONSES_URL;
   }
 
+  async execute(input: ExecuteInput) {
+    // Grok Build rejects `additional_tools` input items (Codex lite mode), freeform `custom`
+    // tools (e.g. Codex apply_patch, lite mode's namespaced `exec`) and `namespace` tool
+    // groups (Codex CLI MCP tools). Additional tools merge into `tools` first; custom tools
+    // then convert, also inside namespaces, so the namespace step flattens them and renames
+    // a replayed namespaced custom_tool_call to its wire name. Restore runs in reverse.
+    const converted = convertGrokBuildCustomTools(hoistGrokBuildAdditionalTools(input.body));
+    const { customTools } = converted;
+    const { body, identityMap } = flattenGrokBuildNamespaceTools(converted.body);
+    const tools = (body as { tools?: unknown } | null)?.tools;
+    if (identityMap && Array.isArray(tools) && tools.length > GROK_BUILD_MAX_TOOLS) {
+      input.log?.warn?.(
+        "GROK_CLI",
+        `Flattened namespace tools exceed the Grok Build limit: sending ${GROK_BUILD_MAX_TOOLS} ` +
+          `of ${tools.length} tools`
+      );
+    }
+    const result = await super.execute(body === input.body ? input : { ...input, body });
+    if (!identityMap && !customTools) return result;
+    const restore = async (response: Response) => {
+      const named = identityMap
+        ? await restoreGrokBuildNamespaceToolCalls(response, identityMap)
+        : response;
+      return customTools ? restoreGrokBuildCustomToolCalls(named, customTools) : named;
+    };
+    if (result instanceof Response) return restore(result);
+    return { ...result, response: await restore(result.response) };
+  }
+
   async refreshCredentials(
     credentials: ProviderCredentials,
     log?: ExecutorLog | null
@@ -306,6 +350,11 @@ export class GrokCliExecutor extends BaseExecutor {
     // xAI's cli-chat-proxy rejects requests containing more than 200 tools.
     if (Array.isArray(transformed.tools) && transformed.tools.length > GROK_BUILD_MAX_TOOLS) {
       transformed.tools = transformed.tools.slice(0, GROK_BUILD_MAX_TOOLS);
+    }
+    // Grok Build refuses a root anyOf/oneOf with a `$ref` or non-object branch
+    // (`invalid_client_tool_schema`), e.g. Codex desktop's `automation_update`.
+    if (Array.isArray(transformed.tools)) {
+      transformed.tools = normalizeGrokBuildToolSchemas(transformed.tools);
     }
 
     // Repair tool-result payloads that would fail Grok's strict JSON body parser (#7611).

@@ -255,11 +255,10 @@ export function persistAttemptLogs(args: PersistAttemptLogsArgs, ctx: PersistAtt
     }
   }
 
-  // #13481: each combo attempt needs its own row. Attempts share pendingRequestId, so
-  // keying the log on it made the successful member's insert hit the UNIQUE constraint
-  // and vanish from the dashboard; traceId is per attempt and pairs with request.started.
+  // Primary key is a fresh UUID from saveCallLog, not traceId. Attempts share
+  // pendingRequestId and must not share the row key (#13481). correlationId still
+  // pairs the row with request.started (#14451).
   saveCallLog({
-    id: traceId,
     method: "POST",
     path: clientRawRequest?.endpoint || "/v1/chat/completions",
     status,
@@ -301,7 +300,7 @@ export function persistAttemptLogs(args: PersistAttemptLogsArgs, ctx: PersistAtt
     apiKeyName: apiKeyInfo?.name || null,
     noLog: noLogEnabled,
     pipelinePayloads,
-    correlationId,
+    correlationId: correlationId || traceId,
     modelPinned: modelPinned || false,
     sessionTag: sessionTag || null,
     responseId: extractResponsesId(sourceFormat, clientResponse),

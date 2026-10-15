@@ -9,6 +9,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { finalizeResponsesTerminalStatus } from "../translator/helpers/responsesTerminalStatus.ts";
 import { resolveRequestToolIdentity } from "../translator/response/openai-responses/requestToolIdentity.ts";
+import { plaintextCollaborationFields } from "../translator/response/openai-responses/collaborationPlaintextMarker.ts";
 
 // #10223: threshold for detecting corrupted request_id fields. Normal
 // request IDs are <100 chars. DeepSeek's SSE encoder bug produces 200+
@@ -552,11 +553,16 @@ export function createResponsesApiTransformStream(
         };
       }
 
+      // #14154 — restore the request-declared {namespace, name} identity (matching
+      // the streaming translator / non-streaming client leg, #7936) and, when
+      // the restored identity is a Codex collaboration call, stamp the
+      // encrypted_function_args:[] plaintext-delivery marker Codex requires.
       const identity = resolveRequestToolIdentity(requestToolIdentityMap, toolName);
       if (identity) {
         funcItem.namespace = identity.namespace;
         funcItem.name = identity.name;
       }
+      Object.assign(funcItem, plaintextCollaborationFields(funcItem.namespace, funcItem.name));
 
       emit(controller, "response.output_item.done", {
         type: "response.output_item.done",

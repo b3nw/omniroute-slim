@@ -139,7 +139,37 @@ export type EarlyStreamKeepaliveOptions = {
    * produced. Omit to leave today's behavior unchanged (no recording).
    */
   correlationId?: string;
+  /**
+   * Abort controller owned by the route via `createStreamDeadlineSignal`
+   * (open-sse/utils/streamDeadlineSignal.ts). The wrapper aborts it when the
+   * slow-path deadline expires, so the handler — which observes the combined
+   * signal passed to handleChat explicitly — tears down exactly as on a client
+   * disconnect (concurrency slots released). Omit to run without a deadline
+   * abort (tests may pass a bare controller; streaming routes always pass the
+   * one returned by the helper).
+   */
+  deadlineController?: AbortController | null;
+  /**
+   * Absolute last-resort bound for the slow path, in ms. Internal default
+   * (SLOW_PATH_DEADLINE_MS); non-positive disables. Never an exposed setting.
+   */
+  slowPathDeadlineMs?: number;
+  /**
+   * Minimal logger for the single expiration line. Silent when omitted
+   * (no console output from this module, ever).
+   */
+  log?: { warn: (tag: string, message: string) => void } | null;
 };
+
+/**
+ * Last-resort slow-path deadline: 1 980 000 ms (33 min), derived from the
+ * largest legitimate sequential waits inside the handler, plus margin:
+ * rate-limit queue 300 s + park-and-resume 120 s + cooldown budgets 300 s +
+ * first-byte readiness ceiling 600 s = 1 320 s, + 660 s margin (~50%).
+ * Anything pending past this point is a stuck handler, not legitimate work.
+ * Internal constant, never an exposed setting — routes share this default.
+ */
+export const SLOW_PATH_DEADLINE_MS = 1_980_000;
 
 /**
  * Tagged with a string rather than an `ok: true | false` boolean: this workspace compiles
@@ -174,6 +204,13 @@ export async function withEarlyStreamKeepalive(
   // below stays consistent with the static default-message case without a second option.
   const errorFrameUsesNamedEvent = new TextDecoder().decode(errorFrame).startsWith("event:");
   const correlationId = options.correlationId;
+  const deadlineController = options.deadlineController ?? null;
+  // Absolute last-resort bound, started at wrapper call time (not at slow-path
+  // commit): covers fast-path stalls too, and stays exact when the deadline is
+  // shorter than the threshold. Non-positive disables (explicit opt-out).
+  const slowPathDeadlineMs = options.slowPathDeadlineMs ?? SLOW_PATH_DEADLINE_MS;
+  const deadlineEnabled = Number.isFinite(slowPathDeadlineMs) && slowPathDeadlineMs > 0;
+  const warn = options.log?.warn ?? null;
   const frameDecoder = correlationId ? new TextDecoder() : null;
   // Records every direct-to-client write EXCEPT the forwarded real response
   // body — that one is already captured by the handler's own reqLogger, so
@@ -191,6 +228,21 @@ export async function withEarlyStreamKeepalive(
   );
 
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  if (deadlineEnabled) {
+    deadlineTimer = setTimeout(() => {
+      try {
+        deadlineController?.abort();
+      } catch {
+        /* abort must never throw */
+      }
+    }, slowPathDeadlineMs);
+    // NOTE: no unref on the deadline timer — it is the last-resort guarantee.
+    // An unref'd timer lets a bare-node event loop drain (and a test runner go
+    // idle) before firing, which would silently disable the deadline whenever
+    // the process has no other pending work. The keepalive interval above stays
+    // unref'd (throughput optimization); the deadline stays ref'd (correctness).
+  }
   const raced = await Promise.race([
     settled.then((result) => ({ kind: "settled" as const, result })),
     new Promise<{ kind: "timeout" }>((resolve) => {
@@ -201,6 +253,7 @@ export async function withEarlyStreamKeepalive(
 
   if (raced.kind === "settled") {
     // Fast path — return verbatim, or rethrow so the route's normal error handling runs.
+    if (deadlineTimer) clearTimeout(deadlineTimer);
     const result = raced.result;
     if (result.status === "fulfilled") return result.response;
     throw result.error;
@@ -212,6 +265,12 @@ export async function withEarlyStreamKeepalive(
   let stopKeepalive = () => {};
   let upstreamReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   let aborted = false;
+  const stopDeadline = () => {
+    if (deadlineTimer) {
+      clearTimeout(deadlineTimer);
+      deadlineTimer = undefined;
+    }
+  };
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -256,6 +315,7 @@ export async function withEarlyStreamKeepalive(
       const onAbort = () => {
         if (aborted) return;
         aborted = true;
+        stopDeadline();
         stopKeepalive();
         upstreamReader?.cancel().catch(() => {});
         try {
@@ -264,6 +324,51 @@ export async function withEarlyStreamKeepalive(
           /* already closed */
         }
       };
+      const onExpired = () => {
+        // Absolute last resort: the handler never resolved within the deadline.
+        // Abort the route-owned controller (the handler observes it exactly like
+        // a client disconnect and releases its concurrency slots), emit the
+        // route's error frame in-band, log one correlated line, and close.
+        // Never the raw error — same generic frame as a handler failure.
+        if (aborted) return;
+        aborted = true;
+        stopDeadline();
+        stopKeepalive();
+        try {
+          deadlineController?.abort();
+        } catch {
+          /* abort must never throw */
+        }
+        try {
+          controller.enqueue(errorFrame);
+          recordClientBytes(errorFrame);
+        } catch {
+          /* consumer gone */
+        }
+        try {
+          warn?.(
+            "EARLY_KEEPALIVE",
+            `slow-path deadline expired after ${slowPathDeadlineMs}ms` +
+              (correlationId ? ` correlationId=${correlationId}` : "")
+          );
+        } catch {
+          /* logging must never break the stream */
+        }
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
+      };
+      let deadlineListenerAttached = false;
+      if (deadlineEnabled && deadlineController) {
+        if (deadlineController.signal.aborted) {
+          onExpired();
+        } else {
+          deadlineController.signal.addEventListener("abort", onExpired, { once: true });
+          deadlineListenerAttached = true;
+        }
+      }
       signal?.addEventListener("abort", onAbort, { once: true });
       // addEventListener does not replay an abort that happened before registration.
       // Checking after registration closes that gap without missing a concurrent abort.
@@ -271,6 +376,7 @@ export async function withEarlyStreamKeepalive(
 
       try {
         const result = await settled;
+        stopDeadline();
         stopKeepalive();
         if (aborted) {
           // The synthetic keepalive response can be cancelled before the handler resolves.
@@ -342,8 +448,12 @@ export async function withEarlyStreamKeepalive(
           }
         }
       } finally {
+        stopDeadline();
         stopKeepalive();
         signal?.removeEventListener("abort", onAbort);
+        if (deadlineListenerAttached && deadlineController) {
+          deadlineController.signal.removeEventListener("abort", onExpired);
+        }
         try {
           controller.close();
         } catch {
@@ -354,6 +464,7 @@ export async function withEarlyStreamKeepalive(
     cancel() {
       // Consumer (Next.js → client) went away — stop keepalives and release the upstream.
       aborted = true;
+      stopDeadline();
       stopKeepalive();
       upstreamReader?.cancel().catch(() => {});
     },

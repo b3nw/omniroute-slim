@@ -61,6 +61,18 @@ export function normalizeStreamFailurePayload(payload: unknown): StreamFailurePa
       : typeof record.message === "string" && record.message.trim()
         ? record.message
         : "Upstream failure";
+  // #14585: an in-stream error without an explicit status still carries its
+  // class — request/input errors are 400s, auth 401, permission 403.
+  // Slim hardening: OpenAI reports a dead key as type invalid_request_error with
+  // code invalid_api_key — that is an auth failure (401), not a request error.
+  const requestScopedInputFailure =
+    ((type === "invalid_request_error" || code === "invalid_request_error") &&
+      code !== "invalid_api_key" &&
+      code !== "insufficient_quota") ||
+    type === "context_length_exceeded" ||
+    code === "context_length_exceeded" ||
+    type === "context_window_exceeded" ||
+    code === "context_window_exceeded";
   const status =
     toStreamFailureStatus(error.status_code) ??
     toStreamFailureStatus(error.status) ??
@@ -68,7 +80,15 @@ export function normalizeStreamFailurePayload(payload: unknown): StreamFailurePa
     toStreamFailureStatus(response.status) ??
     toStreamFailureStatus(record.status_code) ??
     toStreamFailureStatus(record.status) ??
-    (looksLikeStreamRateLimit(code, type || "", message) ? 429 : 502);
+    (requestScopedInputFailure
+      ? 400
+      : type === "authentication_error" || code === "invalid_api_key"
+        ? 401
+        : type === "permission_error" || code === "permission_denied"
+          ? 403
+          : looksLikeStreamRateLimit(code, type || "", message)
+            ? 429
+            : 502);
 
   return {
     status,
