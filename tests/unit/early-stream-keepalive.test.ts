@@ -502,7 +502,9 @@ test("slowPathDeadlineMs <= 0 disables the deadline", async () => {
 // error frame, no deadline warn, timer cleaned up.
 test("client abort before the deadline emits no error frame and no deadline warn", async () => {
   const clientController = new AbortController();
-  const { signal: wrappedSignal, deadlineController } = createStreamDeadlineSignal(clientController.signal);
+  const { signal: wrappedSignal, deadlineController } = createStreamDeadlineSignal(
+    clientController.signal
+  );
   const warnings: Array<{ tag: string; message: string }> = [];
   const never = new Promise<Response>(() => {
     /* handler that never resolves */

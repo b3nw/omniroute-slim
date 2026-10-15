@@ -154,7 +154,7 @@ const EXPECTED: Record<InventoryKind, Record<string, number>> = {
     "src/lib/usage/callLogs.ts": 1,
     "src/lib/usage/codexResetCredits.ts": 1,
     "src/lib/usage/comboScoringInspector.ts": 1,
-    "src/lib/usage/providerLimits.ts": 4,
+    "src/lib/usage/providerLimits.ts": 3,
     "src/lib/usage/resilienceExplain.ts": 1,
     "src/lib/usage/usageStats.ts": 1,
     "src/lib/warmupScheduler.ts": 1,

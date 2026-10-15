@@ -34,7 +34,9 @@ async function dispatch(extraHeaders: Record<string, string> = {}) {
         object: "chat.completion",
         created: 1,
         model: "gpt-4o-mini",
-        choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }],
+        choices: [
+          { index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" },
+        ],
         usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
       }),
       { status: 200, headers: { "Content-Type": "application/json" } }
@@ -85,7 +87,11 @@ test("header-less requests run the safe pair; allow-lossy keeps the operator's r
 
   const plain = await dispatch();
   const plainMeta = String(plain.result.response.headers.get("x-omniroute-compression") || "");
-  assert.match(plainMeta, /^stacked\b/, `header-less plan must be the safe stacked pair: ${plainMeta}`);
+  assert.match(
+    plainMeta,
+    /^stacked\b/,
+    `header-less plan must be the safe stacked pair: ${plainMeta}`
+  );
   assert.ok(plain.captured, "the request was dispatched upstream");
 
   const optedIn = await dispatch({ "x-omniroute-compression": "allow-lossy" });

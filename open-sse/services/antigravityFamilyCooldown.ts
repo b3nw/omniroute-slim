@@ -3,19 +3,14 @@
  * on the connection row, without cooling the whole account.
  */
 import { lockModel } from "./accountFallback.ts";
-import {
-  getAntigravityQuotaFamily,
-  isAntigravityQuotaProvider,
-} from "./antigravityQuotaFamily.ts";
+import { getAntigravityQuotaFamily, isAntigravityQuotaProvider } from "./antigravityQuotaFamily.ts";
 
 type JsonRecord = Record<string, unknown>;
 
 const FAMILY_PSD_KEY = "antigravityFamilyRateLimitedUntil";
 
 function asRecord(value: unknown): JsonRecord {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonRecord)
-    : {};
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : {};
 }
 
 function parseUntilMs(value: unknown): number {
@@ -84,12 +79,12 @@ async function writeFamilyCooldown(
   family: "gemini" | "claude",
   rateLimitedUntil: string
 ): Promise<JsonRecord | null> {
-  const { getProviderConnectionById, updateProviderConnection } = await import(
-    "@/lib/db/providers"
-  );
-  const conn = (await getProviderConnectionById(connectionId)) as
-    | { provider?: string; providerSpecificData?: JsonRecord | null }
-    | null;
+  const { getProviderConnectionById, updateProviderConnection } =
+    await import("@/lib/db/providers");
+  const conn = (await getProviderConnectionById(connectionId)) as {
+    provider?: string;
+    providerSpecificData?: JsonRecord | null;
+  } | null;
   if (!conn || !isAntigravityQuotaProvider(conn.provider ?? null)) return null;
 
   const psd = asRecord(conn.providerSpecificData);

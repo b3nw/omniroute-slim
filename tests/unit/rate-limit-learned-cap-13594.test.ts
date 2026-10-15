@@ -459,7 +459,9 @@ test("updateFromHeaders on a successful response retains an active learned cap",
     rateLimitManager.updateFromResponseBody(
       "openai",
       connectionId,
-      JSON.stringify({ error: { message: "Maximum 5 requests within 1 minutes", type: "rate_limit_error" } }),
+      JSON.stringify({
+        error: { message: "Maximum 5 requests within 1 minutes", type: "rate_limit_error" },
+      }),
       429,
       null
     );
@@ -483,7 +485,11 @@ test("updateFromHeaders on a successful response retains an active learned cap",
     // Must NOT relax minTime to default 350ms or wipe reservoir to null
     assert.equal(lastUpdate.minTime, 12_000, "learned cap minTime (12000ms) retained");
     assert.equal(lastUpdate.reservoirRefreshAmount, 5, "learned cap refresh amount (5) retained");
-    assert.equal(lastUpdate.reservoirRefreshInterval, 60_000, "learned cap refresh interval (60s) retained");
+    assert.equal(
+      lastUpdate.reservoirRefreshInterval,
+      60_000,
+      "learned cap refresh interval (60s) retained"
+    );
     assert.equal(lastUpdate.reservoir, 5, "learned cap reservoir (5) retained");
   } finally {
     await providersDb.deleteProviderConnection(connectionId as string);

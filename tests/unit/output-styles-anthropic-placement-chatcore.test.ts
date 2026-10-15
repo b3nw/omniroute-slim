@@ -97,11 +97,7 @@ test("chatCore: output style lands in Anthropic top-level system, messages[0] st
   const text = systemText(captured.body.system);
   assert.match(text, /You are Claude\./, "client system prompt preserved");
   assert.ok(text.includes(OUTPUT_STYLE_MARKER), "output-style instruction placed in system");
-  assert.equal(
-    text.split(OUTPUT_STYLE_MARKER).length - 1,
-    1,
-    "instruction injected exactly once"
-  );
+  assert.equal(text.split(OUTPUT_STYLE_MARKER).length - 1, 1, "instruction injected exactly once");
 });
 
 test("chatCore: Claude-source → OpenAI target keeps the output style a leading system, never a demoted user turn", async () => {

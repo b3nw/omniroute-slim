@@ -7,7 +7,9 @@ function toTextContent(content: unknown): string {
   if (Array.isArray(content)) {
     return content
       .filter((part): part is { type: string; text?: unknown } => {
-        return Boolean(part) && typeof part === "object" && (part as { type?: unknown }).type === "text";
+        return (
+          Boolean(part) && typeof part === "object" && (part as { type?: unknown }).type === "text"
+        );
       })
       .map((part) => String(part.text ?? ""))
       .join("\n");

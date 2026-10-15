@@ -227,10 +227,8 @@ export async function POST(request) {
       const reqId = generateRequestId();
       // #14808/#15010: the slow-stream deadline is created only after the route knows this
       // is a streaming request; non-streaming calls keep the framework Request untouched.
-      const {
-        signal: routeDeadlineSignal,
-        deadlineController: routeDeadlineController,
-      } = createStreamDeadlineSignal(request.signal);
+      const { signal: routeDeadlineSignal, deadlineController: routeDeadlineController } =
+        createStreamDeadlineSignal(request.signal);
       // Wrap the real handler response, not the synthetic early-keepalive response. If the
       // client cancels while handleChat is still pending, earlyStreamKeepalive will cancel the
       // eventual handler body; only that confirmed cleanup releases heavyweight capacity.

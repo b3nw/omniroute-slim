@@ -26,7 +26,10 @@ const DECLARED_FLAT_TOOL_NAMES = Symbol("omniroute.declaredFlatToolNames");
  * split fallback below must never re-namespace these: the client registered
  * them under the flat name and can only dispatch that exact identity.
  */
-export function markDeclaredFlatToolNames(identityMap: Map<string, unknown>, names: Iterable<string>) {
+export function markDeclaredFlatToolNames(
+  identityMap: Map<string, unknown>,
+  names: Iterable<string>
+) {
   const declared = new Set<string>();
   for (const name of names) {
     if (name.startsWith(NAMESPACE_TOOL_PREFIX) && !identityMap.has(name)) declared.add(name);

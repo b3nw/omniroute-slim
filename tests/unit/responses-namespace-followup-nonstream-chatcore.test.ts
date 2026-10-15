@@ -90,10 +90,13 @@ test("follow-up turn with no declared namespace tools still restores {namespace,
     "mcp__node_repl__js"
   );
   assert.ok(item, "expected a function_call output item");
-  assert.deepEqual({ namespace: item.namespace, name: item.name }, {
-    namespace: "mcp__node_repl",
-    name: "js",
-  });
+  assert.deepEqual(
+    { namespace: item.namespace, name: item.name },
+    {
+      namespace: "mcp__node_repl",
+      name: "js",
+    }
+  );
 });
 
 test("declared tool ledger present: an unlisted flat mcp__a__b function keeps its name (non-stream)", async () => {

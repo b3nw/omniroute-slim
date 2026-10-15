@@ -96,10 +96,7 @@ export function sanitizeErrorMessage(message: unknown): string {
       const parsed = JSON.parse(trimmed);
       const item = Array.isArray(parsed) ? parsed[0] : parsed;
       const extracted =
-        item?.error?.message ||
-        item?.message ||
-        item?.error?.status ||
-        item?.status;
+        item?.error?.message || item?.message || item?.error?.status || item?.status;
       if (typeof extracted === "string" && extracted.trim()) {
         str = extracted;
       }
@@ -175,7 +172,10 @@ export function buildErrorBody(
     const first = rawDetails[0];
     if (first && typeof first === "object") {
       rawDetails = first;
-      if (typeof (first as Record<string, unknown>).error === "object" && (first as Record<string, unknown>).error !== null) {
+      if (
+        typeof (first as Record<string, unknown>).error === "object" &&
+        (first as Record<string, unknown>).error !== null
+      ) {
         const errObj = (first as Record<string, unknown>).error as Record<string, unknown>;
         if (typeof errObj.message === "string") {
           rawMsg = errObj.message;

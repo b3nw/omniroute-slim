@@ -557,10 +557,7 @@ export function quotaRemainingPercentFromQuota(
   // Gemini request's account as empty.
   const windows = record.windows;
   if (windows && typeof windows === "object" && !Array.isArray(windows)) {
-    const fromWindows = remainingPercentFromQuotaWindows(
-      windows as Record<string, unknown>,
-      scope
-    );
+    const fromWindows = remainingPercentFromQuotaWindows(windows as Record<string, unknown>, scope);
     if (fromWindows !== null) return fromWindows;
   }
   if (record.limitReached === true) return 0;

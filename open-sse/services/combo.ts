@@ -1258,7 +1258,10 @@ async function handleComboChatInner({
         const target = orderedTargets[i];
         const modelStr = target.modelStr;
         if (rejectedModelKeys.has(requestScopedReplayKey(modelStr))) {
-          log.info("COMBO", `Skipping ${modelStr} — same request already refused as request-scoped`);
+          log.info(
+            "COMBO",
+            `Skipping ${modelStr} — same request already refused as request-scoped`
+          );
           return null;
         }
         const rawModel = parseModel(modelStr).model || modelStr;

@@ -104,7 +104,11 @@ test("Antigravity Gemini success does not stand down an exhausted Claude family"
   });
   markSuccess(id, "antigravity", "gemini-3.7-flash-high");
   assert.equal(
-    quotaCache.isQuotaExhaustedForRequest(id, "antigravity", "antigravity/claude-opus-4-6-thinking"),
+    quotaCache.isQuotaExhaustedForRequest(
+      id,
+      "antigravity",
+      "antigravity/claude-opus-4-6-thinking"
+    ),
     true,
     "a Gemini success must not clear Claude-family exhaustion"
   );
@@ -112,7 +116,11 @@ test("Antigravity Gemini success does not stand down an exhausted Claude family"
   // A Claude success does stand the Claude family down.
   markSuccess(id, "antigravity", "claude-opus-4-6-thinking");
   assert.equal(
-    quotaCache.isQuotaExhaustedForRequest(id, "antigravity", "antigravity/claude-opus-4-6-thinking"),
+    quotaCache.isQuotaExhaustedForRequest(
+      id,
+      "antigravity",
+      "antigravity/claude-opus-4-6-thinking"
+    ),
     false
   );
 });

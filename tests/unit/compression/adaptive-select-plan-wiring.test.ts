@@ -94,13 +94,22 @@ test("adaptive floor: bypasses auto-trigger, escalates a base plan to fit", () =
       | null;
   } = { value: null };
   // estimatedTokens far over the 200000-window target → adaptive must escalate.
-  const plan = selectCompressionPlan(cfg as any, null, 5_000_000, undefined, undefined, {}, null, {
-    modelContextLimit: 200000,
-    requestMaxTokens: 8000,
-    onAdaptive: (t) => {
-      tel.value = t;
-    },
-  });
+  const plan = selectCompressionPlan(
+    cfg as any,
+    null,
+    5_000_000,
+    undefined,
+    undefined,
+    {},
+    "allow-lossy",
+    {
+      modelContextLimit: 200000,
+      requestMaxTokens: 8000,
+      onAdaptive: (t) => {
+        tel.value = t;
+      },
+    }
+  );
   assert.equal(plan.mode, "stacked");
   assert.ok(plan.stackedPipeline.length > 0);
   assert.ok(tel.value, "adaptive telemetry must be surfaced");

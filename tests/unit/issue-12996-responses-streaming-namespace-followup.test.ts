@@ -173,7 +173,9 @@ test("declaring an unrelated flat tool does not disable the follow-up split for 
 
 test("a flat-only declaration adds no enumerable side channel to the upstream body", () => {
   const body = {
-    tools: [{ type: "function", name: "mcp__notion__API_get_self", parameters: { type: "object" } }],
+    tools: [
+      { type: "function", name: "mcp__notion__API_get_self", parameters: { type: "object" } },
+    ],
     input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "go" }] }],
   };
   const translatedBody = openaiResponsesToOpenAIRequest("kimi-k3", body, true, {

@@ -1013,6 +1013,7 @@ function schedulePersist(): void {
       persistTimer = null;
       await trackAsyncOperation(persistLearnedLimitsNow());
     }, PERSIST_DEBOUNCE_MS);
+    persistTimer?.unref?.();
   }
 }
 

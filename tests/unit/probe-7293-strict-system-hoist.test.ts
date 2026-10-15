@@ -4,9 +4,7 @@ import { translateRequest } from "../../open-sse/translator/index.ts";
 import { FORMATS } from "../../open-sse/translator/formats.ts";
 
 function buildRepro(messageCount: number) {
-  const messages: Array<{ role: string; content: string }> = [
-    { role: "user", content: "hello" },
-  ];
+  const messages: Array<{ role: string; content: string }> = [{ role: "user", content: "hello" }];
   for (let i = 1; i < messageCount - 1; i++) {
     messages.push({ role: i % 2 === 1 ? "assistant" : "user", content: `turn ${i}` });
   }

@@ -131,10 +131,13 @@ test("non-stream: custom tool nested in a namespace restores custom_tool_call + 
   assert.ok(item, "expected the tool call in output");
   assert.equal(item.type, "custom_tool_call");
   assert.equal(item.input, "pong");
-  assert.deepEqual({ namespace: item.namespace, name: item.name }, {
-    namespace: "mcp__commands",
-    name: "exec",
-  });
+  assert.deepEqual(
+    { namespace: item.namespace, name: item.name },
+    {
+      namespace: "mcp__commands",
+      name: "exec",
+    }
+  );
 });
 
 test("non-stream: plain function tools are not reclassified as custom", async () => {

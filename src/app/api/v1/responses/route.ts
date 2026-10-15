@@ -31,7 +31,6 @@ import { OPENAI_RESPONSES_IN_PROGRESS_FRAME } from "@omniroute/open-sse/utils/ss
 // The translators are always initialized via the open-sse side (chatCore),
 // so /v1/responses just delegates to handleChat which handles everything.
 
-
 export async function OPTIONS() {
   return new Response(null, {
     headers: {

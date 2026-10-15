@@ -1,9 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { isModelCapacityOverloadError } from "../../src/shared/utils/circuitBreaker.ts";
-import {
-  shouldTripProviderBreakerForResult,
-} from "../../src/sse/handlers/chatPredicates.ts";
+import { shouldTripProviderBreakerForResult } from "../../src/sse/handlers/chatPredicates.ts";
 import { shouldRecordProviderBreakerFailure } from "../../open-sse/services/combo/comboPredicates.ts";
 
 /**

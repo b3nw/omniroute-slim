@@ -209,10 +209,7 @@ export function placeSystemInstruction<M extends InjectableMessage>(
   instruction: string,
   format?: string | null
 ): { messages?: Array<M | { role: string; content: string }>; system?: unknown } {
-  const isClaude =
-    format === "claude" ||
-    format === "anthropic" ||
-    format === "messages";
+  const isClaude = format === "claude" || format === "anthropic" || format === "messages";
 
   if (isClaude) {
     if (typeof system === "string") {

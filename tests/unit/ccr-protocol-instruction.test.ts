@@ -252,7 +252,10 @@ describe("ccr protocol instruction (#8033)", () => {
     const instruction = messages[0].content as string;
 
     assert.ok(instruction.startsWith(CCR_PROTOCOL_MARKER_SENTINEL));
-    assert.ok(instruction.includes(`\`${namespaced}\` tool`), "must name the advertised identifier");
+    assert.ok(
+      instruction.includes(`\`${namespaced}\` tool`),
+      "must name the advertised identifier"
+    );
     assert.ok(instruction.includes(`do NOT call ${namespaced} for a dedup reference`));
     assert.equal(
       instruction.replaceAll(namespaced, "").includes("omniroute_ccr_retrieve"),
@@ -272,7 +275,10 @@ describe("ccr protocol instruction (#8033)", () => {
       resolveCcrRetrieveToolName({ tools: [{ name: "omniroute/omniroute_ccr_retrieve" }] }),
       "omniroute/omniroute_ccr_retrieve"
     );
-    assert.equal(resolveCcrRetrieveToolName({ tools: [{ name: "omniroute_ccr_retrieve_v2" }] }), null);
+    assert.equal(
+      resolveCcrRetrieveToolName({ tools: [{ name: "omniroute_ccr_retrieve_v2" }] }),
+      null
+    );
     assert.equal(
       injectCcrProtocolInstruction([{ role: "user", content: "hi" }], {
         tools: [{ name: "mcp__gw__omniroute_ccr_retrieve" }],

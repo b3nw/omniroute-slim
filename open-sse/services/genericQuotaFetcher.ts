@@ -177,10 +177,7 @@ export function convertUsageToQuotaInfo(
 
   const normalized = normalizeQuotaWindows(providerScopedWindows, context);
   const scopedEntries = Object.values(providerScopedWindows);
-  const percentUsed = scopedEntries.reduce(
-    (worst, entry) => Math.max(worst, entry.percentUsed),
-    0
-  );
+  const percentUsed = scopedEntries.reduce((worst, entry) => Math.max(worst, entry.percentUsed), 0);
   const resetAt =
     scopedEntries.reduce<{ percentUsed: number; resetAt: string | null } | null>(
       (worst, entry) => (!worst || entry.percentUsed > worst.percentUsed ? entry : worst),

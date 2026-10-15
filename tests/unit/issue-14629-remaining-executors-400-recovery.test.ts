@@ -48,7 +48,7 @@ describe("issue #14629 remaining executors reach the reactive 400-recovery chain
         model: "gpt-test",
         body: { messages: [{ role: "user", content: "hi" }], reasoning_effort: "none" },
         stream: false,
-        credentials: { ["api"+"Key"]: "test-key" },
+        credentials: { ["api" + "Key"]: "test-key" },
         signal: null,
       });
       assert.equal(probe.calls(), 2);
@@ -69,7 +69,7 @@ describe("issue #14629 remaining executors reach the reactive 400-recovery chain
         model: "glm-4.6",
         body: { messages: [{ role: "user", content: "hi" }], reasoning_effort: "none" },
         stream: false,
-        credentials: { ["api"+"Key"]: "test-key" },
+        credentials: { ["api" + "Key"]: "test-key" },
         signal: null,
       });
       assert.equal(probe.calls(), 2);

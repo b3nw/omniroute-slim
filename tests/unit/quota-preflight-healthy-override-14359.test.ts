@@ -79,5 +79,9 @@ test("#14359 preflight healthy override is scoped to the successful quota bucket
     requestedModel: "gpt-5.3-codex-spark",
     connectionId: codexId,
   });
-  assert.equal(sparkDecision.proceed, false, "a standard Codex success must not bypass Spark cutoff");
+  assert.equal(
+    sparkDecision.proceed,
+    false,
+    "a standard Codex success must not bypass Spark cutoff"
+  );
 });
