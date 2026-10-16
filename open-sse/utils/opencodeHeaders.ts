@@ -5,12 +5,17 @@ import { generateSessionId } from "../services/sessionManager.ts";
 /**
  * Header keys that are forwarded from the client to the upstream provider.
  * Used by both OpencodeExecutor and DefaultExecutor.
+ * Aligned with native opencode v2 request shaping (model-request.ts:266-274).
  */
 const OPENCODE_HEADER_KEYS = [
   "x-opencode-session",
+  "x-opencode-session-id",
   "x-opencode-request",
   "x-opencode-project",
   "x-opencode-client",
+  "x-opencode-parent-session-id",
+  "x-session-affinity",
+  "x-parent-session-id",
 ] as const;
 
 /**
@@ -96,7 +101,9 @@ export function forwardOpencodeClientHeaders(
   // 3. OpencodeExecutor-only: synthesize session/request id from fallback headers
   if (options?.synthesizeRequestId && !headers["x-opencode-session"]) {
     const sessionAffinity =
-      findHeader(clientHeaders, "x-session-affinity") || findHeader(clientHeaders, "x-session-id");
+      findHeader(clientHeaders, "x-session-affinity") ||
+      findHeader(clientHeaders, "x-session-id") ||
+      findHeader(clientHeaders, "x-opencode-session-id");
     if (sessionAffinity) {
       headers["x-opencode-session"] = sessionAffinity;
 
@@ -118,9 +125,9 @@ export function forwardOpencodeClientHeaders(
  * x-opencode-* headers, client values always win (defaults only fill gaps). The
  * User-Agent is the exception: a non-CLI client UA (curl, python, SDKs) is replaced
  * with the synthesized CLI UA, because opencode.ai's free tier flags generic client
- * UAs from datacenter IPs (FreeUsageLimitError 429). A client UA that already looks
- * like the OpenCode CLI (opencode-cli/...) is preserved so the real CLI's versioned
- * identity stays intact. (#5997, follow-up)
+ * UAs from datacenter IPs (FreeUsageLimitError 429). Client UAs that already look
+ * like OpenCode (opencode-cli/... or modern v2 opencode/{channel}/{version}/{name})
+ * are preserved so versioned client identity stays intact. (#5997, follow-up, #10229)
  */
 function applyCliDefaults(
   headers: Record<string, string>,
@@ -134,13 +141,12 @@ function applyCliDefaults(
 ): void {
   const existingUa = headers["User-Agent"] || headers["user-agent"];
   const clientUaIsCliLike =
-    typeof existingUa === "string" && /^opencode-cli\//i.test(existingUa.trim());
+    typeof existingUa === "string" && /^(opencode-cli|opencode)\//i.test(existingUa.trim());
   if (!clientUaIsCliLike) {
     setUserAgentHeader(headers, cliDefaults.userAgent);
   }
   headers["x-opencode-client"] ||= cliDefaults.client;
   headers["x-opencode-project"] ||= cliDefaults.project;
   headers["x-opencode-request"] ||= randomUUID();
-  headers["x-opencode-session"] ||=
-    generateSessionId(sessionBody ?? null) || randomUUID();
+  headers["x-opencode-session"] ||= generateSessionId(sessionBody ?? null) || randomUUID();
 }

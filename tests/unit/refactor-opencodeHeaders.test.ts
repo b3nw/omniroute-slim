@@ -73,34 +73,50 @@ describe("forwardOpencodeClientHeaders – x-opencode-* headers", () => {
     assert.equal(headers["x-opencode-client"], "opencode-cli");
   });
 
-  it("forwards all four x-opencode-* headers at once", () => {
+  it("forwards all native x-opencode-* and affinity headers at once", () => {
     const headers = h();
     const clientHeaders = {
       "x-opencode-session": "sess-1",
+      "x-opencode-session-id": "ses_native_1",
       "x-opencode-request": "req-1",
       "x-opencode-project": "/proj",
       "x-opencode-client": "cli",
+      "x-opencode-parent-session-id": "ses_parent_1",
+      "x-session-affinity": "ses_aff_1",
+      "x-parent-session-id": "ses_parent_2",
     };
     forwardOpencodeClientHeaders(headers, clientHeaders);
     assert.equal(headers["x-opencode-session"], "sess-1");
+    assert.equal(headers["x-opencode-session-id"], "ses_native_1");
     assert.equal(headers["x-opencode-request"], "req-1");
     assert.equal(headers["x-opencode-project"], "/proj");
     assert.equal(headers["x-opencode-client"], "cli");
+    assert.equal(headers["x-opencode-parent-session-id"], "ses_parent_1");
+    assert.equal(headers["x-session-affinity"], "ses_aff_1");
+    assert.equal(headers["x-parent-session-id"], "ses_parent_2");
   });
 
   it("matches x-opencode-* headers case-insensitively", () => {
     const headers = h();
     const clientHeaders = {
       "X-OpenCode-Session": "Sess-Upper",
+      "X-OpenCode-Session-Id": "Ses-Id-Upper",
       "X-OpenCode-Request": "Req-Upper",
       "X-OpenCode-Project": "/Upper",
       "X-OpenCode-Client": "UpperClient",
+      "X-OpenCode-Parent-Session-Id": "Parent-Upper",
+      "X-Session-Affinity": "Affinity-Upper",
+      "X-Parent-Session-Id": "Parent-Upper-2",
     };
     forwardOpencodeClientHeaders(headers, clientHeaders);
     assert.equal(headers["x-opencode-session"], "Sess-Upper");
+    assert.equal(headers["x-opencode-session-id"], "Ses-Id-Upper");
     assert.equal(headers["x-opencode-request"], "Req-Upper");
     assert.equal(headers["x-opencode-project"], "/Upper");
     assert.equal(headers["x-opencode-client"], "UpperClient");
+    assert.equal(headers["x-opencode-parent-session-id"], "Parent-Upper");
+    assert.equal(headers["x-session-affinity"], "Affinity-Upper");
+    assert.equal(headers["x-parent-session-id"], "Parent-Upper-2");
   });
 
   it("does NOT forward unknown headers", () => {
@@ -172,6 +188,16 @@ describe("forwardOpencodeClientHeaders – synthesizeRequestId", () => {
       synthesizeRequestId: true,
     });
     assert.equal(headers["x-opencode-session"], "sid-xyz");
+  });
+
+  it("maps x-opencode-session-id → x-opencode-session when latter is missing", () => {
+    const headers = h();
+    const clientHeaders = { "x-opencode-session-id": "ses-native-xyz" };
+    forwardOpencodeClientHeaders(headers, clientHeaders, {
+      synthesizeRequestId: true,
+    });
+    assert.equal(headers["x-opencode-session"], "ses-native-xyz");
+    assert.equal(headers["x-opencode-session-id"], "ses-native-xyz");
   });
 
   it("prefers x-session-affinity over x-session-id", () => {

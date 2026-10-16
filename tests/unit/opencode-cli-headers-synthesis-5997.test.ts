@@ -90,6 +90,13 @@ test("forwardOpencodeClientHeaders: an existing opencode-cli UA is preserved (re
   assert.equal(headers["User-Agent"], "opencode-cli/2.5.0");
 });
 
+test("forwardOpencodeClientHeaders: an existing native opencode v2 UA (opencode/{channel}/{version}/{name}) is preserved", () => {
+  const headers: Record<string, string> = {};
+  const clientHeaders = { "User-Agent": "opencode/stable/2.1.0/opencode" };
+  forwardOpencodeClientHeaders(headers, clientHeaders, { cliDefaults: CLI_DEFAULTS });
+  assert.equal(headers["User-Agent"], "opencode/stable/2.1.0/opencode");
+});
+
 test("forwardOpencodeClientHeaders: without cliDefaults, no synthesis (DefaultExecutor path unchanged)", () => {
   const headers: Record<string, string> = {};
   forwardOpencodeClientHeaders(headers, {});
