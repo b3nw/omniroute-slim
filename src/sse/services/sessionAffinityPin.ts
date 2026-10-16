@@ -35,7 +35,10 @@ import {
   evictSessionAccountAffinityForConnection,
 } from "@/lib/db/sessionAccountAffinity";
 import { touchConnectionLastUsed } from "@/lib/db/providers";
-import { isModelExcludedByConnection } from "@/domain/connectionModelRules";
+import {
+  isModelAllowedByConnection,
+  isModelExcludedByConnection,
+} from "@/domain/connectionModelRules";
 import { isAccountQuotaExhausted } from "@/domain/quotaCache";
 import {
   isAccountUnavailable,
@@ -507,6 +510,12 @@ function isConnectionEligibleForAffinityPin(
     requestedModel &&
     isAntigravityClaude55Model(requestedModel) &&
     !isAntigravityClaude55Entitled(connection.providerSpecificData)
+  ) {
+    return false;
+  }
+  if (
+    requestedModel &&
+    !isModelAllowedByConnection(requestedModel, connection.providerSpecificData)
   ) {
     return false;
   }

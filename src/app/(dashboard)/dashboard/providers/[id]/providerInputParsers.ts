@@ -16,6 +16,19 @@ export function parseRoutingTagsInput(value: string): string[] | undefined {
   return tags.length > 0 ? tags : undefined;
 }
 
+export function parseAllowedModelsInput(value: string): string[] | undefined {
+  return parseExcludedModelsInput(value);
+}
+
+export function formatAllowedModelsInput(value: unknown): string {
+  if (!Array.isArray(value)) return typeof value === "string" ? value.trim() : "";
+  return value
+    .filter(
+      (pattern): pattern is string => typeof pattern === "string" && pattern.trim().length > 0
+    )
+    .join(", ");
+}
+
 export function parseExcludedModelsInput(value: string): string[] | undefined {
   const patterns = Array.from(
     new Set(

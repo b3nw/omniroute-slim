@@ -314,6 +314,7 @@ export interface ResilienceSkipReason {
     | "codex_scope_cooldown"
     | "model_lockout"
     | "model_excluded"
+    | "model_not_allowed"
     | "no_active_connection"
     | "inspector_error";
   message: string;

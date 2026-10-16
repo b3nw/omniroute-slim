@@ -1,7 +1,10 @@
 type JsonRecord = Record<string, unknown>;
 const CLAUDE_CODE_COMPATIBLE_PROVIDER_PREFIX = "anthropic-compatible-cc-";
 
-import { normalizeExcludedModelPatterns } from "@/domain/connectionModelRules";
+import {
+  normalizeAllowedModelPatterns,
+  normalizeExcludedModelPatterns,
+} from "@/domain/connectionModelRules";
 import { normalizeRoutingTags } from "@/domain/tagRouter";
 import { normalizeOpenRouterPreset } from "@/shared/constants/openRouterPreset";
 import { isForbiddenCustomHeaderName } from "@/shared/constants/upstreamHeaders";
@@ -286,6 +289,18 @@ export function normalizeProviderSpecificData(
       delete normalized.excludedModels;
     }
     delete normalized.excluded_models;
+  }
+
+  if ("allowedModels" in normalized || "allowed_models" in normalized) {
+    const allowedModels = normalizeAllowedModelPatterns(
+      normalized.allowedModels ?? normalized.allowed_models
+    );
+    if (allowedModels.length > 0) {
+      normalized.allowedModels = allowedModels;
+    } else {
+      delete normalized.allowedModels;
+    }
+    delete normalized.allowed_models;
   }
 
   // #8369: connection-level custom upstream headers — sanitize each key against the
