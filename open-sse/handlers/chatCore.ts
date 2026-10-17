@@ -5297,6 +5297,7 @@ export async function handleChatCore({
     // === /Quota Share POST-hook ===
 
     finalizePendingScope(pendingScope, {
+      status: 200,
       providerResponse: responseBody,
       clientResponse: translatedResponse,
     });
