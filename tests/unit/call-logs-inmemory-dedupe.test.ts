@@ -549,3 +549,29 @@ test("findCompletedDetailForCallLog declines a candidate with missing/unknown st
   assert.equal(findCompletedDetailForCallLog("uuid-200", { ...key, status: 200 }), undefined);
   clearCompletedDetails();
 });
+
+test("(b) buildCallLogListRows declines an in-memory detail with unknown/missing status against a known persisted status", () => {
+  const common = { correlationId: "corr-status-unknown", model: "gpt-4o", provider: "openai" };
+  const rows = buildCallLogListRows({
+    logs: [
+      { ...common, id: "sqlite-200", status: 200, timestamp: new Date(now - 1_000).toISOString() },
+    ],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [
+      {
+        ...common,
+        id: "mem-unknown",
+        callLogId: "trace-unknown",
+        status: undefined,
+        startedAt: now - 1_500,
+        completedAt: now - 1_000,
+      },
+    ],
+    now,
+  });
+
+  // Unknown detail status must not consume the persisted 200 row; both must remain.
+  assert.deepEqual(rows.map((r: any) => r.id).sort(), ["mem-unknown", "sqlite-200"]);
+  assert.equal(rows.find((r: any) => r.id === "mem-unknown")?.detailState, "in-memory");
+});

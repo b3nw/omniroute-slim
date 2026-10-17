@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { getCallLogs } from "@/lib/usageDb";
 import { getCompletedDetails, getPendingById } from "@/lib/usage/usageHistory";
-import { callLogCorrelationKey } from "@/lib/usage/completedRequestDetails";
+import { callLogCorrelationKey, resolveDetailStatus } from "@/lib/usage/completedRequestDetails";
 import { getProviderConnections } from "@/lib/db/providers";
 import { getProviderNodes } from "@/models";
 import { matchesSearch } from "@/shared/utils/turkishText";
@@ -215,9 +215,17 @@ export function buildCallLogListRows({
     if (!pool?.length) continue;
     const detailTime =
       typeof detail.completedAt === "number" ? detail.completedAt : detail.startedAt;
+    const detailStatus = resolveDetailStatus(detail);
     for (const log of pool) {
-      const statusKnown = typeof log.status === "number" && typeof detail.status === "number";
-      if (statusKnown && log.status !== detail.status) continue;
+      const logStatus = typeof log.status === "number" ? log.status : null;
+      // Decline unknown-status matches against known persisted statuses, and require
+      // matching status codes when both are known.
+      if (logStatus !== null) {
+        if (detailStatus !== logStatus) continue;
+      } else if (detailStatus !== null) {
+        continue;
+      }
+      const statusExact = logStatus !== null && detailStatus === logStatus;
       const logTime = Date.parse(String(log.timestamp || ""));
       // Unknown timing on either side is compatible but ranked after any timed match.
       const delta =
@@ -225,7 +233,7 @@ export function buildCallLogListRows({
           ? Math.abs(detailTime - logTime)
           : Number.POSITIVE_INFINITY;
       if (Number.isFinite(delta) && delta > CORRELATION_PAIR_WINDOW_MS) continue;
-      fallbackPairs.push({ detail, log, statusExact: statusKnown, delta });
+      fallbackPairs.push({ detail, log, statusExact, delta });
     }
   }
   fallbackPairs.sort(

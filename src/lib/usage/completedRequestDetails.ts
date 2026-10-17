@@ -65,10 +65,10 @@ export function callLogCorrelationKey(row: {
  * Effective status of a completed detail: the recorded status, else 502 for an
  * error, else 200 when a response payload was captured, else null (unknown).
  */
-function resolveDetailStatus(detail: PendingRequestDetail): number | null {
-  if (typeof detail.status === "number") return detail.status;
-  if (detail.error) return 502;
-  return detail.clientResponse || detail.providerResponse ? 200 : null;
+export function resolveDetailStatus(detail: any): number | null {
+  if (typeof detail?.status === "number") return detail.status;
+  if (detail?.error || detail?.errorCode) return 502;
+  return detail?.clientResponse || detail?.providerResponse ? 200 : null;
 }
 
 /**
