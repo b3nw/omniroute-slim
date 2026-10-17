@@ -62,11 +62,23 @@ export function callLogCorrelationKey(row: {
 }
 
 /**
+ * Effective status of a completed detail: the recorded status, else 502 for an
+ * error, else 200 when a response payload was captured, else null (unknown).
+ */
+function resolveDetailStatus(detail: PendingRequestDetail): number | null {
+  if (typeof detail.status === "number") return detail.status;
+  if (detail.error) return 502;
+  return detail.clientResponse || detail.providerResponse ? 200 : null;
+}
+
+/**
  * Finds the in-memory completed detail backing a persisted call-log row. Matches on
- * the detail id, then on `callLogId`, then falls through to the correlation key when
- * `callLogId` (traceId) does not match the persisted SQLite UUID (#14474). Retry
- * attempts can share a correlation key, so fallback candidates must have a compatible
- * status (when both are known) and a request time close to the persisted timestamp
+ * the detail id, then on `callLogId` against the row id, then on `callLogId` against the
+ * persisted correlationId (standard requests persist the attempt traceId there). Only
+ * details without a `callLogId` fall through to the correlation key: a detail linked to
+ * a different attempt is never borrowed (#14474). Retry attempts can share a
+ * correlation key, so fallback candidates must have a matching status (when the persisted status is known; an unresolvable detail status is declined
+ * rather than treated as a wildcard) and a request time close to the persisted timestamp
  * (when known); an ambiguous or empty match is declined rather than returning another
  * attempt's payloads.
  */
@@ -91,14 +103,20 @@ export function findCompletedDetailForCallLog(
         ? Date.parse(rawTime)
         : NaN;
   const candidates: PendingRequestDetail[] = [];
+  let traceMatch: PendingRequestDetail | undefined;
   for (const detail of completedDetails.values()) {
     if (detail.callLogId === id) return detail;
+    if (persisted?.correlationId && detail.callLogId === persisted.correlationId) {
+      traceMatch ??= detail;
+      continue;
+    }
+    // A detail carrying a differing callLogId belongs to another attempt; a shared
+    // correlation key, status, and time window cannot establish attempt identity.
+    if (detail.callLogId) continue;
     if (
       key &&
       callLogCorrelationKey(detail) === key &&
-      (typeof persisted?.status !== "number" ||
-        typeof detail.status !== "number" ||
-        detail.status === persisted.status) &&
+      (typeof persisted?.status !== "number" || resolveDetailStatus(detail) === persisted.status) &&
       (!Number.isFinite(persistedTime) ||
         Math.abs(
           (typeof detail.completedAt === "number" ? detail.completedAt : detail.startedAt) -
@@ -108,6 +126,7 @@ export function findCompletedDetailForCallLog(
       candidates.push(detail);
     }
   }
+  if (traceMatch) return traceMatch;
   return candidates.length === 1 ? candidates[0] : undefined;
 }
 

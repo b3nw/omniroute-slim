@@ -227,14 +227,14 @@ test("findCompletedDetailForCallLog resolves a persisted row to its in-memory de
     })?.id,
     legacyId
   );
-  // by correlation key, fallback matches even when detail has a callLogId (e.g. traceId) differing from persisted SQLite UUID
+  // a detail with a different callLogId belongs to another attempt — not matched
   assert.equal(
     findCompletedDetailForCallLog("other1", {
       correlationId: "corr-detail",
       model: "gpt-4o",
       provider: "openai",
-    })?.id,
-    linkedId
+    }),
+    undefined
   );
   // never matched on a null correlation
   assert.equal(
@@ -302,6 +302,74 @@ test("(b) an unwritten retry preceding an exactly linked completed detail is pre
   assert.deepEqual(rows.map((r: any) => r.id).sort(), [`${now - 3_000}-aaaaaa`, "retry2"]);
 });
 
+test("(b) a same-status retry with decoupled ids keeps the unwritten attempt, not a second copy of the persisted one", () => {
+  // Attempt 1 (429) is persisted under a SQLite UUID; attempt 2 (also 429) is not yet
+  // written. Both in-memory details carry trace ids that match no persisted row, and the
+  // unwritten attempt is ordered first.
+  const common = { correlationId: "retry", model: "gpt-4o", provider: "openai", status: 429 };
+  const rows = buildCallLogListRows({
+    logs: [{ ...common, id: "sqlite-first", timestamp: new Date(now - 3_000).toISOString() }],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [
+      {
+        ...common,
+        id: "mem-second",
+        callLogId: "trace-second",
+        startedAt: now - 1_000,
+        completedAt: now - 500,
+      },
+      {
+        ...common,
+        id: "mem-first",
+        callLogId: "trace-first",
+        startedAt: now - 4_000,
+        completedAt: now - 3_000,
+      },
+    ],
+    now,
+  });
+
+  assert.deepEqual(rows.map((r: any) => r.id).sort(), ["mem-second", "sqlite-first"]);
+  assert.equal(rows.find((r: any) => r.id === "mem-second")?.detailState, "in-memory");
+});
+
+test("(b) same-status retries with overlapping pairing windows are all deduplicated", () => {
+  // Persisted rows at T and T+1.9s, completed details at T+1s and T+3s. Closest-first
+  // greedy pairs the T+1s detail with the T+1.9s row (900ms) and strands the T+3s
+  // detail; a maximum-cardinality matching pairs T+1s↔T and T+3s↔T+1.9s.
+  const T = now - 10_000;
+  const common = { correlationId: "overlap", model: "gpt-4o", provider: "openai", status: 200 };
+  const rows = buildCallLogListRows({
+    logs: [
+      { ...common, id: "sqlite-a", timestamp: new Date(T).toISOString() },
+      { ...common, id: "sqlite-b", timestamp: new Date(T + 1_900).toISOString() },
+    ],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [
+      {
+        ...common,
+        id: "mem-a",
+        callLogId: "trace-a",
+        startedAt: T - 500,
+        completedAt: T + 1_000,
+      },
+      {
+        ...common,
+        id: "mem-b",
+        callLogId: "trace-b",
+        startedAt: T + 1_500,
+        completedAt: T + 3_000,
+      },
+    ],
+    now,
+  });
+
+  assert.equal(rows.filter((r: any) => r.completed).length, 0);
+  assert.deepEqual(rows.map((r: any) => r.id).sort(), ["sqlite-a", "sqlite-b"]);
+});
+
 test("(b) dedupe accepts single-use iterators for completed details", () => {
   const details = new Map([
     ["c1", completed("c1", "corr-iter", { callLogId: "trace-1", status: 429 })],
@@ -329,24 +397,63 @@ test("findCompletedDetailForCallLog disambiguates retry attempts sharing a corre
     completed("mem-attempt-2", "corr-ambig", { callLogId: "trace-2", status: 200 }) as any
   );
 
-  // exact callLogId still wins
+  // each attempt matches directly by its own callLogId
+  assert.equal(findCompletedDetailForCallLog("trace-1", key)?.id, "mem-attempt-1");
   assert.equal(findCompletedDetailForCallLog("trace-2", key)?.id, "mem-attempt-2");
-  // ambiguous correlation narrowed by persisted status
+  // attempts linked to their own callLogId are never borrowed via correlation fallback,
+  // even when the persisted status singles one out
+  assert.equal(findCompletedDetailForCallLog("uuid-2", { ...key, status: 200 }), undefined);
+  assert.equal(findCompletedDetailForCallLog("uuid-1", { ...key, status: 429 }), undefined);
+  assert.equal(findCompletedDetailForCallLog("uuid-x", key), undefined);
+  clearCompletedDetails();
+
+  // unlinked details: ambiguous correlation narrowed by persisted status
+  storeCompletedDetail(completed("mem-legacy-1", "corr-ambig", { status: 429 }) as any);
+  storeCompletedDetail(completed("mem-legacy-2", "corr-ambig", { status: 200 }) as any);
   assert.equal(
     findCompletedDetailForCallLog("uuid-2", { ...key, status: 200 })?.id,
-    "mem-attempt-2"
+    "mem-legacy-2"
   );
   assert.equal(
     findCompletedDetailForCallLog("uuid-1", { ...key, status: 429 })?.id,
-    "mem-attempt-1"
+    "mem-legacy-1"
   );
   // ambiguous without status, or with a status matching no/several attempts, is declined
   assert.equal(findCompletedDetailForCallLog("uuid-x", key), undefined);
   assert.equal(findCompletedDetailForCallLog("uuid-x", { ...key, status: 500 }), undefined);
-  storeCompletedDetail(
-    completed("mem-attempt-3", "corr-ambig", { callLogId: "trace-3", status: 200 }) as any
-  );
+  storeCompletedDetail(completed("mem-legacy-3", "corr-ambig", { status: 200 }) as any);
   assert.equal(findCompletedDetailForCallLog("uuid-y", { ...key, status: 200 }), undefined);
+  clearCompletedDetails();
+});
+
+test("findCompletedDetailForCallLog matches a detail whose callLogId is the persisted correlationId (traceId)", () => {
+  usageHistory.clearPendingRequests();
+  clearCompletedDetails();
+  const key = { correlationId: "trace-std", model: "gpt-4o", provider: "openai" };
+  storeCompletedDetail(completed("mem-std", "trace-std", { callLogId: "trace-std" }) as any);
+  assert.equal(findCompletedDetailForCallLog("uuid-std", key)?.id, "mem-std");
+  // an exact callLogId match on the row id still takes precedence
+  storeCompletedDetail(completed("mem-exact", "trace-std", { callLogId: "uuid-std" }) as any);
+  assert.equal(findCompletedDetailForCallLog("uuid-std", key)?.id, "mem-exact");
+  clearCompletedDetails();
+});
+
+test("findCompletedDetailForCallLog does not borrow a surviving retry's payloads for an expired attempt", () => {
+  usageHistory.clearPendingRequests();
+  clearCompletedDetails();
+  // attempt 1 (same key, status, and time window) has expired; only attempt 2 remains
+  const key = {
+    correlationId: "corr-expired",
+    model: "gpt-4o",
+    provider: "openai",
+    status: 200,
+    timestamp: new Date(now - 1_000).toISOString(),
+  };
+  storeCompletedDetail(
+    completed("mem-attempt-2", "corr-expired", { callLogId: "trace-2", status: 200 }) as any
+  );
+  assert.equal(findCompletedDetailForCallLog("uuid-1", key), undefined);
+  assert.equal(findCompletedDetailForCallLog("trace-2", key)?.id, "mem-attempt-2");
   clearCompletedDetails();
 });
 
@@ -376,10 +483,8 @@ test("findCompletedDetailForCallLog declines a singleton correlation candidate w
   usageHistory.clearPendingRequests();
   clearCompletedDetails();
   const key = { correlationId: "corr-single", model: "gpt-4o", provider: "openai" };
-  // the cached 429 attempt has expired; only the 200 attempt remains
-  storeCompletedDetail(
-    completed("mem-attempt-200", "corr-single", { callLogId: "trace-200", status: 200 }) as any
-  );
+  // the cached 429 attempt has expired; only the (unlinked) 200 attempt remains
+  storeCompletedDetail(completed("mem-attempt-200", "corr-single", { status: 200 }) as any);
 
   assert.equal(findCompletedDetailForCallLog("uuid-429", { ...key, status: 429 }), undefined);
   assert.equal(
@@ -393,10 +498,8 @@ test("findCompletedDetailForCallLog declines a singleton correlation candidate w
   usageHistory.clearPendingRequests();
   clearCompletedDetails();
   const key = { correlationId: "corr-time", model: "gpt-4o", provider: "openai", status: 200 };
-  // attempt 1 has expired from the cache; only attempt 2 (same key and status) remains
-  storeCompletedDetail(
-    completed("mem-attempt-2", "corr-time", { callLogId: "trace-2", status: 200 }) as any
-  );
+  // attempt 1 has expired from the cache; only unlinked attempt 2 (same key and status) remains
+  storeCompletedDetail(completed("mem-attempt-2", "corr-time", { status: 200 }) as any);
 
   assert.equal(
     findCompletedDetailForCallLog("uuid-1", {
@@ -416,5 +519,33 @@ test("findCompletedDetailForCallLog declines a singleton correlation candidate w
     })?.id,
     "mem-attempt-2"
   );
+  clearCompletedDetails();
+});
+
+test("findCompletedDetailForCallLog declines a candidate with missing/unknown status when persisted status is a failure (e.g. 429)", () => {
+  usageHistory.clearPendingRequests();
+  clearCompletedDetails();
+  const key = { correlationId: "corr-unknown", model: "gpt-4o", provider: "openai" };
+  // the cached 429 attempt has expired; only a status-less 200 attempt remains
+  storeCompletedDetail(
+    completed("mem-attempt-ok", "corr-unknown", {
+      status: undefined,
+      clientResponse: { choices: [{ message: { content: "ok" } }] },
+    }) as any
+  );
+  assert.equal(findCompletedDetailForCallLog("uuid-429", { ...key, status: 429 }), undefined);
+  // a response payload resolves the unknown status to 200
+  assert.equal(
+    findCompletedDetailForCallLog("uuid-ok", { ...key, status: 200 })?.id,
+    "mem-attempt-ok"
+  );
+  clearCompletedDetails();
+
+  // no status, no error, no payload: unknown status never matches a known persisted status
+  storeCompletedDetail(
+    completed("mem-attempt-unknown", "corr-unknown", { status: undefined }) as any
+  );
+  assert.equal(findCompletedDetailForCallLog("uuid-429", { ...key, status: 429 }), undefined);
+  assert.equal(findCompletedDetailForCallLog("uuid-200", { ...key, status: 200 }), undefined);
   clearCompletedDetails();
 });

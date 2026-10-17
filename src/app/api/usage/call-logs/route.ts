@@ -17,6 +17,12 @@ type CallLogListRowsInput = {
   now?: number;
 };
 
+/**
+ * Maximum distance between an in-memory detail's completion time and a persisted row's
+ * timestamp for the two to be treated as the same attempt via the correlation fallback.
+ */
+const CORRELATION_PAIR_WINDOW_MS = 2_000;
+
 function rowTimestampMs(row: any): number {
   const value = Date.parse(String(row?.timestamp || ""));
   return Number.isFinite(value) ? value : 0;
@@ -164,55 +170,104 @@ export function buildCallLogListRows({
   // Persisted rows were originally keyed on the chatCore trace id (#13481) and later
   // decoupled to random UUIDs (#14474), so in-memory copies are matched via `callLogId`,
   // falling through to the correlation key when `detail.callLogId` matches no persisted row.
-  // Persisted statuses are pooled per correlation key so that retry attempts sharing a
-  // correlationId are each paired 1-to-1 with a persisted row of a compatible status,
-  // without dropping unwritten in-memory attempts. Exact matches reserve their persisted
-  // row first, so an unwritten attempt ordered before an exactly linked one cannot consume
-  // that row and hide itself. Status pairing matters because the persisted query may be
-  // status-filtered (e.g. `status=ok` returns only the 200 of a 429 → 200 retry).
-  const remainingCorrelationStatuses = new Map<string, (number | null)[]>();
+  // Retry attempts can share a correlationId (and even a status), so persisted rows are
+  // pooled per correlation key and each fallback detail is paired 1-to-1 with a remaining
+  // row of a compatible status whose timestamp lies within CORRELATION_PAIR_WINDOW_MS of
+  // the detail's completion; a detail with no such row is an unwritten attempt and is kept.
+  // Exact matches reserve their persisted row first, so an unwritten attempt ordered before
+  // an exactly linked one cannot consume that row and hide itself. Status pairing matters
+  // because the persisted query may be status-filtered (e.g. `status=ok` returns only the
+  // 200 of a 429 → 200 retry).
+  const remainingCorrelationLogs = new Map<string, any[]>();
   const logsById = new Map<string, any>();
   for (const log of logs) {
     if (log.id) logsById.set(log.id, log);
     const key = callLogCorrelationKey(log);
     if (!key) continue;
-    const statuses = remainingCorrelationStatuses.get(key) || [];
-    statuses.push(typeof log.status === "number" ? log.status : null);
-    remainingCorrelationStatuses.set(key, statuses);
+    const pool = remainingCorrelationLogs.get(key) || [];
+    pool.push(log);
+    remainingCorrelationLogs.set(key, pool);
   }
-  // Removes one persisted status compatible with `status` (an unknown status on either
-  // side is compatible with anything, exact matches preferred) and reports success.
-  const takeCorrelationStatus = (key: string, status: unknown) => {
-    const statuses = remainingCorrelationStatuses.get(key);
-    if (!statuses?.length) return false;
-    let index = 0;
-    if (typeof status === "number") {
-      index = statuses.indexOf(status);
-      if (index < 0) index = statuses.indexOf(null);
-      if (index < 0) return false;
-    }
-    statuses.splice(index, 1);
-    return true;
+  const removeFromPool = (log: any) => {
+    const pool = remainingCorrelationLogs.get(callLogCorrelationKey(log) || "");
+    const index = pool?.indexOf(log) ?? -1;
+    if (index >= 0) pool!.splice(index, 1);
   };
   const exactPersistedMatch = (detail: any) =>
     logsById.get(detail.id) || (detail.callLogId ? logsById.get(detail.callLogId) : undefined);
   // Materialize once: callers pass single-use iterators (e.g. `Map.values()`).
   const completedList = Array.from(completedDetails);
-  const reservedLogs = new Set<any>();
   for (const detail of completedList) {
     const log = exactPersistedMatch(detail);
-    if (!log || reservedLogs.has(log)) continue;
-    reservedLogs.add(log);
-    // Reserve this row's own pooled status, not merely a compatible one.
-    const statuses = remainingCorrelationStatuses.get(callLogCorrelationKey(log) || "");
-    const index = statuses?.indexOf(typeof log.status === "number" ? log.status : null) ?? -1;
-    if (index >= 0) statuses!.splice(index, 1);
+    if (log) removeFromPool(log);
   }
-  const completedEntries: any[] = [];
+  // Collect every compatible (detail, persisted row) pair and compute a maximum-cardinality
+  // matching: seed it greedily by exact status first and closest timing second, then grow
+  // it with augmenting paths. Greedy alone can strand an attempt when pairing windows
+  // overlap (rows at T and T+1.9s, details at T+1s and T+3s: the first detail takes the
+  // closer T+1.9s row and leaves the second detail with nothing), and every detail left
+  // unpaired renders as a duplicate row.
+  const fallbackPairs: { detail: any; log: any; statusExact: boolean; delta: number }[] = [];
   for (const detail of completedList) {
     if (exactPersistedMatch(detail) || pendingIds.has(detail.id)) continue;
     const key = callLogCorrelationKey(detail);
-    if (key && takeCorrelationStatus(key, detail.status)) continue;
+    const pool = key ? remainingCorrelationLogs.get(key) : undefined;
+    if (!pool?.length) continue;
+    const detailTime =
+      typeof detail.completedAt === "number" ? detail.completedAt : detail.startedAt;
+    for (const log of pool) {
+      const statusKnown = typeof log.status === "number" && typeof detail.status === "number";
+      if (statusKnown && log.status !== detail.status) continue;
+      const logTime = Date.parse(String(log.timestamp || ""));
+      // Unknown timing on either side is compatible but ranked after any timed match.
+      const delta =
+        Number.isFinite(logTime) && Number.isFinite(detailTime)
+          ? Math.abs(detailTime - logTime)
+          : Number.POSITIVE_INFINITY;
+      if (Number.isFinite(delta) && delta > CORRELATION_PAIR_WINDOW_MS) continue;
+      fallbackPairs.push({ detail, log, statusExact: statusKnown, delta });
+    }
+  }
+  fallbackPairs.sort(
+    (a, b) =>
+      Number(b.statusExact) - Number(a.statusExact) || (a.delta === b.delta ? 0 : a.delta - b.delta)
+  );
+  // Candidate rows per detail, in preference order (fallbackPairs is already sorted).
+  const candidateLogs = new Map<any, any[]>();
+  for (const { detail, log } of fallbackPairs) {
+    const candidates = candidateLogs.get(detail) || [];
+    candidates.push(log);
+    candidateLogs.set(detail, candidates);
+  }
+  const logForDetail = new Map<any, any>();
+  const detailForLog = new Map<any, any>();
+  for (const { detail, log } of fallbackPairs) {
+    if (logForDetail.has(detail) || detailForLog.has(log)) continue;
+    logForDetail.set(detail, log);
+    detailForLog.set(log, detail);
+  }
+  const augment = (detail: any, visitedLogs: Set<any>): boolean => {
+    for (const log of candidateLogs.get(detail) || []) {
+      if (visitedLogs.has(log)) continue;
+      visitedLogs.add(log);
+      const holder = detailForLog.get(log);
+      if (holder === undefined || augment(holder, visitedLogs)) {
+        logForDetail.set(detail, log);
+        detailForLog.set(log, detail);
+        return true;
+      }
+    }
+    return false;
+  };
+  for (const detail of candidateLogs.keys()) {
+    if (!logForDetail.has(detail)) augment(detail, new Set());
+  }
+  const pairedDetails = new Set<any>(logForDetail.keys());
+  const completedEntries: any[] = [];
+  for (const detail of completedList) {
+    if (exactPersistedMatch(detail) || pendingIds.has(detail.id) || pairedDetails.has(detail)) {
+      continue;
+    }
     const completedAt = typeof detail.completedAt === "number" ? detail.completedAt : null;
     const duration =
       typeof detail.durationMs === "number" && Number.isFinite(detail.durationMs)
