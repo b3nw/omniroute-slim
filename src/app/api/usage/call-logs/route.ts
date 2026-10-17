@@ -162,21 +162,35 @@ export function buildCallLogListRows({
   }
 
   const pendingIds = new Set(activeEntries.map((entry) => entry.id));
-  // Persisted rows are keyed on the chatCore trace id (#13481), not the in-memory
-  // detail id, so in-memory copies are matched via `callLogId`, falling back to the
-  // correlation key for details that carry no callLogId. Only in-memory copies are
-  // ever skipped — persisted rows sharing a correlationId (real retries) all stay.
-  const persistedCorrelationKeys = new Set(
-    logs.map((log: any) => callLogCorrelationKey(log)).filter(Boolean)
-  );
+  // Persisted rows were originally keyed on the chatCore trace id (#13481) and later
+  // decoupled to random UUIDs (#14474), so in-memory copies are matched via `callLogId`,
+  // falling through to the correlation key when `detail.callLogId` is not in `persistedIds`.
+  // Counts are tracked per correlation key so that retry attempts sharing a correlationId
+  // are each paired 1-to-1 with persisted rows without dropping unwritten in-memory attempts.
+  const persistedCorrelationCounts = new Map<string, number>();
+  for (const log of logs) {
+    const key = callLogCorrelationKey(log);
+    if (key) {
+      persistedCorrelationCounts.set(key, (persistedCorrelationCounts.get(key) || 0) + 1);
+    }
+  }
   const completedEntries: any[] = [];
   for (const detail of completedDetails) {
     if (persistedIds.has(detail.id) || pendingIds.has(detail.id)) continue;
-    if (detail.callLogId) {
-      if (persistedIds.has(detail.callLogId)) continue;
-    } else {
-      const key = callLogCorrelationKey(detail);
-      if (key && persistedCorrelationKeys.has(key)) continue;
+    const key = callLogCorrelationKey(detail);
+    if (detail.callLogId && persistedIds.has(detail.callLogId)) {
+      if (key) {
+        const count = persistedCorrelationCounts.get(key) || 0;
+        if (count > 0) persistedCorrelationCounts.set(key, count - 1);
+      }
+      continue;
+    }
+    if (key) {
+      const count = persistedCorrelationCounts.get(key) || 0;
+      if (count > 0) {
+        persistedCorrelationCounts.set(key, count - 1);
+        continue;
+      }
     }
     const completedAt = typeof detail.completedAt === "number" ? detail.completedAt : null;
     const duration =

@@ -61,9 +61,8 @@ export function callLogCorrelationKey(row: {
 
 /**
  * Finds the in-memory completed detail backing a persisted call-log row. Matches on
- * the detail id, then on `callLogId` (persisted rows are keyed on the chatCore trace
- * id), then on the correlation key — the last only for details without a
- * `callLogId`, since one that has a different callLogId belongs to another attempt.
+ * the detail id, then on `callLogId`, then falls through to the correlation key when
+ * `callLogId` (traceId) does not match the persisted SQLite UUID (#14474).
  */
 export function findCompletedDetailForCallLog(
   id: string,
@@ -79,7 +78,7 @@ export function findCompletedDetailForCallLog(
   let correlated: PendingRequestDetail | undefined;
   for (const detail of completedDetails.values()) {
     if (detail.callLogId === id) return detail;
-    if (key && !correlated && !detail.callLogId && callLogCorrelationKey(detail) === key) {
+    if (key && !correlated && callLogCorrelationKey(detail) === key) {
       correlated = detail;
     }
   }

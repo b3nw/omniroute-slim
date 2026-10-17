@@ -226,14 +226,14 @@ test("findCompletedDetailForCallLog resolves a persisted row to its in-memory de
     })?.id,
     legacyId
   );
-  // a detail with a different callLogId belongs to another attempt — not matched
+  // by correlation key, fallback matches even when detail has a callLogId (e.g. traceId) differing from persisted SQLite UUID
   assert.equal(
     findCompletedDetailForCallLog("other1", {
       correlationId: "corr-detail",
       model: "gpt-4o",
       provider: "openai",
-    }),
-    undefined
+    })?.id,
+    linkedId
   );
   // never matched on a null correlation
   assert.equal(
@@ -241,4 +241,47 @@ test("findCompletedDetailForCallLog resolves a persisted row to its in-memory de
     undefined
   );
   usageHistory.clearPendingRequests();
+});
+
+test("(a) in-memory copy with callLogId (traceId) differing from persisted SQLite UUID is dropped via correlation fallback", () => {
+  const sqliteUuid = "uuid-sqlite-12345";
+  const traceId = "trace-chatcore-67890";
+  const rows = buildCallLogListRows({
+    logs: [persisted(sqliteUuid, "corr-uuid-mismatch")],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [
+      completed(`${now - 3_000}-fedcba`, "corr-uuid-mismatch", { callLogId: traceId }),
+    ],
+    now,
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, sqliteUuid);
+  assert.equal(rows[0].completed, undefined);
+});
+
+test("(b) combo retry attempts with distinct SQLite UUIDs and traceIds are both deduplicated correctly", () => {
+  const rows = buildCallLogListRows({
+    logs: [
+      persisted("sqlite-attempt-1", "corr-combo-retry", { status: 429 }),
+      persisted("sqlite-attempt-2", "corr-combo-retry", { status: 200 }),
+    ],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [
+      completed(`${now - 3_000}-aaaaaa`, "corr-combo-retry", {
+        callLogId: "trace-attempt-1",
+        status: 429,
+      }),
+      completed(`${now - 2_500}-bbbbbb`, "corr-combo-retry", {
+        callLogId: "trace-attempt-2",
+        status: 200,
+      }),
+    ],
+    now,
+  });
+
+  assert.deepEqual(rows.map((r: any) => r.id).sort(), ["sqlite-attempt-1", "sqlite-attempt-2"]);
+  assert.ok(rows.every((r: any) => r.completed === undefined));
 });
