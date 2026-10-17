@@ -131,7 +131,6 @@ export function buildCallLogListRows({
   // Include active (in-flight) requests from the pending-by-id map
   // so they appear in the logs grid alongside persisted entries.
   const activeEntries: any[] = [];
-  const persistedIds = new Set(logs.map((log: any) => log.id).filter(Boolean));
 
   for (const detail of pendingDetails) {
     activeEntries.push({
@@ -164,34 +163,56 @@ export function buildCallLogListRows({
   const pendingIds = new Set(activeEntries.map((entry) => entry.id));
   // Persisted rows were originally keyed on the chatCore trace id (#13481) and later
   // decoupled to random UUIDs (#14474), so in-memory copies are matched via `callLogId`,
-  // falling through to the correlation key when `detail.callLogId` is not in `persistedIds`.
-  // Counts are tracked per correlation key so that retry attempts sharing a correlationId
-  // are each paired 1-to-1 with persisted rows without dropping unwritten in-memory attempts.
-  const persistedCorrelationCounts = new Map<string, number>();
+  // falling through to the correlation key when `detail.callLogId` matches no persisted row.
+  // Persisted statuses are pooled per correlation key so that retry attempts sharing a
+  // correlationId are each paired 1-to-1 with a persisted row of a compatible status,
+  // without dropping unwritten in-memory attempts. Exact matches reserve their persisted
+  // row first, so an unwritten attempt ordered before an exactly linked one cannot consume
+  // that row and hide itself. Status pairing matters because the persisted query may be
+  // status-filtered (e.g. `status=ok` returns only the 200 of a 429 → 200 retry).
+  const remainingCorrelationStatuses = new Map<string, (number | null)[]>();
+  const logsById = new Map<string, any>();
   for (const log of logs) {
+    if (log.id) logsById.set(log.id, log);
     const key = callLogCorrelationKey(log);
-    if (key) {
-      persistedCorrelationCounts.set(key, (persistedCorrelationCounts.get(key) || 0) + 1);
+    if (!key) continue;
+    const statuses = remainingCorrelationStatuses.get(key) || [];
+    statuses.push(typeof log.status === "number" ? log.status : null);
+    remainingCorrelationStatuses.set(key, statuses);
+  }
+  // Removes one persisted status compatible with `status` (an unknown status on either
+  // side is compatible with anything, exact matches preferred) and reports success.
+  const takeCorrelationStatus = (key: string, status: unknown) => {
+    const statuses = remainingCorrelationStatuses.get(key);
+    if (!statuses?.length) return false;
+    let index = 0;
+    if (typeof status === "number") {
+      index = statuses.indexOf(status);
+      if (index < 0) index = statuses.indexOf(null);
+      if (index < 0) return false;
     }
+    statuses.splice(index, 1);
+    return true;
+  };
+  const exactPersistedMatch = (detail: any) =>
+    logsById.get(detail.id) || (detail.callLogId ? logsById.get(detail.callLogId) : undefined);
+  // Materialize once: callers pass single-use iterators (e.g. `Map.values()`).
+  const completedList = Array.from(completedDetails);
+  const reservedLogs = new Set<any>();
+  for (const detail of completedList) {
+    const log = exactPersistedMatch(detail);
+    if (!log || reservedLogs.has(log)) continue;
+    reservedLogs.add(log);
+    // Reserve this row's own pooled status, not merely a compatible one.
+    const statuses = remainingCorrelationStatuses.get(callLogCorrelationKey(log) || "");
+    const index = statuses?.indexOf(typeof log.status === "number" ? log.status : null) ?? -1;
+    if (index >= 0) statuses!.splice(index, 1);
   }
   const completedEntries: any[] = [];
-  for (const detail of completedDetails) {
-    if (persistedIds.has(detail.id) || pendingIds.has(detail.id)) continue;
+  for (const detail of completedList) {
+    if (exactPersistedMatch(detail) || pendingIds.has(detail.id)) continue;
     const key = callLogCorrelationKey(detail);
-    if (detail.callLogId && persistedIds.has(detail.callLogId)) {
-      if (key) {
-        const count = persistedCorrelationCounts.get(key) || 0;
-        if (count > 0) persistedCorrelationCounts.set(key, count - 1);
-      }
-      continue;
-    }
-    if (key) {
-      const count = persistedCorrelationCounts.get(key) || 0;
-      if (count > 0) {
-        persistedCorrelationCounts.set(key, count - 1);
-        continue;
-      }
-    }
+    if (key && takeCorrelationStatus(key, detail.status)) continue;
     const completedAt = typeof detail.completedAt === "number" ? detail.completedAt : null;
     const duration =
       typeof detail.durationMs === "number" && Number.isFinite(detail.durationMs)

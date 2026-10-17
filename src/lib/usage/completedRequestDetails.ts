@@ -3,6 +3,8 @@ import type { PendingRequestDetail } from "./usageHistory";
 
 const COMPLETED_DETAIL_TTL_MS = 120_000;
 const MAX_COMPLETED_DETAILS = 256;
+// Max distance between a persisted row's timestamp and a correlation-fallback candidate.
+const CORRELATION_FALLBACK_WINDOW_MS = 5_000;
 
 const completedDetails = new Map<string, PendingRequestDetail>();
 const completedDetailTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -62,7 +64,11 @@ export function callLogCorrelationKey(row: {
 /**
  * Finds the in-memory completed detail backing a persisted call-log row. Matches on
  * the detail id, then on `callLogId`, then falls through to the correlation key when
- * `callLogId` (traceId) does not match the persisted SQLite UUID (#14474).
+ * `callLogId` (traceId) does not match the persisted SQLite UUID (#14474). Retry
+ * attempts can share a correlation key, so fallback candidates must have a compatible
+ * status (when both are known) and a request time close to the persisted timestamp
+ * (when known); an ambiguous or empty match is declined rather than returning another
+ * attempt's payloads.
  */
 export function findCompletedDetailForCallLog(
   id: string,
@@ -70,19 +76,39 @@ export function findCompletedDetailForCallLog(
     correlationId?: string | null;
     model?: string | null;
     provider?: string | null;
+    status?: number | null;
+    timestamp?: string | number | null;
   } | null
 ): PendingRequestDetail | undefined {
   const direct = completedDetails.get(id);
   if (direct) return direct;
   const key = persisted ? callLogCorrelationKey(persisted) : null;
-  let correlated: PendingRequestDetail | undefined;
+  const rawTime = persisted?.timestamp;
+  const persistedTime =
+    typeof rawTime === "number"
+      ? rawTime
+      : typeof rawTime === "string" && rawTime
+        ? Date.parse(rawTime)
+        : NaN;
+  const candidates: PendingRequestDetail[] = [];
   for (const detail of completedDetails.values()) {
     if (detail.callLogId === id) return detail;
-    if (key && !correlated && callLogCorrelationKey(detail) === key) {
-      correlated = detail;
+    if (
+      key &&
+      callLogCorrelationKey(detail) === key &&
+      (typeof persisted?.status !== "number" ||
+        typeof detail.status !== "number" ||
+        detail.status === persisted.status) &&
+      (!Number.isFinite(persistedTime) ||
+        Math.abs(
+          (typeof detail.completedAt === "number" ? detail.completedAt : detail.startedAt) -
+            persistedTime
+        ) <= CORRELATION_FALLBACK_WINDOW_MS)
+    ) {
+      candidates.push(detail);
     }
   }
-  return correlated;
+  return candidates.length === 1 ? candidates[0] : undefined;
 }
 
 export function clearCompletedDetails() {

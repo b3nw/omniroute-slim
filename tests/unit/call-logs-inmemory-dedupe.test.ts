@@ -19,9 +19,10 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 
 const core = await import("../../src/lib/db/core.ts");
 const usageHistory = await import("../../src/lib/usage/usageHistory.ts");
-const { findCompletedDetailForCallLog } =
+const { findCompletedDetailForCallLog, storeCompletedDetail, clearCompletedDetails } =
   await import("../../src/lib/usage/completedRequestDetails.ts");
-const { buildCallLogListRows } = await import("../../src/app/api/usage/call-logs/route.ts");
+const { buildCallLogListRows, rowMatchesFilter } =
+  await import("../../src/app/api/usage/call-logs/route.ts");
 
 test.after(() => {
   usageHistory.clearPendingRequests();
@@ -284,4 +285,136 @@ test("(b) combo retry attempts with distinct SQLite UUIDs and traceIds are both 
 
   assert.deepEqual(rows.map((r: any) => r.id).sort(), ["sqlite-attempt-1", "sqlite-attempt-2"]);
   assert.ok(rows.every((r: any) => r.completed === undefined));
+});
+
+test("(b) an unwritten retry preceding an exactly linked completed detail is preserved when only the second attempt is persisted", () => {
+  const rows = buildCallLogListRows({
+    logs: [persisted("retry2", "corr-order", { status: 200 })],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [
+      completed(`${now - 3_000}-aaaaaa`, "corr-order", { callLogId: "retry1", status: 429 }),
+      completed(`${now - 2_500}-bbbbbb`, "corr-order", { callLogId: "retry2" }),
+    ],
+    now,
+  });
+
+  assert.deepEqual(rows.map((r: any) => r.id).sort(), [`${now - 3_000}-aaaaaa`, "retry2"]);
+});
+
+test("(b) dedupe accepts single-use iterators for completed details", () => {
+  const details = new Map([
+    ["c1", completed("c1", "corr-iter", { callLogId: "trace-1", status: 429 })],
+    ["c2", completed("c2", "corr-iter", { callLogId: "persisted-2" })],
+  ]);
+  const rows = buildCallLogListRows({
+    logs: [persisted("persisted-2", "corr-iter")],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: details.values(),
+    now,
+  });
+
+  assert.deepEqual(rows.map((r: any) => r.id).sort(), ["c1", "persisted-2"]);
+});
+
+test("findCompletedDetailForCallLog disambiguates retry attempts sharing a correlation key", () => {
+  usageHistory.clearPendingRequests();
+  clearCompletedDetails();
+  const key = { correlationId: "corr-ambig", model: "gpt-4o", provider: "openai" };
+  storeCompletedDetail(
+    completed("mem-attempt-1", "corr-ambig", { callLogId: "trace-1", status: 429 }) as any
+  );
+  storeCompletedDetail(
+    completed("mem-attempt-2", "corr-ambig", { callLogId: "trace-2", status: 200 }) as any
+  );
+
+  // exact callLogId still wins
+  assert.equal(findCompletedDetailForCallLog("trace-2", key)?.id, "mem-attempt-2");
+  // ambiguous correlation narrowed by persisted status
+  assert.equal(
+    findCompletedDetailForCallLog("uuid-2", { ...key, status: 200 })?.id,
+    "mem-attempt-2"
+  );
+  assert.equal(
+    findCompletedDetailForCallLog("uuid-1", { ...key, status: 429 })?.id,
+    "mem-attempt-1"
+  );
+  // ambiguous without status, or with a status matching no/several attempts, is declined
+  assert.equal(findCompletedDetailForCallLog("uuid-x", key), undefined);
+  assert.equal(findCompletedDetailForCallLog("uuid-x", { ...key, status: 500 }), undefined);
+  storeCompletedDetail(
+    completed("mem-attempt-3", "corr-ambig", { callLogId: "trace-3", status: 200 }) as any
+  );
+  assert.equal(findCompletedDetailForCallLog("uuid-y", { ...key, status: 200 }), undefined);
+  clearCompletedDetails();
+});
+
+test("(b) a status-filtered 429 → 200 retry pairs the persisted 200 with the in-memory 200, not the earlier 429", () => {
+  // `status=ok` returns only the persisted 200; both completed attempts have decoupled ids.
+  const rows = buildCallLogListRows({
+    logs: [persisted("sqlite-200", "corr-status", { status: 200 })],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [
+      completed(`${now - 3_000}-aaaaaa`, "corr-status", { callLogId: "trace-1", status: 429 }),
+      completed(`${now - 2_500}-bbbbbb`, "corr-status", { callLogId: "trace-2", status: 200 }),
+    ],
+    now,
+  });
+
+  // the 429 is not consumed by the 200 row; the in-memory 200 is
+  assert.deepEqual(rows.map((r: any) => r.id).sort(), [`${now - 3_000}-aaaaaa`, "sqlite-200"]);
+  const ok = rows.filter((r: any) => rowMatchesFilter(r, { status: "ok" }));
+  assert.deepEqual(
+    ok.map((r: any) => r.id),
+    ["sqlite-200"]
+  );
+});
+
+test("findCompletedDetailForCallLog declines a singleton correlation candidate with a different status", () => {
+  usageHistory.clearPendingRequests();
+  clearCompletedDetails();
+  const key = { correlationId: "corr-single", model: "gpt-4o", provider: "openai" };
+  // the cached 429 attempt has expired; only the 200 attempt remains
+  storeCompletedDetail(
+    completed("mem-attempt-200", "corr-single", { callLogId: "trace-200", status: 200 }) as any
+  );
+
+  assert.equal(findCompletedDetailForCallLog("uuid-429", { ...key, status: 429 }), undefined);
+  assert.equal(
+    findCompletedDetailForCallLog("uuid-200", { ...key, status: 200 })?.id,
+    "mem-attempt-200"
+  );
+  clearCompletedDetails();
+});
+
+test("findCompletedDetailForCallLog declines a singleton correlation candidate whose timestamp indicates a different retry attempt", () => {
+  usageHistory.clearPendingRequests();
+  clearCompletedDetails();
+  const key = { correlationId: "corr-time", model: "gpt-4o", provider: "openai", status: 200 };
+  // attempt 1 has expired from the cache; only attempt 2 (same key and status) remains
+  storeCompletedDetail(
+    completed("mem-attempt-2", "corr-time", { callLogId: "trace-2", status: 200 }) as any
+  );
+
+  assert.equal(
+    findCompletedDetailForCallLog("uuid-1", {
+      ...key,
+      timestamp: new Date(now - 30_000).toISOString(),
+    }),
+    undefined
+  );
+  assert.equal(
+    findCompletedDetailForCallLog("uuid-1", { ...key, timestamp: now - 30_000 }),
+    undefined
+  );
+  assert.equal(
+    findCompletedDetailForCallLog("uuid-2", {
+      ...key,
+      timestamp: new Date(now - 1_000).toISOString(),
+    })?.id,
+    "mem-attempt-2"
+  );
+  clearCompletedDetails();
 });
