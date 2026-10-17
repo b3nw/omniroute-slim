@@ -5,6 +5,8 @@ import { getCallLogs } from "@/lib/usageDb";
 import { getCompletedDetails, getPendingById } from "@/lib/usage/usageHistory";
 import {
   callLogCorrelationKey,
+  getEstablishedCallLogId,
+  getEstablishedPairDelta,
   linkCompletedDetailToCallLog,
   resolveDetailStatus,
 } from "@/lib/usage/completedRequestDetails";
@@ -205,7 +207,7 @@ export function buildCallLogListRows({
     const log = exactPersistedMatch(detail);
     if (log) {
       removeFromPool(log);
-      if (log.id) linkCompletedDetailToCallLog(log.id, detail);
+      if (log.id) linkCompletedDetailToCallLog(log.id, detail, 0);
     }
   }
   // Collect every compatible (detail, persisted row) pair and compute a maximum-cardinality
@@ -234,12 +236,31 @@ export function buildCallLogListRows({
       }
       const statusExact = logStatus !== null && detailStatus === logStatus;
       const logTime = Date.parse(String(log.timestamp || ""));
+
+      // A persisted row logged before this attempt even started belongs to an earlier attempt.
+      if (
+        typeof detail.startedAt === "number" &&
+        Number.isFinite(logTime) &&
+        logTime < detail.startedAt
+      ) {
+        continue;
+      }
+
       // Unknown timing on either side is compatible but ranked after any timed match.
       const delta =
         Number.isFinite(logTime) && Number.isFinite(detailTime)
           ? Math.abs(detailTime - logTime)
           : Number.POSITIVE_INFINITY;
       if (Number.isFinite(delta) && delta > CORRELATION_PAIR_WINDOW_MS) continue;
+
+      // Consult established association before fallback matching: avoid replacing a stronger
+      // match (smaller delta) with a weaker match when the established row is absent.
+      const establishedOwner = getEstablishedCallLogId(detail.id);
+      if (establishedOwner && establishedOwner !== log.id && !logsById.has(establishedOwner)) {
+        const establishedDelta = getEstablishedPairDelta(detail.id) ?? 0;
+        if (delta >= establishedDelta) continue;
+      }
+
       fallbackPairs.push({ detail, log, statusExact, delta });
     }
   }
@@ -247,6 +268,15 @@ export function buildCallLogListRows({
     (a, b) =>
       Number(b.statusExact) - Number(a.statusExact) || (a.delta === b.delta ? 0 : a.delta - b.delta)
   );
+  const pairDelta = new Map<any, Map<any, number>>();
+  for (const { detail, log, delta } of fallbackPairs) {
+    let m = pairDelta.get(detail);
+    if (!m) {
+      m = new Map();
+      pairDelta.set(detail, m);
+    }
+    m.set(log, delta);
+  }
   // Candidate rows per detail, in preference order (fallbackPairs is already sorted).
   const candidateLogs = new Map<any, any[]>();
   for (const { detail, log } of fallbackPairs) {
@@ -281,7 +311,10 @@ export function buildCallLogListRows({
   // map the surviving persisted row's id to the in-memory detail so /api/logs/[id] can
   // expose cached pipeline details.
   for (const [detail, log] of logForDetail.entries()) {
-    if (log?.id) linkCompletedDetailToCallLog(log.id, detail);
+    if (log?.id) {
+      const delta = pairDelta.get(detail)?.get(log) ?? 0;
+      linkCompletedDetailToCallLog(log.id, detail, delta);
+    }
   }
   const pairedDetails = new Set<any>(logForDetail.keys());
   const completedEntries: any[] = [];

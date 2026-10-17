@@ -19,8 +19,12 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 
 const core = await import("../../src/lib/db/core.ts");
 const usageHistory = await import("../../src/lib/usage/usageHistory.ts");
-const { findCompletedDetailForCallLog, storeCompletedDetail, clearCompletedDetails } =
-  await import("../../src/lib/usage/completedRequestDetails.ts");
+const {
+  findCompletedDetailForCallLog,
+  storeCompletedDetail,
+  clearCompletedDetails,
+  linkCompletedDetailToCallLog,
+} = await import("../../src/lib/usage/completedRequestDetails.ts");
 const { buildCallLogListRows, rowMatchesFilter } =
   await import("../../src/app/api/usage/call-logs/route.ts");
 
@@ -578,15 +582,15 @@ test("(b) buildCallLogListRows declines an in-memory detail with unknown/missing
 
 test("(b) buildCallLogListRows preserves detail lookup for correlation-deduplicated rows", () => {
   clearCompletedDetails();
+  const sqliteUuid = "uuid-sqlite-preserved";
+  const traceId = "trace-chatcore-preserved";
   const common = {
-    correlationId: "corr-detail-lookup",
+    correlationId: traceId,
     model: "gpt-4o",
     provider: "openai",
     status: 200,
   };
-  const sqliteUuid = "uuid-sqlite-preserved";
-  const traceId = "trace-chatcore-preserved";
-  const detailObj = completed("mem-preserved", "corr-detail-lookup", {
+  const detailObj = completed("mem-preserved", traceId, {
     callLogId: traceId,
     status: 200,
     clientRequest: { prompt: "hello" },
@@ -610,7 +614,7 @@ test("(b) buildCallLogListRows preserves detail lookup for correlation-deduplica
 
   // Detail lookup for the surviving persisted row must find the paired in-memory detail
   const found = findCompletedDetailForCallLog(sqliteUuid, {
-    correlationId: "corr-detail-lookup",
+    correlationId: traceId,
     model: "gpt-4o",
     provider: "openai",
     status: 200,
@@ -618,5 +622,265 @@ test("(b) buildCallLogListRows preserves detail lookup for correlation-deduplica
   assert.ok(found);
   assert.equal(found.id, "mem-preserved");
   assert.deepEqual(found.clientRequest, { prompt: "hello" });
+  clearCompletedDetails();
+});
+
+test("(b) a surviving retry attempt is not aliased to an earlier attempt's persisted row and is not suppressed", () => {
+  clearCompletedDetails();
+  const d = {
+    id: "mem-second",
+    callLogId: "trace-second",
+    correlationId: "retry",
+    model: "gpt-4o",
+    provider: "openai",
+    status: 429,
+    startedAt: now - 1_000,
+    completedAt: now,
+    clientResponse: { attempt: 2 },
+  };
+  storeCompletedDetail(d as any);
+  const log = {
+    id: "sqlite-first",
+    correlationId: "retry",
+    model: "gpt-4o",
+    provider: "openai",
+    status: 429,
+    timestamp: new Date(now - 1_500).toISOString(),
+  };
+
+  assert.equal(findCompletedDetailForCallLog(log.id, log), undefined);
+  const rows = buildCallLogListRows({
+    logs: [log],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [d],
+    now,
+  });
+
+  // Both attempts must remain in the rows list; the later attempt is not suppressed
+  assert.deepEqual(rows.map((x: any) => x.id).sort(), ["mem-second", "sqlite-first"]);
+  // Attempt 1 must not be aliased to attempt 2's payloads
+  assert.equal(findCompletedDetailForCallLog(log.id, log), undefined);
+  clearCompletedDetails();
+});
+
+test("(b) preserves established pairings across filtered or paginated list queries", () => {
+  clearCompletedDetails();
+  const common = { correlationId: "shared-retry", provider: "openai", model: "gpt-4o", status: 200 };
+  const a = { ...common, id: "sqlite-a", timestamp: new Date(100_000).toISOString() };
+  const b = { ...common, id: "sqlite-b", timestamp: new Date(101_000).toISOString() };
+  const detail = {
+    ...common,
+    id: "mem-b",
+    callLogId: "trace-b",
+    startedAt: 100_500,
+    completedAt: 101_000,
+    clientResponse: { text: "attempt B" },
+  };
+  storeCompletedDetail(detail as any);
+
+  assert.equal(findCompletedDetailForCallLog(a.id, a), undefined);
+
+  // Full-list query pairs sqlite-b with mem-b
+  buildCallLogListRows({
+    logs: [a, b],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [detail],
+    now: 102_000,
+  });
+  assert.equal(findCompletedDetailForCallLog(b.id, b)?.id, "mem-b");
+
+  // Paged query with only sqlite-a must not alias sqlite-a to mem-b
+  buildCallLogListRows({
+    logs: [a],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [detail],
+    now: 102_000,
+  });
+  assert.equal(findCompletedDetailForCallLog(a.id, a), undefined);
+  assert.equal(findCompletedDetailForCallLog(b.id, b)?.id, "mem-b");
+  clearCompletedDetails();
+});
+
+test("(b) allows subsequent full-query stronger matches to repair partial-query fallback pairings", () => {
+  clearCompletedDetails();
+  const common = { correlationId: "retry", model: "gpt-4o", provider: "openai", status: 200 };
+  const a = { ...common, id: "a", timestamp: new Date(100_000).toISOString() };
+  const b = { ...common, id: "b", timestamp: new Date(101_000).toISOString() };
+  const da = {
+    ...common,
+    id: "da",
+    callLogId: "trace-a",
+    startedAt: 99_000,
+    completedAt: 100_000,
+    clientResponse: { attempt: "A" },
+  };
+  const db = {
+    ...common,
+    id: "db",
+    callLogId: "trace-b",
+    startedAt: 100_500,
+    completedAt: 101_000,
+    clientResponse: { attempt: "B" },
+  };
+  storeCompletedDetail(da as any);
+
+  // First page while B is still pending: da temporarily pairs with b
+  const pagedRows = buildCallLogListRows({
+    logs: [b],
+    connections: [],
+    pendingDetails: [db],
+    completedDetails: [da],
+  });
+  assert.deepEqual(pagedRows.map((x: any) => x.id).sort(), ["b", "db"]);
+
+  // B completes
+  storeCompletedDetail(db as any);
+
+  // Subsequent full query: stronger matches repair the pairings (da -> a, db -> b)
+  const fullRows = buildCallLogListRows({
+    logs: [a, b],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [da, db],
+  });
+  assert.deepEqual(fullRows.map((x: any) => x.id).sort(), ["a", "b"]);
+  assert.deepEqual(findCompletedDetailForCallLog("a", a)?.clientResponse, { attempt: "A" });
+  assert.deepEqual(findCompletedDetailForCallLog("b", b)?.clientResponse, { attempt: "B" });
+  clearCompletedDetails();
+});
+
+test("scheduleCompletedDetailCleanup cleans up reverse alias mapping upon detail TTL expiry", () => {
+  clearCompletedDetails();
+  const d = completed("mem-ttl", "corr-ttl");
+  storeCompletedDetail(d as any);
+  linkCompletedDetailToCallLog("sqlite-ttl", d);
+  assert.equal(findCompletedDetailForCallLog("sqlite-ttl")?.id, "mem-ttl");
+
+  // Expire detail
+  clearCompletedDetails();
+  assert.equal(findCompletedDetailForCallLog("sqlite-ttl"), undefined);
+});
+
+test("findCompletedDetailForCallLog disambiguates trace matches by status and timing and declines owned details", () => {
+  clearCompletedDetails();
+  const common = { model: "m", provider: "p", correlationId: "c", status: 200 };
+
+  // 1. Detail already owned by another row cannot be borrowed by another persisted row
+  storeCompletedDetail({
+    ...common,
+    id: "detail-B",
+    connectionId: "conn",
+    startedAt: 1000,
+    completedAt: 2000,
+  } as any);
+  linkCompletedDetailToCallLog("row-B", "detail-B", 0);
+  assert.equal(
+    findCompletedDetailForCallLog("row-A", { ...common, timestamp: new Date(2000).toISOString() }),
+    undefined
+  );
+
+  clearCompletedDetails();
+
+  // 2. Trace matches must be compatible with persisted status
+  storeCompletedDetail({
+    ...common,
+    id: "success",
+    callLogId: "trace",
+    connectionId: "conn",
+    startedAt: 1000,
+    completedAt: 2000,
+    clientResponse: { ok: true },
+  } as any);
+  assert.equal(
+    findCompletedDetailForCallLog("failed-row", { ...common, correlationId: "trace", status: 502 }),
+    undefined
+  );
+  assert.equal(
+    findCompletedDetailForCallLog("success-row", {
+      ...common,
+      correlationId: "trace",
+      status: 200,
+      timestamp: 2000,
+    })?.id,
+    "success"
+  );
+
+  clearCompletedDetails();
+});
+
+test("(b) preserves established aliases when querying a partial page where the established row is absent", () => {
+  clearCompletedDetails();
+  const common = { correlationId: "c", model: "m", provider: "p", status: 200 };
+  const a = { ...common, id: "a", timestamp: new Date(100_000).toISOString() };
+  const b = { ...common, id: "b", timestamp: new Date(101_000).toISOString() };
+  const d = {
+    ...common,
+    id: "d",
+    callLogId: "trace-a",
+    startedAt: 99_000,
+    completedAt: 100_000,
+    clientResponse: { attempt: "A" },
+  };
+  storeCompletedDetail(d as any);
+
+  // Full query [a, b] correctly links A to d
+  buildCallLogListRows({
+    logs: [a, b],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [d],
+    now: 102_000,
+  });
+  assert.equal(findCompletedDetailForCallLog("a", a)?.id, "d");
+  assert.equal(findCompletedDetailForCallLog("b", b), undefined);
+
+  // Partial query with only [b] must not steal d
+  buildCallLogListRows({
+    logs: [b],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [d],
+    now: 102_000,
+  });
+  assert.equal(findCompletedDetailForCallLog("a", a)?.id, "d");
+  assert.equal(findCompletedDetailForCallLog("b", b), undefined);
+  clearCompletedDetails();
+});
+
+test("(b) allows full-query matching to globally reassign partial-query associations when established row is present", () => {
+  clearCompletedDetails();
+  const common = { correlationId: "c", model: "m", provider: "p", status: 200 };
+  const a = { ...common, id: "a", timestamp: new Date(100_000).toISOString() };
+  const b = { ...common, id: "b", timestamp: new Date(101_900).toISOString() };
+  const da = { ...common, id: "da", callLogId: "ta", startedAt: 99_000, completedAt: 101_000 };
+  const db = { ...common, id: "db", callLogId: "tb", startedAt: 101_500, completedAt: 103_000 };
+  storeCompletedDetail(da as any);
+
+  // Query with only b pairs da with b (900ms)
+  buildCallLogListRows({
+    logs: [b],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [da],
+    now: 104_000,
+  });
+  assert.equal(findCompletedDetailForCallLog("b", b)?.id, "da");
+
+  // When both rows and details are available, b is present so da is globally reassigned to a
+  // and b is assigned to db, achieving maximum cardinality without duplicates
+  storeCompletedDetail(db as any);
+  const fullRows = buildCallLogListRows({
+    logs: [a, b],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [da, db],
+    now: 104_000,
+  });
+  assert.deepEqual(fullRows.map((x: any) => x.id).sort(), ["a", "b"]);
+  assert.equal(findCompletedDetailForCallLog("a", a)?.id, "da");
+  assert.equal(findCompletedDetailForCallLog("b", b)?.id, "db");
   clearCompletedDetails();
 });

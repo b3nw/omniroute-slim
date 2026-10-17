@@ -8,6 +8,8 @@ const CORRELATION_FALLBACK_WINDOW_MS = 5_000;
 
 const completedDetails = new Map<string, PendingRequestDetail>();
 const completedDetailAliases = new Map<string, string>();
+const callLogByDetailId = new Map<string, string>();
+const detailPairDelta = new Map<string, number>();
 const completedDetailTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function deleteCompletedDetail(id: string) {
@@ -17,6 +19,12 @@ function deleteCompletedDetail(id: string) {
     clearTimeout(existingTimer);
     completedDetailTimers.delete(id);
   }
+  const aliasedCallLogId = callLogByDetailId.get(id);
+  if (aliasedCallLogId) {
+    completedDetailAliases.delete(aliasedCallLogId);
+    callLogByDetailId.delete(id);
+  }
+  detailPairDelta.delete(id);
 }
 
 function trimCompletedDetails() {
@@ -31,17 +39,45 @@ export function getCompletedDetails(): Map<string, PendingRequestDetail> {
   return completedDetails;
 }
 
+export function getEstablishedCallLogId(detailId: string): string | undefined {
+  return callLogByDetailId.get(detailId);
+}
+
+export function getEstablishedPairDelta(detailId: string): number | undefined {
+  return detailPairDelta.get(detailId);
+}
+
 export function linkCompletedDetailToCallLog(
   callLogId: string,
-  detail: PendingRequestDetail | string
+  detail: PendingRequestDetail | string,
+  delta: number = 0
 ) {
   const detailId = typeof detail === "string" ? detail : detail?.id;
   if (!callLogId || !detailId) return;
+
+  const previousOwner = callLogByDetailId.get(detailId);
+  if (previousOwner && previousOwner !== callLogId) {
+    completedDetailAliases.delete(previousOwner);
+  }
+
+  const previousDetailId = completedDetailAliases.get(callLogId);
+  if (previousDetailId && previousDetailId !== detailId) {
+    callLogByDetailId.delete(previousDetailId);
+    detailPairDelta.delete(previousDetailId);
+  }
+
   completedDetailAliases.set(callLogId, detailId);
+  callLogByDetailId.set(detailId, callLogId);
+  detailPairDelta.set(detailId, delta);
   while (completedDetailAliases.size > MAX_COMPLETED_DETAILS) {
     const oldest = completedDetailAliases.keys().next().value;
     if (!oldest) break;
+    const oldestDetailId = completedDetailAliases.get(oldest);
     completedDetailAliases.delete(oldest);
+    if (oldestDetailId && callLogByDetailId.get(oldestDetailId) === oldest) {
+      callLogByDetailId.delete(oldestDetailId);
+      detailPairDelta.delete(oldestDetailId);
+    }
   }
 }
 
@@ -54,8 +90,7 @@ export function scheduleCompletedDetailCleanup(id: string) {
   const existingTimer = completedDetailTimers.get(id);
   if (existingTimer) clearTimeout(existingTimer);
   const timer = setTimeout(() => {
-    completedDetails.delete(id);
-    completedDetailTimers.delete(id);
+    deleteCompletedDetail(id);
   }, COMPLETED_DETAIL_TTL_MS);
   timer.unref?.();
   completedDetailTimers.set(id, timer);
@@ -112,8 +147,14 @@ export function findCompletedDetailForCallLog(
   const aliasedId = completedDetailAliases.get(id);
   if (aliasedId) {
     const aliased = completedDetails.get(aliasedId);
-    if (aliased) return aliased;
+    if (aliased && callLogByDetailId.get(aliasedId) === id) {
+      return aliased;
+    }
     completedDetailAliases.delete(id);
+    if (callLogByDetailId.get(aliasedId) === id) {
+      callLogByDetailId.delete(aliasedId);
+      detailPairDelta.delete(aliasedId);
+    }
   }
   const key = persisted ? callLogCorrelationKey(persisted) : null;
   const rawTime = persisted?.timestamp;
@@ -124,30 +165,38 @@ export function findCompletedDetailForCallLog(
         ? Date.parse(rawTime)
         : NaN;
   const candidates: PendingRequestDetail[] = [];
-  let traceMatch: PendingRequestDetail | undefined;
+  const traceMatches: PendingRequestDetail[] = [];
   for (const detail of completedDetails.values()) {
     if (detail.callLogId === id) return detail;
+
+    // If this detail is already owned by another persisted row, do not borrow it.
+    const establishedOwner = callLogByDetailId.get(detail.id);
+    if (establishedOwner && establishedOwner !== id) continue;
+
+    const detailStatus = resolveDetailStatus(detail);
+    const detailTime =
+      typeof detail.completedAt === "number" ? detail.completedAt : detail.startedAt;
+    const statusCompatible =
+      typeof persisted?.status !== "number" || detailStatus === persisted.status;
+    const timeCompatible =
+      !Number.isFinite(persistedTime) ||
+      Math.abs(detailTime - persistedTime) <= CORRELATION_FALLBACK_WINDOW_MS;
+
     if (persisted?.correlationId && detail.callLogId === persisted.correlationId) {
-      traceMatch ??= detail;
+      if (statusCompatible && timeCompatible) {
+        traceMatches.push(detail);
+      }
       continue;
     }
     // A detail carrying a differing callLogId belongs to another attempt; a shared
     // correlation key, status, and time window cannot establish attempt identity.
     if (detail.callLogId) continue;
-    if (
-      key &&
-      callLogCorrelationKey(detail) === key &&
-      (typeof persisted?.status !== "number" || resolveDetailStatus(detail) === persisted.status) &&
-      (!Number.isFinite(persistedTime) ||
-        Math.abs(
-          (typeof detail.completedAt === "number" ? detail.completedAt : detail.startedAt) -
-            persistedTime
-        ) <= CORRELATION_FALLBACK_WINDOW_MS)
-    ) {
+    if (key && callLogCorrelationKey(detail) === key && statusCompatible && timeCompatible) {
       candidates.push(detail);
     }
   }
-  if (traceMatch) return traceMatch;
+  if (traceMatches.length === 1) return traceMatches[0];
+  if (traceMatches.length > 1) return undefined;
   return candidates.length === 1 ? candidates[0] : undefined;
 }
 
@@ -156,6 +205,8 @@ export function clearCompletedDetails() {
   completedDetailTimers.clear();
   completedDetails.clear();
   completedDetailAliases.clear();
+  callLogByDetailId.clear();
+  detailPairDelta.clear();
 }
 
 export function maybeEnrichCompletedDetail(updated: PendingRequestDetail, connectionId: string) {
