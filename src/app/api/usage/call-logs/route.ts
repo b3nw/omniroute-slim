@@ -3,7 +3,11 @@ export const dynamic = "force-dynamic";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { getCallLogs } from "@/lib/usageDb";
 import { getCompletedDetails, getPendingById } from "@/lib/usage/usageHistory";
-import { callLogCorrelationKey, resolveDetailStatus } from "@/lib/usage/completedRequestDetails";
+import {
+  callLogCorrelationKey,
+  linkCompletedDetailToCallLog,
+  resolveDetailStatus,
+} from "@/lib/usage/completedRequestDetails";
 import { getProviderConnections } from "@/lib/db/providers";
 import { getProviderNodes } from "@/models";
 import { matchesSearch } from "@/shared/utils/turkishText";
@@ -199,7 +203,10 @@ export function buildCallLogListRows({
   const completedList = Array.from(completedDetails);
   for (const detail of completedList) {
     const log = exactPersistedMatch(detail);
-    if (log) removeFromPool(log);
+    if (log) {
+      removeFromPool(log);
+      if (log.id) linkCompletedDetailToCallLog(log.id, detail);
+    }
   }
   // Collect every compatible (detail, persisted row) pair and compute a maximum-cardinality
   // matching: seed it greedily by exact status first and closest timing second, then grow
@@ -269,6 +276,12 @@ export function buildCallLogListRows({
   };
   for (const detail of candidateLogs.keys()) {
     if (!logForDetail.has(detail)) augment(detail, new Set());
+  }
+  // Preserve detail lookup for correlation-deduplicated rows before suppressing them:
+  // map the surviving persisted row's id to the in-memory detail so /api/logs/[id] can
+  // expose cached pipeline details.
+  for (const [detail, log] of logForDetail.entries()) {
+    if (log?.id) linkCompletedDetailToCallLog(log.id, detail);
   }
   const pairedDetails = new Set<any>(logForDetail.keys());
   const completedEntries: any[] = [];

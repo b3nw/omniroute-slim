@@ -7,6 +7,7 @@ const MAX_COMPLETED_DETAILS = 256;
 const CORRELATION_FALLBACK_WINDOW_MS = 5_000;
 
 const completedDetails = new Map<string, PendingRequestDetail>();
+const completedDetailAliases = new Map<string, string>();
 const completedDetailTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function deleteCompletedDetail(id: string) {
@@ -28,6 +29,20 @@ function trimCompletedDetails() {
 
 export function getCompletedDetails(): Map<string, PendingRequestDetail> {
   return completedDetails;
+}
+
+export function linkCompletedDetailToCallLog(
+  callLogId: string,
+  detail: PendingRequestDetail | string
+) {
+  const detailId = typeof detail === "string" ? detail : detail?.id;
+  if (!callLogId || !detailId) return;
+  completedDetailAliases.set(callLogId, detailId);
+  while (completedDetailAliases.size > MAX_COMPLETED_DETAILS) {
+    const oldest = completedDetailAliases.keys().next().value;
+    if (!oldest) break;
+    completedDetailAliases.delete(oldest);
+  }
 }
 
 export function storeCompletedDetail(detail: PendingRequestDetail) {
@@ -94,6 +109,12 @@ export function findCompletedDetailForCallLog(
 ): PendingRequestDetail | undefined {
   const direct = completedDetails.get(id);
   if (direct) return direct;
+  const aliasedId = completedDetailAliases.get(id);
+  if (aliasedId) {
+    const aliased = completedDetails.get(aliasedId);
+    if (aliased) return aliased;
+    completedDetailAliases.delete(id);
+  }
   const key = persisted ? callLogCorrelationKey(persisted) : null;
   const rawTime = persisted?.timestamp;
   const persistedTime =
@@ -134,6 +155,7 @@ export function clearCompletedDetails() {
   for (const timer of completedDetailTimers.values()) clearTimeout(timer);
   completedDetailTimers.clear();
   completedDetails.clear();
+  completedDetailAliases.clear();
 }
 
 export function maybeEnrichCompletedDetail(updated: PendingRequestDetail, connectionId: string) {

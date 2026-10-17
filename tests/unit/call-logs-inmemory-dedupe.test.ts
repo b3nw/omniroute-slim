@@ -575,3 +575,48 @@ test("(b) buildCallLogListRows declines an in-memory detail with unknown/missing
   assert.deepEqual(rows.map((r: any) => r.id).sort(), ["mem-unknown", "sqlite-200"]);
   assert.equal(rows.find((r: any) => r.id === "mem-unknown")?.detailState, "in-memory");
 });
+
+test("(b) buildCallLogListRows preserves detail lookup for correlation-deduplicated rows", () => {
+  clearCompletedDetails();
+  const common = {
+    correlationId: "corr-detail-lookup",
+    model: "gpt-4o",
+    provider: "openai",
+    status: 200,
+  };
+  const sqliteUuid = "uuid-sqlite-preserved";
+  const traceId = "trace-chatcore-preserved";
+  const detailObj = completed("mem-preserved", "corr-detail-lookup", {
+    callLogId: traceId,
+    status: 200,
+    clientRequest: { prompt: "hello" },
+    clientResponse: { text: "world" },
+  });
+  storeCompletedDetail(detailObj as any);
+
+  const rows = buildCallLogListRows({
+    logs: [
+      { ...common, id: sqliteUuid, timestamp: new Date(now - 1_000).toISOString() },
+    ],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [detailObj],
+    now,
+  });
+
+  // The in-memory duplicate is suppressed from the list
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, sqliteUuid);
+
+  // Detail lookup for the surviving persisted row must find the paired in-memory detail
+  const found = findCompletedDetailForCallLog(sqliteUuid, {
+    correlationId: "corr-detail-lookup",
+    model: "gpt-4o",
+    provider: "openai",
+    status: 200,
+  });
+  assert.ok(found);
+  assert.equal(found.id, "mem-preserved");
+  assert.deepEqual(found.clientRequest, { prompt: "hello" });
+  clearCompletedDetails();
+});
