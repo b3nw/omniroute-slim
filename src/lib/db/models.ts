@@ -20,6 +20,7 @@ import {
   persistCanonicalSyncedAvailableModels,
 } from "./models/syncedAvailableModelPersistence";
 import { finishModelCatalogWriteWithBackup } from "./models/modelCatalogWriteSignals";
+import { buildHiddenModelSet } from "@/shared/utils/hiddenModelMatch";
 import {
   readCompatList,
   writeCompatList,
@@ -979,12 +980,34 @@ export function getModelIsHidden(providerId: string, modelId: string): boolean {
  */
 export function getHiddenModelsByProvider(): Map<string, Set<string>> {
   const db = getDbInstance();
-  const visibilityByProvider = new Map<string, Map<string, boolean>>();
   const rows = db
     .prepare(
       "SELECT namespace, key, value FROM key_value WHERE namespace IN ('modelCompatOverrides', 'customModels')"
     )
     .all() as Array<{ namespace: string; key: string; value: string | null }>;
+  return buildHiddenModelsMap(rows);
+}
+
+/**
+ * Hidden-model set for a single provider key — same semantics as
+ * {@link getHiddenModelsByProvider} (vendor-qualified ids also index their bare
+ * tail), but reads only that provider's two rows. Pair with `isHiddenModelMatch`.
+ */
+export function getHiddenModelSetForProvider(providerId: string): Set<string> {
+  if (!providerId) return new Set();
+  const db = getDbInstance();
+  const rows = db
+    .prepare(
+      "SELECT namespace, key, value FROM key_value WHERE namespace IN ('modelCompatOverrides', 'customModels') AND key = ?"
+    )
+    .all(providerId) as Array<{ namespace: string; key: string; value: string | null }>;
+  return buildHiddenModelsMap(rows).get(providerId) ?? new Set();
+}
+
+function buildHiddenModelsMap(
+  rows: Array<{ namespace: string; key: string; value: string | null }>
+): Map<string, Set<string>> {
+  const visibilityByProvider = new Map<string, Map<string, boolean>>();
 
   for (const namespace of ["modelCompatOverrides", "customModels"]) {
     for (const row of rows) {
@@ -1010,12 +1033,13 @@ export function getHiddenModelsByProvider(): Map<string, Set<string>> {
     }
   }
 
+  // Vendor-qualified ids (`anthropic/claude-fable-5`, as passthrough aggregators like
+  // Kilo Code list them) also index their bare tail, so alias-backed rows keyed on the
+  // stripped slug (`kc/claude-fable-5`) honor the same hidden flag.
   return new Map(
     [...visibilityByProvider].flatMap(([providerId, visibility]) => {
-      const hiddenModels = [...visibility].flatMap(([modelId, isHidden]) =>
-        isHidden ? [modelId] : []
-      );
-      return hiddenModels.length > 0 ? [[providerId, new Set(hiddenModels)] as const] : [];
+      const hiddenModels = buildHiddenModelSet(visibility);
+      return hiddenModels.size > 0 ? [[providerId, hiddenModels] as const] : [];
     })
   );
 }
