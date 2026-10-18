@@ -6,8 +6,8 @@ import {
 import { getAntigravityContentHeaders } from "./antigravityHeaders.ts";
 import type { AntigravityCredentialsLike } from "./antigravityIdentity.ts";
 import {
+  resolveAntigravityAppVersion,
   resolveAntigravityCliVersion,
-  resolveAntigravityIdeVersion,
 } from "./antigravityVersion.ts";
 
 export {
@@ -46,7 +46,7 @@ export function getAntigravityClientProfile(
 export function resolveAntigravityClientVersion(
   profile: AntigravityClientProfile
 ): Promise<string> {
-  return profile === "cli" ? resolveAntigravityCliVersion() : resolveAntigravityIdeVersion();
+  return profile === "cli" ? resolveAntigravityCliVersion() : resolveAntigravityAppVersion();
 }
 
 export function removeHeaderCaseInsensitive(headers: Record<string, string>, name: string): void {

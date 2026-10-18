@@ -6,8 +6,8 @@ import { agy } from "../../src/lib/oauth/providers/agy.ts";
 import { antigravity } from "../../src/lib/oauth/providers/antigravity.ts";
 import {
   clearAntigravityVersionCaches,
+  seedAntigravityAppVersionCache,
   seedAntigravityCliVersionCache,
-  seedAntigravityIdeVersionCache,
 } from "../../open-sse/services/antigravityVersion.ts";
 
 const originalFetch = globalThis.fetch;
@@ -17,8 +17,10 @@ test.afterEach(() => {
   clearAntigravityVersionCaches();
 });
 
-test("token exchange selects the IDE Node and CLI User-Agent independently", async () => {
-  seedAntigravityIdeVersionCache("2.1.1");
+// The antigravity OAuth provider used to present the retired IDE Node identity
+// (`antigravity/<v> ... google-api-nodejs-client`); it now presents the App (Hub) Node identity.
+test("token exchange selects the App Node and CLI User-Agent independently", async () => {
+  seedAntigravityAppVersionCache("2.24.0");
   seedAntigravityCliVersionCache("1.1.1");
   const userAgents: string[] = [];
 
@@ -27,12 +29,12 @@ test("token exchange selects the IDE Node and CLI User-Agent independently", asy
     return Response.json({ access_token: "token", refresh_token: "refresh", expires_in: 3600 });
   }) as typeof fetch;
 
-  await antigravity.exchangeToken(ANTIGRAVITY_CONFIG, "ide-code", "http://localhost/callback");
+  await antigravity.exchangeToken(ANTIGRAVITY_CONFIG, "app-code", "http://localhost/callback");
   await agy.exchangeToken(AGY_CONFIG, "cli-code", "http://localhost/callback");
 
-  assert.match(
+  assert.equal(
     userAgents[0],
-    /^antigravity\/2\.1\.1 [^ ]+\/[^ ]+ google-api-nodejs-client\/10\.3\.0$/
+    "antigravity/hub/2.24.0 darwin/arm64 google-api-nodejs-client/10.3.0"
   );
   assert.match(
     userAgents[1],
@@ -41,11 +43,11 @@ test("token exchange selects the IDE Node and CLI User-Agent independently", asy
 });
 
 for (const [name, provider, expectedProfile] of [
-  ["antigravity", antigravity, "ide"],
+  ["antigravity", antigravity, "app"],
   ["agy", agy, "cli"],
 ] as const) {
   test(`${name} post-exchange and onboarding use the selected ${expectedProfile} identity`, async () => {
-    seedAntigravityIdeVersionCache("2.1.1");
+    seedAntigravityAppVersionCache("2.24.0");
     seedAntigravityCliVersionCache("1.1.1");
     const cloudCodeHeaders: Headers[] = [];
 
@@ -74,10 +76,10 @@ for (const [name, provider, expectedProfile] of [
 
     assert.ok(cloudCodeHeaders.length >= 2);
     for (const headers of cloudCodeHeaders) {
-      if (expectedProfile === "ide") {
-        assert.match(
-          headers.get("User-Agent") ?? "",
-          /^antigravity\/2\.1\.1 [^ ]+\/[^ ]+ google-api-nodejs-client\/10\.3\.0$/
+      if (expectedProfile === "app") {
+        assert.equal(
+          headers.get("User-Agent"),
+          "antigravity/hub/2.24.0 darwin/arm64 google-api-nodejs-client/10.3.0"
         );
         assert.equal(headers.get("X-Goog-Api-Client"), "gl-node/22.21.1");
       } else {

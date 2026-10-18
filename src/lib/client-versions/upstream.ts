@@ -63,6 +63,23 @@ export function parseAntigravityReleaseFeed(payload: unknown): string | null {
 }
 
 /**
+ * Parse the Antigravity App (Hub) updater manifest.
+ *
+ * The Hub publishes an electron-builder `latest-<os>-<arch>.yml`, not JSON:
+ *   version: 2.24.0
+ *   files:
+ *     - url: https://storage.googleapis.com/antigravity-public/...
+ *   path: Antigravity.zip
+ * The `files:` entries carry no version key, so matching the top-level `version:` line
+ * is unambiguous.
+ */
+export function parseAntigravityAppManifest(payload: unknown): string | null {
+  if (typeof payload !== "string") return null;
+  const match = payload.match(/^version:\s*(\d+\.\d+\.\d+)\s*$/m);
+  return normalizeVersion(match?.[1]);
+}
+
+/**
  * Antigravity IDE (2.x) and CLI (1.x) are versioned independently, so each has
  * its own source list — never fall back from one feed to the other.
  */
@@ -85,8 +102,11 @@ export const CLIENT_VERSION_SOURCES: Record<ClientVersionTarget, VersionSource[]
   ],
   antigravity: [
     {
-      url: "https://antigravity-auto-updater-974169037036.us-central1.run.app/releases",
-      parse: parseAntigravityReleaseFeed,
+      // The Antigravity App (a.k.a. Hub). This is the surface that still receives the
+      // current model catalog; the legacy IDE feed stopped publishing at 2.0.0 while the
+      // Hub is on 2.24.x, so the IDE feed must not drive the version we report.
+      url: "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml",
+      parse: parseAntigravityAppManifest,
     },
   ],
   "antigravity-cli": [
@@ -117,7 +137,9 @@ export function clearClientVersionEtagCache(): void {
 async function fetchSourceVersion(fetchImpl: FetchLike, source: VersionSource): Promise<string> {
   const cached = etagCache.get(source.url);
   const headers: Record<string, string> = {
-    Accept: "application/json",
+    // Sources disagree on payload shape: most are JSON APIs, but the Antigravity App
+    // publishes an electron-builder YAML manifest. Ask for both and parse from text.
+    Accept: "application/json, text/yaml, text/plain, */*",
     "User-Agent": "OmniRoute-ClientVersionCheck/1.0",
   };
   if (cached) headers["If-None-Match"] = cached.etag;
@@ -130,7 +152,16 @@ async function fetchSourceVersion(fetchImpl: FetchLike, source: VersionSource): 
   if (response.status === 304 && cached) return cached.version;
   if (!response.ok) throw new Error(`${new URL(source.url).host} returned HTTP ${response.status}`);
 
-  const version = source.parse(await response.json());
+  const body = await response.text();
+  // Most sources are JSON; the Antigravity App publishes an electron-builder YAML
+  // manifest. Try JSON and fall back to the raw text so every parser sees its shape.
+  let payload: unknown = body;
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    // not JSON — leave as raw text for YAML/plain-text parsers
+  }
+  const version = source.parse(payload);
   if (!version) throw new Error(`${new URL(source.url).host} returned no usable version`);
 
   const etag = response.headers.get("etag");

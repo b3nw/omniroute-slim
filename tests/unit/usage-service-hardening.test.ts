@@ -221,7 +221,10 @@ test("usage service covers Antigravity quota parsing, exclusions and forbidden a
     loadCodeAssistCall?.url,
     `${ANTIGRAVITY_BOOTSTRAP_BASE_URLS[0]}/v1internal:loadCodeAssist`
   );
-  assert.match(loadCodeAssistCall?.init.headers["User-Agent"], /^antigravity\/ide\/2\.1\.1 /);
+  assert.match(
+    loadCodeAssistCall?.init.headers["User-Agent"],
+    /^antigravity\/hub\/\d+\.\d+\.\d+ darwin\/arm64$/
+  );
   assert.equal(loadCodeAssistCall?.init.headers["X-Goog-Api-Client"], undefined);
   assert.equal(loadCodeAssistCall?.init.headers["Client-Metadata"], undefined);
   assert.deepEqual(
@@ -404,7 +407,7 @@ test("usage service retries Antigravity fetchAvailableModels across the shared f
     quotaCalls.map((call) => call.url),
     expectedQuotaUrls
   );
-  assert.match(quotaCalls.at(-1)?.init.headers["User-Agent"], /^antigravity\/ide\//);
+  assert.match(quotaCalls.at(-1)?.init.headers["User-Agent"], /^antigravity\/hub\//);
   assert.equal(usage.plan, "Business");
   assert.ok(usage.quotas["gemini-pro-agent"] !== undefined);
 });

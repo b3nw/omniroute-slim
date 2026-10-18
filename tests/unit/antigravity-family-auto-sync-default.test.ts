@@ -71,7 +71,7 @@ test("agy OAuth mapTokens defaults providerSpecificData.autoSync to true", () =>
 test("antigravity OAuth mapTokens defaults providerSpecificData.autoSync to true", () => {
   const mapped = providers.antigravity.mapTokens(TOKENS, POST_EXCHANGE) as Row;
   assert.equal(asRecord(mapped.providerSpecificData).autoSync, true);
-  assert.equal(asRecord(mapped.providerSpecificData).clientProfile, "ide");
+  assert.equal(asRecord(mapped.providerSpecificData).clientProfile, "app");
 });
 
 test("new agy CLI token import persists autoSync: true", async () => {

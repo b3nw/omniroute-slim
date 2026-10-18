@@ -26,6 +26,7 @@ import {
   getAntigravityLoadCodeAssistUrls,
   ANTIGRAVITY_REQUIRES_MANUAL_PROJECT,
 } from "../../open-sse/services/antigravityProjectBootstrap.ts";
+import { getCachedAntigravityAppVersion } from "../../open-sse/services/antigravityVersion.ts";
 
 // Reset the module-level memoization cache between tests.
 beforeEach(() => {
@@ -149,7 +150,7 @@ describe("ensureAntigravityProjectAssigned", () => {
     assert.equal(capturedHeaders?.get("Client-Metadata"), null);
   });
 
-  test("uses the official IDE native content headers by default", async () => {
+  test("uses the official App native content headers by default", async () => {
     let capturedHeaders: Headers | null = null;
     const mockFetch = async (_url: string, init?: RequestInit): Promise<Response> => {
       capturedHeaders = new Headers(init?.headers);
@@ -158,7 +159,12 @@ describe("ensureAntigravityProjectAssigned", () => {
 
     await ensureAntigravityProjectAssigned("ide-token", mockFetch);
 
-    assert.match(capturedHeaders?.get("User-Agent") || "", /^antigravity\/ide\/2\.1\.1 /);
+    // Default content identity is the App (Hub) short form: no node client suffix and
+    // never the retired `antigravity/ide/` grammar.
+    assert.equal(
+      capturedHeaders?.get("User-Agent"),
+      `antigravity/hub/${getCachedAntigravityAppVersion()} darwin/arm64`
+    );
     assert.equal(capturedHeaders?.get("X-Goog-Api-Client"), null);
     assert.equal(capturedHeaders?.get("Client-Metadata"), null);
   });

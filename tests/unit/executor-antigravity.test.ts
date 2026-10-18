@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { AntigravityExecutor } from "../../open-sse/executors/antigravity.ts";
 import { setCliCompatProviders } from "../../open-sse/config/cliFingerprints.ts";
 import { scrubProxyAndFingerprintHeaders } from "../../open-sse/services/antigravityHeaderScrub.ts";
-import { antigravityIdeUserAgent } from "../../open-sse/services/antigravityHeaders.ts";
+import { antigravityAppUserAgent } from "../../open-sse/services/antigravityHeaders.ts";
 import {
   clearAntigravityVersionCaches,
   seedAntigravityIdeVersionCache,
@@ -85,7 +85,7 @@ test("AntigravityExecutor.buildHeaders includes native headers without OmniRoute
 
   assert.equal(headers.Authorization, "Bearer ag-token");
   assert.equal(headers.Accept, "text/event-stream");
-  assert.equal(headers["User-Agent"], antigravityIdeUserAgent("2.1.1"));
+  assert.equal(headers["User-Agent"], antigravityAppUserAgent("2.1.1"));
   assert.equal(headers["X-OmniRoute-Source"], undefined);
 });
 
@@ -992,7 +992,7 @@ test("AntigravityExecutor.execute applies CLI fingerprint when enabled", async (
     const parsedBody = JSON.parse(String(init?.body));
     fetchBody = parsedBody;
 
-    assert.equal(headers["User-Agent"], antigravityIdeUserAgent("2.1.1"));
+    assert.equal(headers["User-Agent"], antigravityAppUserAgent("2.1.1"));
     assert.equal(headers["x-client-name"], undefined);
     assert.equal(headers["x-client-version"], undefined);
     assert.equal(headers["x-goog-user-project"], "project-1");

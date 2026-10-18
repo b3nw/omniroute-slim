@@ -62,7 +62,7 @@ function buildCacheKey(
 export async function fetchAntigravityUserQuotaSummaryCached(
   accessToken: string,
   projectId?: string | null,
-  clientProfile: AntigravityClientProfile = "ide",
+  clientProfile: AntigravityClientProfile = "app",
   options: AntigravityWeeklyQuotaOptions = {}
 ): Promise<unknown | null> {
   if (!accessToken || !projectId) return null;
@@ -197,7 +197,7 @@ function extractSummaryGroups(summaryData: unknown): unknown[] {
 export async function fetchAndParseAntigravityWeeklyQuotas(
   accessToken: string,
   projectId: string | undefined | null,
-  clientProfile: AntigravityClientProfile = "ide",
+  clientProfile: AntigravityClientProfile = "app",
   options: AntigravityWeeklyQuotaOptions = {}
 ): Promise<Record<string, UsageQuota>> {
   const data = await fetchAntigravityUserQuotaSummaryCached(
