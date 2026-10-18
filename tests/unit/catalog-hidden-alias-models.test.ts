@@ -233,3 +233,89 @@ describe("/v1/models alias-backed hidden models", () => {
     );
   });
 });
+
+describe("setModelIsHidden persists explicit visibility across the vendor-slug bridge", () => {
+  const QUALIFIED = `anthropic/${HIDDEN}`;
+  const QUALIFIED_ALIAS = "fable-qualified";
+  const BARE_ALIAS = "fable-bare";
+
+  beforeEach(async () => {
+    delete process.env.OMNIROUTE_SUPPRESS_BUILTIN_MODELS;
+    await resetStorage();
+    await providersDb.createProviderConnection({
+      provider: PROVIDER_ID,
+      authType: "oauth",
+      name: "kilocode-test-conn",
+      apiKey: null,
+      accessToken: "kilo-test-token",
+      isActive: true,
+      testStatus: "active",
+      providerSpecificData: {},
+    });
+    featureFlagsDb.setFeatureFlagOverride("OMNIROUTE_SUPPRESS_BUILTIN_MODELS", "true");
+    await aliasesDb.setModelAlias(QUALIFIED_ALIAS, `${PROVIDER_ALIAS}/${QUALIFIED}`);
+    await aliasesDb.setModelAlias(BARE_ALIAS, `${PROVIDER_ALIAS}/${HIDDEN}`);
+  });
+
+  after(() => {
+    core.resetDbInstance();
+    apiKeysDb.resetApiKeyState();
+    fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  function effectiveHidden(modelId: string): boolean {
+    return isHiddenModelMatch(modelsDb.getHiddenModelSetForProvider(PROVIDER_ID), modelId);
+  }
+
+  async function resolve(alias: string): Promise<string> {
+    aliasResolver.invalidateAliasCache();
+    return aliasResolver.resolveModelAliasWithSeedFallback(alias);
+  }
+
+  it("unhide persists an explicit isHidden:false compat entry, even with no prior entry", () => {
+    modelsDb.setModelIsHidden(PROVIDER_ID, QUALIFIED, false);
+    const entry = modelsDb.getModelCompatOverrides(PROVIDER_ID).find((e) => e.id === QUALIFIED);
+    assert.deepEqual(entry, { id: QUALIFIED, isHidden: false });
+    assert.equal(modelsDb.getModelIsHidden(PROVIDER_ID, QUALIFIED), false);
+  });
+
+  it("hide bare -> hide qualified -> unhide qualified: qualified alias is published and resolves", async () => {
+    modelsDb.setModelIsHidden(PROVIDER_ID, HIDDEN, true);
+    modelsDb.setModelIsHidden(PROVIDER_ID, QUALIFIED, true);
+    modelsDb.setModelIsHidden(PROVIDER_ID, QUALIFIED, false);
+
+    assert.equal(modelsDb.getModelIsHidden(PROVIDER_ID, QUALIFIED), false);
+    assert.equal(effectiveHidden(QUALIFIED), false, "bare-tail bridge must not re-hide");
+    assert.equal(effectiveHidden(HIDDEN), true, "bare id stays explicitly hidden");
+
+    const ids = await getCatalogIds();
+    assert.ok(ids.includes(`${PROVIDER_ALIAS}/${QUALIFIED}`), "qualified model is published");
+    assert.ok(ids.includes(`${PROVIDER_ALIAS}/${QUALIFIED}-high`), "qualified effort variant");
+    assert.ok(!ids.includes(`${PROVIDER_ALIAS}/${HIDDEN}`), "bare model stays hidden");
+
+    assert.equal(await resolve(QUALIFIED_ALIAS), `${PROVIDER_ALIAS}/${QUALIFIED}`);
+    assert.equal(await resolve(BARE_ALIAS), BARE_ALIAS, "hidden bare target stays unresolved");
+  });
+
+  it("hide qualified -> hide bare -> unhide bare: bare alias is published and resolves", async () => {
+    modelsDb.setModelIsHidden(PROVIDER_ID, QUALIFIED, true);
+    modelsDb.setModelIsHidden(PROVIDER_ID, HIDDEN, true);
+    modelsDb.setModelIsHidden(PROVIDER_ID, HIDDEN, false);
+
+    assert.equal(modelsDb.getModelIsHidden(PROVIDER_ID, HIDDEN), false);
+    assert.equal(effectiveHidden(HIDDEN), false, "qualified-sibling bridge must not re-hide");
+    assert.equal(effectiveHidden(QUALIFIED), true, "qualified id stays explicitly hidden");
+
+    const ids = await getCatalogIds();
+    assert.ok(ids.includes(`${PROVIDER_ALIAS}/${HIDDEN}`), "bare model is published");
+    assert.ok(ids.includes(`${PROVIDER_ALIAS}/${HIDDEN}-high`), "bare effort variant");
+    assert.ok(!ids.includes(`${PROVIDER_ALIAS}/${QUALIFIED}`), "qualified model stays hidden");
+
+    assert.equal(await resolve(BARE_ALIAS), `${PROVIDER_ALIAS}/${HIDDEN}`);
+    assert.equal(
+      await resolve(QUALIFIED_ALIAS),
+      QUALIFIED_ALIAS,
+      "hidden qualified target stays unresolved"
+    );
+  });
+});
