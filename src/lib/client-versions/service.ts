@@ -21,17 +21,19 @@ import {
 } from "@omniroute/open-sse/config/codexClient.ts";
 import {
   getCachedAntigravityCliVersion,
-  getCachedAntigravityIdeVersion,
+  getCachedAntigravityAppVersion,
 } from "@omniroute/open-sse/services/antigravityVersion.ts";
 import {
+  antigravityAppUserAgent,
   antigravityCliUserAgent,
-  antigravityIdeUserAgent,
 } from "@omniroute/open-sse/services/antigravityHeaders.ts";
 import { getGeminiCliAuthHeaders } from "@omniroute/open-sse/services/geminiCliDiscovery.ts";
 import {
+  CLIENT_VERSION_AUTO_DETECT_FEEDS,
   CLIENT_VERSION_PRODUCTS,
   getActiveClientVersion,
   getModeRevision,
+  isAutoDetectedVersionTrusted,
   isSafeClientVersion,
   normalizeClientVersionModes,
   setClientVersionModes,
@@ -274,8 +276,18 @@ export async function runClientVersionCheck(
         lastCheckedAt: ide.checkedAt,
       };
       const errors: string[] = [];
-      if (ide.version) config.autoDetectedVersion = ide.version;
-      else if (ide.error) errors.push(cli ? `IDE: ${ide.error}` : ide.error);
+      if (ide.version) {
+        config.autoDetectedVersion = ide.version;
+        const feed = CLIENT_VERSION_AUTO_DETECT_FEEDS[product];
+        if (feed) config.autoDetectedVersionFeed = feed;
+      } else {
+        if (ide.error) errors.push(cli ? `App: ${ide.error}` : ide.error);
+        // A value from a retired feed is never advertised; drop it rather than keep it.
+        if (!isAutoDetectedVersionTrusted(product, config)) {
+          delete config.autoDetectedVersion;
+          delete config.autoDetectedVersionFeed;
+        }
+      }
       if (cli?.version) config.autoDetectedCliVersion = cli.version;
       else if (cli?.error) errors.push(`CLI: ${cli.error}`);
       if (errors.length > 0) config.lastCheckError = errors.join("; ");
@@ -295,8 +307,15 @@ function hasAutomaticProduct(modes: ClientVersionModesSettings): boolean {
   return CLIENT_VERSION_PRODUCTS.some((product) => modes[product].mode === "automatic");
 }
 
-function isStale(config: ProductClientVersionConfig, now: number): boolean {
+function isStale(
+  product: ClientVersionProduct,
+  config: ProductClientVersionConfig,
+  now: number
+): boolean {
   if (config.mode !== "automatic") return false;
+  // Detection state from a retired feed: re-check now instead of waiting out the interval.
+  // Any check outcome clears it, so this cannot re-trigger on the resulting reload.
+  if (config.autoDetectedVersion && !isAutoDetectedVersionTrusted(product, config)) return true;
   const checkedAt = config.lastCheckedAt ? Date.parse(config.lastCheckedAt) : Number.NaN;
   return !Number.isFinite(checkedAt) || now - checkedAt >= CLIENT_VERSION_AUTO_CHECK_INTERVAL_MS;
 }
@@ -335,7 +354,7 @@ export function syncClientVersionScheduler(value: unknown): void {
     schedulerTimer.unref?.();
   }
   const now = Date.now();
-  if (CLIENT_VERSION_PRODUCTS.some((product) => isStale(modes[product], now))) {
+  if (CLIENT_VERSION_PRODUCTS.some((product) => isStale(product, modes[product], now))) {
     runScheduledCheck();
   }
 }
@@ -360,7 +379,7 @@ export function getActiveCodexVersion(): string {
 }
 
 export function getActiveAntigravityVersion(): string {
-  return getCachedAntigravityIdeVersion();
+  return getCachedAntigravityAppVersion();
 }
 
 export function getActiveGeminiCliVersion(): string {
@@ -381,7 +400,7 @@ export function getClientWirePreview(product: ClientVersionProduct): Record<stri
     }
     case "antigravity":
       return {
-        "User-Agent (IDE)": antigravityIdeUserAgent(),
+        "User-Agent (App)": antigravityAppUserAgent(),
         "User-Agent (CLI)": antigravityCliUserAgent(),
       };
     case "gemini-cli":
@@ -423,7 +442,7 @@ export function resolveActiveVersionSource(
   config: ProductClientVersionConfig
 ): ActiveVersionSource {
   if (getActiveClientVersion(product)) {
-    if (config.mode === "automatic" && isSafeClientVersion(config.autoDetectedVersion)) {
+    if (config.mode === "automatic" && isAutoDetectedVersionTrusted(product, config)) {
       return "automatic";
     }
     return "manual";

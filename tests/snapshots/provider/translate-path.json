@@ -357,18 +357,18 @@
         "Accept": "text/event-stream",
         "Authorization": "Bearer <TOK>",
         "Content-Type": "application/json",
-        "User-Agent": "antigravity/ide/2.1.1 <OS>/<ARCH>"
+        "User-Agent": "antigravity/hub/2.24.0 <OS>/<ARCH>"
       },
       "nonStream": {
         "Authorization": "Bearer <TOK>",
         "Content-Type": "application/json",
-        "User-Agent": "antigravity/ide/2.1.1 <OS>/<ARCH>"
+        "User-Agent": "antigravity/hub/2.24.0 <OS>/<ARCH>"
       },
       "oauth": {
         "Accept": "text/event-stream",
         "Authorization": "Bearer <TOK>",
         "Content-Type": "application/json",
-        "User-Agent": "antigravity/ide/2.1.1 <OS>/<ARCH>"
+        "User-Agent": "antigravity/hub/2.24.0 <OS>/<ARCH>"
       }
     },
     "url": {

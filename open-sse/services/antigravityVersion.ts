@@ -1,13 +1,15 @@
 import { getActiveClientVersion } from "@/lib/client-versions/registry";
 
-const ANTIGRAVITY_IDE_RELEASE_FEED_URL =
-  "https://antigravity-auto-updater-974169037036.us-central1.run.app/releases";
+const ANTIGRAVITY_APP_RELEASE_URL =
+  "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml";
 const ANTIGRAVITY_CLI_RELEASE_URL =
   "https://api.github.com/repos/google-antigravity/antigravity-cli/releases/latest";
 
 export const ANTIGRAVITY_VERSION_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 export const ANTIGRAVITY_VERSION_FETCH_TIMEOUT_MS = 5_000;
-export const ANTIGRAVITY_IDE_FALLBACK_VERSION = "2.1.1";
+// Floor used only when the Hub manifest cannot be read. The Hub feed is authoritative;
+// keep this at or above the version upstream currently requires for current models.
+export const ANTIGRAVITY_APP_FALLBACK_VERSION = "2.24.0";
 export const ANTIGRAVITY_CLI_FALLBACK_VERSION = "1.1.5";
 
 type VersionCache = {
@@ -23,7 +25,7 @@ type ProductVersionState = {
 type FetchLike = typeof fetch;
 type VersionParser = (payload: unknown) => string | null;
 
-const ideState: ProductVersionState = { cache: null, inFlight: null };
+const appState: ProductVersionState = { cache: null, inFlight: null };
 const cliState: ProductVersionState = { cache: null, inFlight: null };
 
 function normalizeVersion(value: unknown): string | null {
@@ -52,14 +54,15 @@ function pickNewestVersion(...versions: unknown[]): string | null {
     );
 }
 
-async function fetchJsonWithTimeout(fetchImpl: FetchLike, url: string): Promise<unknown> {
+async function fetchPayloadWithTimeout(fetchImpl: FetchLike, url: string): Promise<unknown> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), ANTIGRAVITY_VERSION_FETCH_TIMEOUT_MS);
 
   try {
     const response = await fetchImpl(url, {
+      // Feeds differ: the Hub publishes a YAML updater manifest, the CLI feed is JSON.
       headers: {
-        Accept: "application/json",
+        Accept: "application/json, text/yaml, text/plain, */*",
         "User-Agent": "OmniRoute-AntigravityVersion/1.0",
       },
       signal: controller.signal,
@@ -69,20 +72,39 @@ async function fetchJsonWithTimeout(fetchImpl: FetchLike, url: string): Promise<
       throw new Error(`Version source ${url} returned ${response.status}`);
     }
 
-    return response.json();
+    return await response.text();
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
-function parseIdeReleaseFeed(payload: unknown): string | null {
-  if (!Array.isArray(payload)) return null;
-  return pickNewestVersion(...payload.map((entry) => (entry as { version?: unknown })?.version));
+function parseAppReleaseManifest(payload: unknown): string | null {
+  // The Hub serves an electron-builder `latest-*.yml` manifest, not JSON:
+  //   version: 2.24.0
+  //   files:
+  //     - url: https://storage.googleapis.com/antigravity-public/...
+  //   path: Antigravity.zip
+  //   sha512: ...
+  // Only the top-level `version:` line carries the App release version; the `files:`
+  // block has no version key, so a plain line parse is sufficient and dependency-free.
+  if (typeof payload !== "string") return null;
+  const match = payload.match(/^version:\s*(\d+\.\d+\.\d+)\s*$/m);
+  return match ? match[1] : null;
 }
 
 function parseCliRelease(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") return null;
-  const release = payload as { name?: unknown; tag_name?: unknown };
+  // The CLI feed is GitHub's JSON API; `fetchPayloadWithTimeout` returns raw text so the
+  // YAML App manifest can share the same fetch path.
+  let parsed: unknown = payload;
+  if (typeof payload === "string") {
+    try {
+      parsed = JSON.parse(payload);
+    } catch {
+      return null;
+    }
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const release = parsed as { name?: unknown; tag_name?: unknown };
   return normalizeVersion(release.tag_name ?? release.name);
 }
 
@@ -105,7 +127,7 @@ async function resolveProductVersion(
   state.inFlight = (async () => {
     let resolved: string | null = null;
     try {
-      resolved = parsePayload(await fetchJsonWithTimeout(fetchImpl, sourceUrl));
+      resolved = parsePayload(await fetchPayloadWithTimeout(fetchImpl, sourceUrl));
     } catch {
       resolved = null;
     }
@@ -137,14 +159,19 @@ function seedVersionCache(state: ProductVersionState, version: string, fetchedAt
   state.cache = { fetchedAt, version: normalized };
 }
 
-export function resolveAntigravityIdeVersion(fetchImpl: FetchLike = fetch): Promise<string> {
+/**
+ * Resolve the Antigravity **App** (Hub) version from its electron-builder updater
+ * manifest. The App replaced the Antigravity IDE as the surface that receives current
+ * model access, so this is what the default identity reports.
+ */
+export function resolveAntigravityAppVersion(fetchImpl: FetchLike = fetch): Promise<string> {
   const dynamic = getActiveClientVersion("antigravity");
   if (dynamic) return Promise.resolve(dynamic);
   return resolveProductVersion(
-    ideState,
-    ANTIGRAVITY_IDE_FALLBACK_VERSION,
-    ANTIGRAVITY_IDE_RELEASE_FEED_URL,
-    parseIdeReleaseFeed,
+    appState,
+    ANTIGRAVITY_APP_FALLBACK_VERSION,
+    ANTIGRAVITY_APP_RELEASE_URL,
+    parseAppReleaseManifest,
     fetchImpl
   );
 }
@@ -161,11 +188,11 @@ export function resolveAntigravityCliVersion(fetchImpl: FetchLike = fetch): Prom
   );
 }
 
-export function getCachedAntigravityIdeVersion(): string {
+export function getCachedAntigravityAppVersion(): string {
   return (
     getActiveClientVersion("antigravity") ??
-    ideState.cache?.version ??
-    ANTIGRAVITY_IDE_FALLBACK_VERSION
+    appState.cache?.version ??
+    ANTIGRAVITY_APP_FALLBACK_VERSION
   );
 }
 
@@ -177,8 +204,8 @@ export function getCachedAntigravityCliVersion(): string {
   );
 }
 
-export function seedAntigravityIdeVersionCache(version: string, fetchedAt = Date.now()): void {
-  seedVersionCache(ideState, version, fetchedAt);
+export function seedAntigravityAppVersionCache(version: string, fetchedAt = Date.now()): void {
+  seedVersionCache(appState, version, fetchedAt);
 }
 
 export function seedAntigravityCliVersionCache(version: string, fetchedAt = Date.now()): void {
@@ -186,8 +213,21 @@ export function seedAntigravityCliVersionCache(version: string, fetchedAt = Date
 }
 
 export function clearAntigravityVersionCaches(): void {
-  ideState.cache = null;
-  ideState.inFlight = null;
+  appState.cache = null;
+  appState.inFlight = null;
   cliState.cache = null;
   cliState.inFlight = null;
 }
+
+/**
+ * @deprecated The Antigravity IDE is retired as the default identity; it now reports the
+ * App (Hub) version. Use `resolveAntigravityAppVersion` / `getCachedAntigravityAppVersion`.
+ * These aliases exist so existing call sites and persisted settings keep resolving.
+ */
+export const resolveAntigravityIdeVersion = resolveAntigravityAppVersion;
+/** @deprecated See `resolveAntigravityIdeVersion`. */
+export const getCachedAntigravityIdeVersion = getCachedAntigravityAppVersion;
+/** @deprecated See `resolveAntigravityIdeVersion`. */
+export const seedAntigravityIdeVersionCache = seedAntigravityAppVersionCache;
+/** @deprecated See `resolveAntigravityIdeVersion`. */
+export const ANTIGRAVITY_IDE_FALLBACK_VERSION = ANTIGRAVITY_APP_FALLBACK_VERSION;

@@ -13,24 +13,27 @@ import {
 import { getAntigravityEnvelopeUserAgent } from "../../open-sse/services/antigravityIdentity.ts";
 import {
   clearAntigravityVersionCaches,
+  seedAntigravityAppVersionCache,
   seedAntigravityCliVersionCache,
-  seedAntigravityIdeVersionCache,
 } from "../../open-sse/services/antigravityVersion.ts";
 
 test.afterEach(() => {
   clearAntigravityVersionCaches();
 });
 
-test("normalizeAntigravityClientProfile maps persisted legacy profiles to CLI", () => {
+test("normalizeAntigravityClientProfile defaults to the App and maps persisted legacy profiles", () => {
   assert.equal(normalizeAntigravityClientProfile("cli"), "cli");
   assert.equal(normalizeAntigravityClientProfile("CLI"), "cli");
-  assert.equal(normalizeAntigravityClientProfile("ide"), "ide");
-  assert.equal(normalizeAntigravityClientProfile(undefined), "ide");
-  assert.equal(normalizeAntigravityClientProfile(null), "ide");
+  // The retired IDE identity migrates to the App rather than surviving as a profile.
+  assert.equal(normalizeAntigravityClientProfile("ide"), "app");
+  assert.equal(normalizeAntigravityClientProfile(" IDE "), "app");
+  assert.equal(normalizeAntigravityClientProfile("app"), "app");
+  assert.equal(normalizeAntigravityClientProfile(undefined), "app");
+  assert.equal(normalizeAntigravityClientProfile(null), "app");
   assert.equal(normalizeAntigravityClientProfile("harness"), "cli");
   assert.equal(normalizeAntigravityClientProfile("sdk"), "cli");
-  assert.equal(normalizeAntigravityClientProfile(""), "ide");
-  assert.equal(normalizeAntigravityClientProfile(42), "ide");
+  assert.equal(normalizeAntigravityClientProfile(""), "app");
+  assert.equal(normalizeAntigravityClientProfile(42), "app");
 });
 
 function validateClientProfile(value: unknown): string[] {
@@ -44,14 +47,15 @@ function validateClientProfile(value: unknown): string[] {
 }
 
 test("provider-specific validation rejects legacy Antigravity client profiles", () => {
-  assert.deepEqual(validateClientProfile("ide"), []);
+  assert.deepEqual(validateClientProfile("app"), []);
   assert.deepEqual(validateClientProfile("CLI"), []);
   assert.deepEqual(validateClientProfile(undefined), []);
   assert.deepEqual(validateClientProfile(null), []);
 
-  for (const invalid of ["harness", "sdk", "", 42]) {
+  // `ide` joins harness/sdk as a read-only legacy value: new writes cannot store it.
+  for (const invalid of ["ide", "harness", "sdk", "", 42]) {
     assert.deepEqual(validateClientProfile(invalid), [
-      "providerSpecificData.clientProfile must be ide or cli",
+      "providerSpecificData.clientProfile must be app or cli",
     ]);
   }
 });
@@ -61,10 +65,15 @@ test("getAntigravityClientProfile preserves legacy CLI identity for persisted va
     getAntigravityClientProfile({ providerSpecificData: { clientProfile: "cli" } }),
     "cli"
   );
-  assert.equal(getAntigravityClientProfile({ providerSpecificData: {} }), "ide");
+  assert.equal(getAntigravityClientProfile({ providerSpecificData: {} }), "app");
   assert.equal(
     getAntigravityClientProfile({ providerSpecificData: { clientProfile: "harness" } }),
     "cli"
+  );
+  // Connections persisted with the retired IDE profile are migrated to the App at read time.
+  assert.equal(
+    getAntigravityClientProfile({ providerSpecificData: { clientProfile: "ide" } }),
+    "app"
   );
 });
 
@@ -82,7 +91,7 @@ function assertIdentityHeadersAbsent(headers: Record<string, string>): void {
   }
 }
 
-function applyProfile(profile: AntigravityClientProfile): Record<string, string> {
+function applyProfile(profile: AntigravityClientProfile | "ide"): Record<string, string> {
   const headers: Record<string, string> = {
     Authorization: "Bearer token",
     "Content-Type": "application/json",
@@ -102,23 +111,26 @@ function applyProfile(profile: AntigravityClientProfile): Record<string, string>
   return headers;
 }
 
-test("content header application emits IDE and CLI identities and strips fake headers", () => {
-  seedAntigravityIdeVersionCache("2.1.1");
+test("content header application emits App and CLI identities and strips fake headers", () => {
+  seedAntigravityAppVersionCache("2.24.0");
   seedAntigravityCliVersionCache("1.1.1");
 
-  const ideHeaders = applyProfile("ide");
+  const appHeaders = applyProfile("app");
+  // A connection persisted with the retired IDE profile must emit the App identity.
+  const legacyIdeHeaders = applyProfile("ide");
   const cliHeaders = applyProfile("cli");
 
-  assert.match(ideHeaders["User-Agent"], /^antigravity\/ide\/2\.1\.1 /);
-  assert.match(ideHeaders["User-Agent"], / darwin\/arm64$| windows\/amd64$| linux\/[^ ]+$/);
+  assert.equal(appHeaders["User-Agent"], "antigravity/hub/2.24.0 darwin/arm64");
+  assert.equal(legacyIdeHeaders["User-Agent"], appHeaders["User-Agent"]);
   assert.match(
     cliHeaders["User-Agent"],
     /^antigravity\/cli\/1\.1\.1 \(aidev_client; os_type=.+; arch=.+; auth_method=consumer\)$/
   );
-  assertIdentityHeadersAbsent(ideHeaders);
-  assertIdentityHeadersAbsent(cliHeaders);
-  assert.equal(ideHeaders["x-goog-user-project"], "project-1");
-  assert.equal(cliHeaders["x-goog-user-project"], "project-1");
+  for (const headers of [appHeaders, legacyIdeHeaders, cliHeaders]) {
+    assert.doesNotMatch(headers["User-Agent"], /\/ide\//);
+    assertIdentityHeadersAbsent(headers);
+    assert.equal(headers["x-goog-user-project"], "project-1");
+  }
 });
 
 test("public request envelopes never infer the internal jetski identity from email", () => {

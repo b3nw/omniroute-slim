@@ -163,7 +163,7 @@ export default function EditConnectionModal({
     ccCompatibleRedactThinking: false,
     ccCompatibleSummarizeThinking: false,
     cloudCodeProjectId: "",
-    antigravityClientProfile: "ide",
+    antigravityClientProfile: "app",
     geminiCliTier: "auto" as GeminiCliTierSetting,
     blockExtraUsage:
       provider === "claude"

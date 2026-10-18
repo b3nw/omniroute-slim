@@ -72,7 +72,7 @@ describe("ensureAntigravityProjectAssigned — onboardUser LRO polling", () => {
     const projectId = await ensureAntigravityProjectAssigned(
       "test-token",
       mockFetch as typeof fetch,
-      "ide"
+      "app"
     );
 
     assert.equal(onboardCalls, 2, "should have polled onboardUser a second time");
@@ -96,7 +96,7 @@ describe("ensureAntigravityProjectAssigned — onboardUser LRO polling", () => {
     const result = await ensureAntigravityProjectAssigned(
       "test-token",
       mockFetch as typeof fetch,
-      "ide"
+      "app"
     );
 
     assert.equal(onboardCalls, 1, "an absent `done` field must not trigger polling");
@@ -120,7 +120,7 @@ describe("ensureAntigravityProjectAssigned — onboardUser LRO polling", () => {
     const result = await ensureAntigravityProjectAssigned(
       "test-token",
       mockFetch as typeof fetch,
-      "ide"
+      "app"
     );
 
     assert.ok(

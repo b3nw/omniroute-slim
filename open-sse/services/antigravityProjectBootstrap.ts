@@ -327,7 +327,7 @@ function isOnboardOnBackoff(key: string): boolean {
 export async function ensureAntigravityProjectAssigned(
   accessToken: string,
   fetchImpl: FetchLike = fetch,
-  clientProfile: AntigravityClientProfile = "ide",
+  clientProfile: AntigravityClientProfile = "app",
   signal?: AbortSignal
 ): Promise<string | undefined> {
   const cacheKey = getProjectCacheKey(accessToken, clientProfile);
@@ -432,7 +432,7 @@ export function clearAntigravityOnboardBackoff(key?: string): void {
 /** Exported for tests — inspect cache state. */
 export function getAntigravityProjectFromCache(
   accessToken: string,
-  clientProfile: AntigravityClientProfile = "ide"
+  clientProfile: AntigravityClientProfile = "app"
 ): string | undefined {
   return projectCache.get(getProjectCacheKey(accessToken, clientProfile));
 }

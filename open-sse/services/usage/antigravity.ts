@@ -107,7 +107,7 @@ function buildAntigravityUsageCacheKey(
 async function fetchAntigravityUserQuotaCached(
   accessToken: string,
   projectId?: string | null,
-  clientProfile: AntigravityClientProfile = "ide",
+  clientProfile: AntigravityClientProfile = "app",
   options: AntigravityUsageOptions = {}
 ): Promise<unknown | null> {
   if (!accessToken || !projectId) return null;

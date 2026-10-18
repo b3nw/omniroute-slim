@@ -32,6 +32,11 @@ export interface ProductClientVersionConfig {
   mode: ClientVersionMode;
   manualVersion?: string;
   autoDetectedVersion?: string;
+  /**
+   * Feed that produced `autoDetectedVersion` (see CLIENT_VERSION_AUTO_DETECT_FEEDS).
+   * Absent on values recorded before provenance existed.
+   */
+  autoDetectedVersionFeed?: string;
   lastCheckedAt?: string;
   lastCheckError?: string;
   /** Antigravity only: the CLI version, kept apart from the IDE version above. */
@@ -46,6 +51,27 @@ export interface ProductClientVersionConfig {
 }
 
 export type ClientVersionModesSettings = Record<ClientVersionProduct, ProductClientVersionConfig>;
+
+/**
+ * Current upstream feed per product whose feed has changed over time. A persisted
+ * `autoDetectedVersion` is only advertised when its `autoDetectedVersionFeed` matches;
+ * a missing or different feed means it was harvested from a retired feed. Antigravity
+ * moved from the IDE releases feed to the App (Hub) updater manifest, so pre-Hub values
+ * (which carry no provenance) must not be reported under the Hub identity.
+ */
+export const CLIENT_VERSION_AUTO_DETECT_FEEDS: Partial<Record<ClientVersionProduct, string>> = {
+  antigravity: "antigravity-hub",
+};
+
+/** Whether a persisted automatic detection came from the product's current feed. */
+export function isAutoDetectedVersionTrusted(
+  product: ClientVersionProduct,
+  config: ProductClientVersionConfig
+): boolean {
+  if (!isSafeClientVersion(config.autoDetectedVersion)) return false;
+  const feed = CLIENT_VERSION_AUTO_DETECT_FEEDS[product];
+  return !feed || config.autoDetectedVersionFeed === feed;
+}
 
 /** Same token pattern the env overrides (CLAUDE_CODE_CLIENT_VERSION etc.) already enforce. */
 export const SAFE_CLIENT_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
@@ -83,6 +109,9 @@ function normalizeProductConfig(value: unknown): ProductClientVersionConfig {
   }
   if (isSafeClientVersion(record.autoDetectedVersion)) {
     config.autoDetectedVersion = record.autoDetectedVersion;
+  }
+  if (isSafeClientVersion(record.autoDetectedVersionFeed)) {
+    config.autoDetectedVersionFeed = record.autoDetectedVersionFeed;
   }
   if (typeof record.manualCliVersion === "string" && record.manualCliVersion.trim()) {
     config.manualCliVersion = record.manualCliVersion.trim();
@@ -195,7 +224,12 @@ export function setClientVersionModes(
   const settings = normalizeClientVersionModes(value);
   const active: RegistryState["active"] = {};
   for (const product of CLIENT_VERSION_PRODUCTS) {
-    const version = resolveConfiguredVersion(settings[product]);
+    // A detection from a retired feed is dropped so the product falls through to its
+    // current feed (manual mode never reads autoDetectedVersion, so it is unaffected).
+    const config = isAutoDetectedVersionTrusted(product, settings[product])
+      ? settings[product]
+      : { ...settings[product], autoDetectedVersion: undefined };
+    const version = resolveConfiguredVersion(config);
     if (version) active[product] = version;
   }
   const antigravityCli = resolveConfiguredCliVersion(settings.antigravity);

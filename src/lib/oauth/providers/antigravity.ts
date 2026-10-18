@@ -2,7 +2,7 @@ import { ANTIGRAVITY_CONFIG } from "../constants/oauth";
 import type { AntigravityClientProfile } from "@/shared/constants/antigravityClientProfile";
 import {
   getAntigravityContentHeaders,
-  getAntigravityIdeNodeHeaders,
+  getAntigravityAppNodeHeaders,
   getAntigravityLoadCodeAssistMetadata,
   getAntigravityOAuthUserAgent,
 } from "@omniroute/open-sse/services/antigravityHeaders.ts";
@@ -54,7 +54,7 @@ function getPostExchangeHeaders(
 ): Record<string, string> {
   return profile === "cli"
     ? getAntigravityContentHeaders("cli", accessToken)
-    : getAntigravityIdeNodeHeaders(accessToken);
+    : getAntigravityAppNodeHeaders(accessToken);
 }
 
 function buildAntigravityAuthUrl(
@@ -272,4 +272,4 @@ export function createAntigravityOAuthProvider(
   };
 }
 
-export const antigravity = createAntigravityOAuthProvider(ANTIGRAVITY_CONFIG, "ide");
+export const antigravity = createAntigravityOAuthProvider(ANTIGRAVITY_CONFIG, "app");

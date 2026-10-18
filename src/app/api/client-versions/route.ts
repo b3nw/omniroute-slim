@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { validatedJsonBody } from "@/shared/validation/helpers";
 import { updateClientVersionModeSchema } from "@/lib/client-versions/schemas";
+import { isAutoDetectedVersionTrusted } from "@/lib/client-versions/registry";
 import {
   ClientVersionValidationError,
   getClientVersionStatus,
@@ -36,7 +37,7 @@ export async function PATCH(request: Request) {
     // the check never throws and falls back to manual → env → compiled pin on failure.
     const config = modes[parsed.data.product];
     const needsCheck =
-      !config.autoDetectedVersion ||
+      !isAutoDetectedVersionTrusted(parsed.data.product, config) ||
       (parsed.data.product === "antigravity" && !config.autoDetectedCliVersion);
     if (parsed.data.mode === "automatic" && needsCheck) {
       await runClientVersionCheck({ product: parsed.data.product });

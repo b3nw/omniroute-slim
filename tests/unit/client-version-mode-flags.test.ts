@@ -67,6 +67,28 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   });
 }
 
+/** The Antigravity App (Hub) publishes an electron-builder YAML manifest, not JSON. */
+function appManifestYaml(version: string): string {
+  return [
+    `version: ${version}`,
+    "files:",
+    "  - url: https://storage.googleapis.com/antigravity-public/antigravity-hub/x/darwin-arm/Antigravity.zip",
+    "    sha512: abc123==",
+    "    size: 183223165",
+    "path: Antigravity.zip",
+    "sha512: abc123==",
+    "",
+  ].join("\n");
+}
+
+function yamlResponse(body: string, init: ResponseInit = {}): Response {
+  return new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/yaml", ...(init.headers ?? {}) },
+    ...init,
+  });
+}
+
 function patchRequest(body: unknown): Request {
   return new Request("http://localhost/api/client-versions", {
     method: "PATCH",
@@ -232,7 +254,7 @@ test("each product getter consults the registry first and falls back when off", 
   assert.match(codexHeaders["User-Agent"], /^codex-cli\/0\.156\.1 /);
   assert.equal(codexClient.getCodexCliRsHeaders()["User-Agent"], "codex_cli_rs/0.156.1");
 
-  assert.equal(antigravityHeaders.antigravityIdeUserAgent(), "antigravity/ide/2.3.0 darwin/arm64");
+  assert.equal(antigravityHeaders.antigravityAppUserAgent(), "antigravity/hub/2.3.0 darwin/arm64");
   assert.match(antigravityHeaders.antigravityCliUserAgent(), /^antigravity\/cli\/1\.0\.5 /);
 
   assert.match(
@@ -503,11 +525,11 @@ test("network failure in automatic mode falls back to manual, then baseline, wit
   fetchCalls.length = 0;
   const result = await service.runClientVersionCheck({ product: "antigravity" });
   assert.deepEqual(result.checked, ["antigravity"]);
-  assert.equal(fetchCalls.length, 2, "IDE feed + CLI release feed attempted");
+  assert.equal(fetchCalls.length, 2, "App feed + CLI release feed attempted");
 
   let modes = await service.getClientVersionModes();
   assert.equal(modes.antigravity.autoDetectedVersion, undefined);
-  assert.match(modes.antigravity.lastCheckError!, /IDE: .*fetch failed/);
+  assert.match(modes.antigravity.lastCheckError!, /App: .*fetch failed/);
   assert.match(modes.antigravity.lastCheckError!, /CLI: .*fetch failed/);
   assert.ok(modes.antigravity.lastCheckedAt);
   assert.equal(
@@ -591,10 +613,10 @@ test("scheduler starts only while a product is automatic", async () => {
 
 // ── Antigravity IDE vs CLI ───────────────────────────────────────────────────
 
-test("antigravity automatic mode stores distinct upstream IDE and CLI versions", async () => {
+test("antigravity automatic mode stores distinct upstream App and CLI versions", async () => {
   fetchResponder = (url) =>
-    url.includes("antigravity-auto-updater")
-      ? jsonResponse([{ version: "2.3.0" }, { version: "2.2.9" }])
+    url.includes("antigravity-hub-auto-updater")
+      ? yamlResponse(appManifestYaml("2.3.0"))
       : jsonResponse({ tag_name: "v1.0.7" });
 
   await service.updateClientVersionMode({ product: "antigravity", mode: "automatic" });
@@ -606,7 +628,7 @@ test("antigravity automatic mode stores distinct upstream IDE and CLI versions",
   assert.equal(modes.antigravity.lastCheckError, undefined);
   assert.equal(await antigravityVersion.resolveAntigravityIdeVersion(), "2.3.0");
   assert.equal(await antigravityVersion.resolveAntigravityCliVersion(), "1.0.7");
-  assert.equal(antigravityHeaders.antigravityIdeUserAgent(), "antigravity/ide/2.3.0 darwin/arm64");
+  assert.equal(antigravityHeaders.antigravityAppUserAgent(), "antigravity/hub/2.3.0 darwin/arm64");
   assert.match(antigravityHeaders.antigravityCliUserAgent(), /^antigravity\/cli\/1\.0\.7 /);
 
   const status = await service.getClientVersionStatus();
@@ -616,9 +638,9 @@ test("antigravity automatic mode stores distinct upstream IDE and CLI versions",
   assert.equal(antigravity.cliSource, "automatic");
 });
 
-test("antigravity IDE feed failure does not borrow the CLI release version", async () => {
+test("antigravity App feed failure does not borrow the CLI release version", async () => {
   fetchResponder = (url) =>
-    url.includes("antigravity-auto-updater")
+    url.includes("antigravity-hub-auto-updater")
       ? new Response("down", { status: 503 })
       : jsonResponse({ tag_name: "v1.0.7" });
 
@@ -628,7 +650,7 @@ test("antigravity IDE feed failure does not borrow the CLI release version", asy
   const modes = await service.getClientVersionModes();
   assert.equal(modes.antigravity.autoDetectedVersion, undefined);
   assert.equal(modes.antigravity.autoDetectedCliVersion, "1.0.7");
-  assert.match(modes.antigravity.lastCheckError!, /^IDE: .*HTTP 503$/);
+  assert.match(modes.antigravity.lastCheckError!, /^App: .*HTTP 503$/);
   assert.equal(
     antigravityVersion.getCachedAntigravityIdeVersion(),
     antigravityVersion.ANTIGRAVITY_IDE_FALLBACK_VERSION
