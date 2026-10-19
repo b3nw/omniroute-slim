@@ -17,6 +17,7 @@ import { useState, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { useNotificationStore } from "@/store/notificationStore";
 import { providerText, type CompatModelRow } from "../providerPageHelpers";
+import { buildQualifiedAliasTarget } from "@/shared/utils/providerModelAliases";
 
 // ──── types ─────────────────────────────────────────────────────────────────
 
@@ -63,11 +64,7 @@ export function useProviderModels(
 
   const handleSetAlias = useCallback(
     async (modelId: string, alias: string, providerAlias?: string) => {
-      const qualifiedModel = providerAlias
-        ? modelId.includes("/")
-          ? `${providerAlias}/${modelId.split("/").slice(1).join("/")}`
-          : `${providerAlias}/${modelId}`
-        : modelId;
+      const qualifiedModel = buildQualifiedAliasTarget(modelId, providerAlias, providerId);
       try {
         const res = await fetch("/api/models/alias", {
           method: "PUT",
@@ -88,7 +85,7 @@ export function useProviderModels(
         notify.error(providerText(t, "networkErrorSettingAlias", "Network error setting alias"));
       }
     },
-    [fetchAliases, t, notify]
+    [fetchAliases, providerId, t, notify]
   );
 
   const handleDeleteAlias = useCallback(

@@ -20,6 +20,7 @@ import {
   persistCanonicalSyncedAvailableModels,
 } from "./models/syncedAvailableModelPersistence";
 import { finishModelCatalogWriteWithBackup } from "./models/modelCatalogWriteSignals";
+import { buildHiddenModelSet } from "@/shared/utils/hiddenModelMatch";
 import {
   readCompatList,
   writeCompatList,
@@ -979,12 +980,34 @@ export function getModelIsHidden(providerId: string, modelId: string): boolean {
  */
 export function getHiddenModelsByProvider(): Map<string, Set<string>> {
   const db = getDbInstance();
-  const visibilityByProvider = new Map<string, Map<string, boolean>>();
   const rows = db
     .prepare(
       "SELECT namespace, key, value FROM key_value WHERE namespace IN ('modelCompatOverrides', 'customModels')"
     )
     .all() as Array<{ namespace: string; key: string; value: string | null }>;
+  return buildHiddenModelsMap(rows);
+}
+
+/**
+ * Hidden-model set for a single provider key — same semantics as
+ * {@link getHiddenModelsByProvider} (vendor-qualified ids also index their bare
+ * tail), but reads only that provider's two rows. Pair with `isHiddenModelMatch`.
+ */
+export function getHiddenModelSetForProvider(providerId: string): Set<string> {
+  if (!providerId) return new Set();
+  const db = getDbInstance();
+  const rows = db
+    .prepare(
+      "SELECT namespace, key, value FROM key_value WHERE namespace IN ('modelCompatOverrides', 'customModels') AND key = ?"
+    )
+    .all(providerId) as Array<{ namespace: string; key: string; value: string | null }>;
+  return buildHiddenModelsMap(rows).get(providerId) ?? new Set();
+}
+
+function buildHiddenModelsMap(
+  rows: Array<{ namespace: string; key: string; value: string | null }>
+): Map<string, Set<string>> {
+  const visibilityByProvider = new Map<string, Map<string, boolean>>();
 
   for (const namespace of ["modelCompatOverrides", "customModels"]) {
     for (const row of rows) {
@@ -1010,51 +1033,38 @@ export function getHiddenModelsByProvider(): Map<string, Set<string>> {
     }
   }
 
+  // Vendor-qualified ids (`anthropic/claude-fable-5`, as passthrough aggregators like
+  // Kilo Code list them) also index their bare tail, so alias-backed rows keyed on the
+  // stripped slug (`kc/claude-fable-5`) honor the same hidden flag.
   return new Map(
     [...visibilityByProvider].flatMap(([providerId, visibility]) => {
-      const hiddenModels = [...visibility].flatMap(([modelId, isHidden]) =>
-        isHidden ? [modelId] : []
-      );
-      return hiddenModels.length > 0 ? [[providerId, new Set(hiddenModels)] as const] : [];
+      const hiddenModels = buildHiddenModelSet(visibility);
+      return hiddenModels.size > 0 ? [[providerId, hiddenModels] as const] : [];
     })
   );
 }
 
 /**
  * Persist the hidden flag for a model. Stores the override on the custom-model
- * row when one exists, otherwise on the compat-override list. Setting
- * `hidden = false` is a no-op when the model is already visible.
+ * row when one exists, otherwise on the compat-override list. Both directions are
+ * persisted explicitly: `hidden = false` records `isHidden: false` (creating the
+ * override entry when needed) so the vendor-slug bridge in `buildHiddenModelSet` /
+ * `isHiddenModelMatch` treats the id as explicitly visible instead of re-hiding it
+ * through a hidden bare tail or vendor-qualified sibling.
  */
 export function setModelIsHidden(providerId: string, modelId: string, hidden: boolean): void {
   const customRow = getCustomModelRow(providerId, modelId);
   if (customRow) {
-    if (hidden) {
-      updateCustomModel(providerId, modelId, { isHidden: true });
-    } else if (Object.prototype.hasOwnProperty.call(customRow, "isHidden")) {
-      updateCustomModel(providerId, modelId, { isHidden: false });
-    }
+    updateCustomModel(providerId, modelId, { isHidden: hidden });
     return;
   }
 
   const list = readCompatList(providerId);
   const idx = list.findIndex((e) => e.id === modelId);
-  if (hidden) {
-    const prev = idx >= 0 ? list[idx] : { id: modelId };
-    const next: ModelCompatOverride = { ...prev, id: modelId, isHidden: true };
-    if (idx >= 0) list[idx] = next;
-    else list.push(next);
-    writeCompatList(providerId, list);
-    return;
-  }
-
-  if (idx < 0) return;
-  if (Object.keys(list[idx]).length <= 1) {
-    // Only `id` left; drop the entry entirely.
-    const filtered = list.filter((_, i) => i !== idx);
-    writeCompatList(providerId, filtered);
-    return;
-  }
-  delete list[idx].isHidden;
+  const prev = idx >= 0 ? list[idx] : { id: modelId };
+  const next: ModelCompatOverride = { ...prev, id: modelId, isHidden: hidden };
+  if (idx >= 0) list[idx] = next;
+  else list.push(next);
   writeCompatList(providerId, list);
 }
 

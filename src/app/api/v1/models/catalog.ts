@@ -5,6 +5,7 @@ import { getSettings } from "@/lib/db/settings";
 import { getUserDatabaseSettings } from "@/lib/db/databaseSettings";
 import { createLazyConnectionView } from "@/lib/db/providers/lazyConnectionView";
 import { extractAliasBackedModels } from "./aliasBackedModels";
+import { isHiddenModelMatch } from "@/shared/utils/hiddenModelMatch";
 import {
   buildSyncedModelIdsByCanonicalProvider,
   shouldSuppressStaticModelForExclusiveListing,
@@ -461,8 +462,8 @@ async function buildUnifiedModelsResponseCore(
         Boolean(k)
       );
       for (const key of keysToCheck) {
-        const hiddenSet = hiddenModelsByProvider.get(key);
-        if (hiddenSet?.has(modelId)) return true;
+        // Vendor-slug aware: `anthropic/x` ↔ bare `x` (alias-backed rows strip the vendor).
+        if (isHiddenModelMatch(hiddenModelsByProvider.get(key), modelId)) return true;
       }
       return false;
     };

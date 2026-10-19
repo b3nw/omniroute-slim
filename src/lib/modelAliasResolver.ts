@@ -11,17 +11,28 @@
 import { getModelAliases } from "@/lib/db/models/aliases";
 import { DEFAULT_MODEL_ALIAS_SEED } from "@/lib/modelAliasSeed";
 import { getComboByName } from "@/lib/db/combos";
-import { getModelIsHidden } from "@/lib/db/models";
+import { getHiddenModelSetForProvider, getModelIsHidden } from "@/lib/db/models";
+import { isHiddenModelMatch } from "@/shared/utils/hiddenModelMatch";
 import { resolveProviderId } from "@/shared/constants/providers";
 
 let cachedAliases: Record<string, unknown> | null = null;
 let lastFetch = 0;
 const CACHE_TTL_MS = 60_000; // 1 minute
 
-function isTargetModelHidden(provider: string, modelId: string): boolean {
+// Exact hidden flag first (keeps getModelIsHidden's case-insensitive custom-row
+// fallback), then the vendor-slug bridge: a target `kc/claude-fable-5` is hidden by
+// `anthropic/claude-fable-5`, and `kc/anthropic/claude-fable-5` by a hidden bare tail.
+function isTargetModelHiddenFor(provider: string, modelId: string): boolean {
   if (getModelIsHidden(provider, modelId)) return true;
+  return isHiddenModelMatch(getHiddenModelSetForProvider(provider), modelId);
+}
+
+function isTargetModelHidden(provider: string, modelId: string): boolean {
+  if (isTargetModelHiddenFor(provider, modelId)) return true;
   const canonicalProvider = resolveProviderId(provider);
-  if (canonicalProvider !== provider && getModelIsHidden(canonicalProvider, modelId)) return true;
+  if (canonicalProvider !== provider && isTargetModelHiddenFor(canonicalProvider, modelId)) {
+    return true;
+  }
   return false;
 }
 
