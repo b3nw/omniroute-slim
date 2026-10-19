@@ -113,6 +113,49 @@ describe("isHiddenModelMatch / buildHiddenModelSet", () => {
     assert.equal(isHiddenModelMatch(set, "claude-fable-5"), false);
   });
 
+  it("an explicitly hidden bare tail survives hiding another vendor's sibling", () => {
+    const explicitTail = buildHiddenModelSet(new Map([["gpt-oss", true]]));
+    assert.equal(isHiddenModelMatch(explicitTail, "groq/gpt-oss"), true);
+
+    const withSibling = buildHiddenModelSet(
+      new Map([
+        ["gpt-oss", true],
+        ["openai/gpt-oss", true],
+      ])
+    );
+    assert.equal(isHiddenModelMatch(withSibling, "openai/gpt-oss"), true);
+    assert.equal(isHiddenModelMatch(withSibling, "gpt-oss"), true);
+    assert.equal(
+      isHiddenModelMatch(withSibling, "groq/gpt-oss"),
+      true,
+      "explicit bare tail keeps hiding every vendor (monotonic)"
+    );
+
+    const explicitVisible = buildHiddenModelSet(
+      new Map([
+        ["gpt-oss", true],
+        ["openai/gpt-oss", true],
+        ["groq/gpt-oss", false],
+      ])
+    );
+    assert.equal(
+      isHiddenModelMatch(explicitVisible, "groq/gpt-oss"),
+      false,
+      "explicit visible wins"
+    );
+  });
+
+  it("a derived bare tail keeps the cross-vendor collision guard", () => {
+    const set = buildHiddenModelSet(
+      new Map([
+        ["openai/gpt-oss", true],
+        ["anthropic/gpt-oss", true],
+      ])
+    );
+    assert.equal(isHiddenModelMatch(set, "gpt-oss"), true);
+    assert.equal(isHiddenModelMatch(set, "groq/gpt-oss"), false);
+  });
+
   it("empty / missing sets never hide", () => {
     assert.equal(isHiddenModelMatch(undefined, "x"), false);
     assert.equal(isHiddenModelMatch(new Set(), "x"), false);
@@ -317,5 +360,24 @@ describe("setModelIsHidden persists explicit visibility across the vendor-slug b
       QUALIFIED_ALIAS,
       "hidden qualified target stays unresolved"
     );
+  });
+
+  it("hide bare -> hide another vendor's qualified sibling: bare-tail-hidden vendor target stays hidden", async () => {
+    const TAIL = "gpt-oss";
+    const TARGET = `groq/${TAIL}`;
+    const ALIAS = "gpt-oss-groq";
+    await aliasesDb.setModelAlias(ALIAS, `${PROVIDER_ALIAS}/${TARGET}`);
+
+    modelsDb.setModelIsHidden(PROVIDER_ID, TAIL, true);
+    assert.equal(effectiveHidden(TARGET), true, "bare tail hides the vendor target");
+    assert.ok(!(await getCatalogIds()).includes(`${PROVIDER_ALIAS}/${TARGET}`));
+    assert.equal(await resolve(ALIAS), ALIAS);
+
+    modelsDb.setModelIsHidden(PROVIDER_ID, `openai/${TAIL}`, true);
+    assert.equal(effectiveHidden(TARGET), true, "additional hide must not un-hide (monotonic)");
+    assert.equal(effectiveHidden(`openai/${TAIL}`), true);
+    const ids = await getCatalogIds();
+    assert.ok(!ids.includes(`${PROVIDER_ALIAS}/${TARGET}`), "vendor target stays unpublished");
+    assert.equal(await resolve(ALIAS), ALIAS, "hidden vendor target stays unresolved");
   });
 });
