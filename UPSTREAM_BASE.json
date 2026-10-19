@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "upstream": {
+    "repo": "diegosouzapw/OmniRoute",
+    "tag": "v3.8.51",
+    "tagCommit": "c1e30b7676975feb298b49eff6ff58923c04b89e",
+    "tagDate": "2026-09-30"
+  },
+  "forkPoint": {
+    "sha": "d8cb41e7ff",
+    "note": "closest published upstream tree; cut from lab-staging snapshot, then sanitised",
+    "blobMatch": "12812/12969"
+  },
+  "imports": [
+    { "phase": 1, "commit": "30abc2b5", "date": "2026-10-04" },
+    { "phase": 2, "commit": "8af4bed8", "date": "2026-10-05" },
+    { "phase": 3, "commit": "82017037", "date": "2026-10-14", "pr": 29 }
+  ],
+  "next": { "tag": "v3.8.52", "status": "untagged-upstream", "branch": "release/v3.8.52" }
+}

@@ -282,6 +282,31 @@ COPY --from=builder /app/scripts/dev/healthcheck.mjs ./healthcheck.mjs
 # COPYs so it covers files originally owned by root in the builder stage.
 RUN chown -R node:node /app
 
+# Build identity — authoritative answer to "what code is in this image", independent
+# of the registry tag text. Passed by .gitea/workflows/build-lab.yml (computed from git +
+# UPSTREAM_BASE.json). Declared this late so a new SHA/date only invalidates the cheap
+# metadata layers below, not the COPY/RUN layers above; runner-web / runner-cli inherit
+# both the labels and the env. The env vars feed `build` on GET /api/system/version
+# (src/lib/system/buildInfo.ts).
+ARG OMNIROUTE_GIT_SHA=unknown
+ARG OMNIROUTE_GIT_REF=unknown
+ARG OMNIROUTE_TIER=dev
+ARG OMNIROUTE_UPSTREAM_BASE=unknown
+ARG OMNIROUTE_BUILD_SEQ=0
+ARG BUILD_DATE=unknown
+LABEL org.opencontainers.image.revision="${OMNIROUTE_GIT_SHA}" \
+  org.opencontainers.image.ref.name="${OMNIROUTE_GIT_REF}" \
+  org.opencontainers.image.version="${OMNIROUTE_UPSTREAM_BASE}" \
+  org.opencontainers.image.created="${BUILD_DATE}" \
+  io.ben.omniroute.tier="${OMNIROUTE_TIER}" \
+  io.ben.omniroute.build-seq="${OMNIROUTE_BUILD_SEQ}"
+ENV OMNIROUTE_BUILD_SHA="${OMNIROUTE_GIT_SHA}" \
+  OMNIROUTE_BUILD_REF="${OMNIROUTE_GIT_REF}" \
+  OMNIROUTE_BUILD_TIER="${OMNIROUTE_TIER}" \
+  OMNIROUTE_UPSTREAM_BASE="${OMNIROUTE_UPSTREAM_BASE}" \
+  OMNIROUTE_BUILD_SEQ="${OMNIROUTE_BUILD_SEQ}" \
+  OMNIROUTE_BUILD_DATE="${BUILD_DATE}"
+
 EXPOSE 20128
 
 # Drop to non-root before ENTRYPOINT/CMD so every derived stage (runner-cli,

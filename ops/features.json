@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "$comment": "Feature ledger. `since` = hand-curated landing SHAs per long-lived lineage (main/dev/prod); `verify` = unit tests whose pass is the authoritative presence check on a checkout. docs/FEATURES.md is generated from this file by scripts/generate-features-matrix.mjs.",
+  "features": [
+    {
+      "id": "allowed-models-allowlist",
+      "title": "Per-connection allowedModels allowlist",
+      "description": "Provider connections can restrict which models they serve; requests for models outside the allowlist skip that connection.",
+      "upstream": "absent",
+      "since": { "main": "90a8db58" },
+      "surfaces": ["provider.connection.allowedModels", "ui:EditConnectionModal"],
+      "flags": [],
+      "verify": [
+        "tests/unit/auth-connection-allowed-models.test.ts",
+        "tests/unit/connection-model-rules.test.ts"
+      ],
+      "pr": 32
+    },
+    {
+      "id": "antigravity-hub-profile",
+      "title": "Antigravity App/Hub identity + Argon tiers",
+      "description": "Antigravity requests present the App (Hub) client identity instead of the retired IDE profile; adds the Gemini 4 Argon tiers.",
+      "upstream": "absent",
+      "since": { "dev": "8087fd68" },
+      "surfaces": ["provider.antigravity.clientProfile", "userAgent"],
+      "flags": [],
+      "verify": [
+        "tests/unit/antigravity-client-profile.test.ts",
+        "tests/unit/antigravity-headers.test.ts",
+        "tests/unit/antigravity-version.test.ts"
+      ]
+    },
+    {
+      "id": "opencode-free-tier-fingerprint",
+      "title": "OpenCode free-tier fingerprint + Bearer public",
+      "description": "OpenCode free-tier requests carry the native opencode v2 header/request deltas and the anonymous public Bearer.",
+      "upstream": "imported#15322",
+      "since": { "prod": "c1758d0b", "dev": "d29e9f26" },
+      "surfaces": ["headers.x-opencode-*", "auth.anon-bearer"],
+      "flags": [],
+      "verify": [
+        "tests/unit/opencode-native-deltas.test.ts",
+        "tests/unit/refactor-opencodeHeaders.test.ts"
+      ]
+    },
+    {
+      "id": "call-log-dedupe-correlation-fallback",
+      "title": "Call-log in-memory dedupe correlation fallback",
+      "description": "The call-logs API de-duplicates in-memory and persisted entries for the same request, falling back to correlation matching when ids differ.",
+      "upstream": "unknown",
+      "since": { "prod": "008082e7" },
+      "surfaces": ["api:/api/usage/call-logs", "lib/usage/completedRequestDetails"],
+      "flags": [],
+      "verify": ["tests/unit/call-logs-inmemory-dedupe.test.ts"]
+    }
+  ]
+}
