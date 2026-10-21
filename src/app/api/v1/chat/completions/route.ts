@@ -27,6 +27,7 @@ import {
   withCompressionHeaderEcho,
 } from "@/shared/utils/compressionHeaderEcho";
 import { resolveModelAliasWithSeedFallbackOnBody } from "@/lib/modelAliasResolver";
+import { enforceClientApiRouteAuth } from "@/shared/utils/clientApiRouteAuth";
 import {
   assertRuntimeModelProviderAvailable,
   isRuntimeProviderRetirementError,
@@ -85,6 +86,13 @@ export async function OPTIONS() {
 
 export async function POST(request) {
   await ensureInitialized();
+
+  // Defense-in-depth: the authz proxy (src/proxy.ts) is the primary gate, but
+  // its matcher can miss path variants (e.g. uppercase /V1/ aliases), so the
+  // handler enforces authentication independently. Without this, a proxy
+  // bypass means unauthenticated upstream dispatch.
+  const authRejection = await enforceClientApiRouteAuth(request);
+  if (authRejection) return authRejection;
 
   // Content-Type guard (#6414) — reject non-JSON POST bodies with 415 per RFC 7231.
   // OpenAI/Anthropic reject `text/plain` or missing Content-Type at the edge; matching

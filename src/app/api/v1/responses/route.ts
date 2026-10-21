@@ -3,6 +3,7 @@ import { handleChat } from "@/sse/handlers/chat";
 import { resolveResponsesApiModel } from "@/app/api/internal/codex-responses-ws/modelResolution";
 import { getModelInfo, getComboForModel } from "@/sse/services/model";
 import { generateRequestId } from "@/shared/utils/requestId";
+import { enforceClientApiRouteAuth } from "@/shared/utils/clientApiRouteAuth";
 import {
   admitChatRequest,
   admitChatStructure,
@@ -93,6 +94,12 @@ export async function withCodexPreferredModel(
  * Handled by the unified chat handler (openai-responses format auto-detected).
  */
 async function postHandler(request: any) {
+  // Defense-in-depth: the authz proxy (src/proxy.ts) is the primary gate, but
+  // its matcher can miss path variants (e.g. uppercase /V1/ aliases), so the
+  // handler enforces authentication independently.
+  const authRejection = await enforceClientApiRouteAuth(request);
+  if (authRejection) return authRejection;
+
   const sessionId = resolveSessionId(request);
   const admissionResult = await admitChatRequest(request, {
     sessionId,
