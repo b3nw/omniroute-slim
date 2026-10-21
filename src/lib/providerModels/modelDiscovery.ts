@@ -7,6 +7,7 @@ import {
 import { CANONICAL_EFFORT_VALUES } from "@/shared/reasoning/effortStandardization";
 import { isObsoleteKiroModelAlias } from "@omniroute/open-sse/services/kiroModels.ts";
 import { filterSelectableModels } from "@omniroute/open-sse/services/modelLifecycle.ts";
+import { hasPayloadFreeEvidence, hasPayloadPaidEvidence } from "@/shared/utils/payloadFreeEvidence";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -328,6 +329,12 @@ export function normalizeDiscoveredModels(
     // models reached the catalog with no vision flag and vision-capable models
     // (which work at request time) showed up as non-vision after import.
     const supportsVision = detectVisionInput(record);
+    // #17121: SiliconFlow free-only sync depends on live economics. Persist the
+    // payload's own verdict so the cache round trip cannot drop a paid veto (which
+    // would let a :free suffix or the static catalog grant access again).
+    const isSiliconFlow = providerId === "siliconflow";
+    const explicitlyPaid = isSiliconFlow && hasPayloadPaidEvidence(record);
+    const isFree = isSiliconFlow && !explicitlyPaid && hasPayloadFreeEvidence({ ...record, id });
 
     deduped.set(id, {
       id,
@@ -356,6 +363,7 @@ export function normalizeDiscoveredModels(
       ...(record.alwaysThinking === true ? { alwaysThinking: true } : {}),
       ...(typeof record.supportsTools === "boolean" ? { supportsTools: record.supportsTools } : {}),
       ...(typeof record.supportsVideo === "boolean" ? { supportsVideo: record.supportsVideo } : {}),
+      ...(explicitlyPaid ? { isFree: false } : isFree ? { isFree: true } : {}),
       ...(supportsVision ? { supportsVision: true } : {}),
     });
   }

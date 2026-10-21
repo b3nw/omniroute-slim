@@ -68,6 +68,15 @@ export const CLAUDE_OPUS_5_PRICING = {
   cache_creation: 6.25,
 };
 
+// Claude Opus 5.5 standard pricing ($4/$20 per MTok); cache reads are $0.20.
+export const CLAUDE_OPUS_5_5_PRICING = {
+  input: 4.0,
+  output: 20.0,
+  cached: 0.2,
+  reasoning: 20.0,
+  cache_creation: 5.0,
+};
+
 export const CLAUDE_OPUS_4_PRICING = {
   input: 15.0,
   output: 75.0,

@@ -242,7 +242,19 @@ export function getCodexClientSessionId(
   return (
     normalizeCodexSessionId(readNamedHeader(headers, "session-id")) ||
     normalizeCodexSessionId(readNamedHeader(headers, "session_id")) ||
+    normalizeCodexSessionId(readNamedHeader(headers, "x-opencode-session-id")) ||
+    normalizeCodexSessionId(readNamedHeader(headers, "x-session-affinity")) ||
+    normalizeCodexSessionId(readNamedHeader(headers, "x-session-id")) ||
     null
+  );
+}
+
+export function hasCodexIdentityHeaders(
+  headers: Headers | Record<string, unknown> | null | undefined
+): boolean {
+  return (
+    getCodexClientSessionId(headers) !== null ||
+    CODEX_IDENTITY_HEADER_NAMES.some((name) => readNamedHeader(headers, name) !== "")
   );
 }
 
@@ -317,6 +329,9 @@ function isCompactRequestEndpoint(path: unknown): boolean {
 }
 
 const CODEX_IDENTITY_HEADER_NAMES = [
+  "x-opencode-session-id",
+  "x-session-affinity",
+  "x-session-id",
   "session-id",
   "session_id",
   "thread-id",

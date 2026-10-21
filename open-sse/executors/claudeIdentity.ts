@@ -308,7 +308,7 @@ const HEAVY_AGENT_BETA_MODEL_PREFIXES = ["claude-opus", "claude-sonnet"];
  * Opus 5 is excluded because its 1M context window is native.
  */
 const CONTEXT_1M_BETA_MODEL_PREFIXES = ["claude-opus"];
-const CONTEXT_1M_NATIVE_MODEL_PREFIXES = ["claude-opus-5"];
+const CONTEXT_1M_NATIVE_MODEL_PREFIXES = ["claude-opus-5-5", "claude-opus-5"];
 
 function matchesModelPrefix(model: unknown, prefixes: string[]): boolean {
   if (typeof model !== "string") return false;

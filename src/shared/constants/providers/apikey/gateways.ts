@@ -2,7 +2,10 @@
  * APIKEY provider catalog — gateways family (aggregators, multi-model routers & API marketplaces).
  * Pure data; merged by apikey/index.ts via spread (god-file decomposition; semantic split).
  */
+import { APIKEY_PROVIDERS_UNIFICALLY } from "./unifically";
+
 export const APIKEY_PROVIDERS_GATEWAYS = {
+  ...APIKEY_PROVIDERS_UNIFICALLY,
   // 1min.ai (https://docs.1min.ai) — multi-model chat aggregator with its own
   // custom API (single `prompt` string + real SSE, not OpenAI-compatible).
   // OmniRoute's oneminai executor translates both directions.

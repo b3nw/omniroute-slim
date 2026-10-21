@@ -9,6 +9,7 @@
  */
 
 import { resolvePublicCred } from "../utils/publicCreds.ts";
+import { isTrustedM365ChatHubUrl } from "../utils/m365Credentials.ts";
 import { randomUUID, randomBytes } from "node:crypto";
 import type { ProviderCredentials } from "./base.ts";
 
@@ -132,13 +133,18 @@ function parsePastedCredential(
     if (key && partValue) parts[key] = partValue;
   }
 
-  if (/^wss:\/\/substrate\.office\.com\/m365Copilot\/Chathub\//i.test(value)) {
+  // Same trusted ChatHub hosts as HAR import and validation (#16327). The
+  // connection still targets the configured/default host; the URL only supplies
+  // the token and Chathub path.
+  if (/^wss:\/\//i.test(value)) {
     try {
       const url = new URL(value);
-      parts.access_token ||= url.searchParams.get("access_token") || "";
-      parts.chathubPath ||= decodeURIComponent(
-        url.pathname.split("/m365Copilot/Chathub/")[1] || ""
-      );
+      if (isTrustedM365ChatHubUrl(url)) {
+        parts.access_token ||= url.searchParams.get("access_token") || "";
+        parts.chathubPath ||= decodeURIComponent(
+          url.pathname.split("/m365Copilot/Chathub/")[1] || ""
+        );
+      }
     } catch {
       // Keep any key/value fields already parsed from the pasted text.
     }

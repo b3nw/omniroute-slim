@@ -2,6 +2,7 @@ import { FREE_MODEL_BUDGETS, grantsFreeAccess } from "@omniroute/open-sse/config
 import { resolveProviderId } from "@/shared/constants/providers";
 import { globToRegex } from "@/shared/utils/globPattern";
 import { AI_MODELS } from "@/shared/constants/models";
+import { hasPayloadFreeEvidence, hasPayloadPaidEvidence } from "@/shared/utils/payloadFreeEvidence";
 
 /**
  * Free-model detection shared between the "import only free models" connection
@@ -61,10 +62,26 @@ export interface FreeModelCandidate {
   id?: string;
   pricing?: { prompt?: string | number; completion?: string | number };
   isFree?: boolean;
+  is_free?: unknown;
+  free?: unknown;
+  tags?: unknown;
 }
+
+/**
+ * Providers whose static free list proved billable (#17028): an explicit paid flag
+ * or any positive live price vetoes every optimistic free signal.
+ */
+const PAID_EVIDENCE_VETO_PROVIDERS = new Set(["siliconflow"]);
 
 /** Whether a single fetched model qualifies as free for the given provider (id or alias). */
 export function isFreeModel(provider: string, model: FreeModelCandidate): boolean {
+  if (
+    PAID_EVIDENCE_VETO_PROVIDERS.has(provider) ||
+    PAID_EVIDENCE_VETO_PROVIDERS.has(resolveProviderId(provider))
+  ) {
+    if (hasPayloadPaidEvidence(model)) return false;
+    if (hasPayloadFreeEvidence(model)) return true;
+  }
   if (model.isFree === true) return true;
   if (typeof model.id === "string" && model.id.endsWith(":free")) return true;
   if (isZeroPrice(model.pricing?.prompt) && isZeroPrice(model.pricing?.completion)) return true;

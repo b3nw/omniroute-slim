@@ -12,7 +12,9 @@
  * everything operates on the HAR text already in the browser.
  */
 
-/** Prefix identifying the BizChat ChatHub WebSocket request in a HAR entry. */
+import { isTrustedM365ChatHubUrl } from "@omniroute/open-sse/utils/m365Credentials.ts";
+
+/** Legacy BizChat ChatHub WebSocket prefix (one of the trusted ChatHub hosts). */
 export const M365_CHATHUB_WS_PREFIX = "wss://substrate.office.com/m365Copilot/Chathub/";
 
 export type M365HarImportResult =
@@ -62,27 +64,31 @@ export function extractM365CredentialFromHar(text: string): M365HarImportResult 
     return { ok: false, error: "noEntries" };
   }
 
-  let matchedUrl: string | null = null;
+  // The last ChatHub request on any trusted host wins (#16327: current captures use
+  // substrate.svc.cloud.microsoft / m365.cloud.microsoft, not only substrate.office.com).
+  let parsed: URL | null = null;
   for (const entry of entries as HarEntryLike[]) {
     const url = entry?.request?.url;
-    if (typeof url === "string" && url.startsWith(M365_CHATHUB_WS_PREFIX)) {
-      matchedUrl = url;
+    if (typeof url !== "string" || !/^wss:\/\//i.test(url)) continue;
+    try {
+      const candidate = new URL(url);
+      if (isTrustedM365ChatHubUrl(candidate)) parsed = candidate;
+    } catch {
+      // Not a parsable URL — never a ChatHub match.
     }
   }
 
-  if (!matchedUrl) {
+  if (!parsed) {
     return { ok: false, error: "noChathubUrl" };
   }
 
-  let parsed: URL;
+  const token = parsed.searchParams.get("access_token");
+  let chathubPath: string;
   try {
-    parsed = new URL(matchedUrl);
+    chathubPath = decodeURIComponent(parsed.pathname.split("/m365Copilot/Chathub/")[1] || "");
   } catch {
     return { ok: false, error: "unparsableUrl" };
   }
-
-  const token = parsed.searchParams.get("access_token");
-  const chathubPath = decodeURIComponent(parsed.pathname.split("/m365Copilot/Chathub/")[1] || "");
 
   if (!token || !chathubPath) {
     return { ok: false, error: "missingFields" };

@@ -1,0 +1,1 @@
+- **fix(models):** SiliconFlow live discovery now keeps pricing and explicit free/paid flags, and the discovery cache retains an explicit paid verdict, so free-only sync rejects paid models even when they carry an optimistic `:free` suffix or `isFree` hint, while explicitly free entries are still imported ([#17121](https://github.com/diegosouzapw/OmniRoute/pull/17121))

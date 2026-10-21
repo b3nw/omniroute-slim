@@ -137,6 +137,14 @@ export const MODEL_SPECS: Record<string, ModelSpec> = {
     ...GPT_5_6_MODEL_SPEC,
     aliases: ["openai/gpt-5.6-luna"],
   },
+  "gpt-6-sol": {
+    ...GPT_5_6_MODEL_SPEC,
+    aliases: ["openai/gpt-6-sol"],
+  },
+  "gpt-6-luna": {
+    ...GPT_5_6_MODEL_SPEC,
+    aliases: ["openai/gpt-6-luna"],
+  },
 
   "gpt-5.5": {
     maxOutputTokens: 128000,
@@ -490,6 +498,21 @@ export const MODEL_SPECS: Record<string, ModelSpec> = {
     adaptiveThinkingOnly: true,
     maxEffortWhenThinkingDisabled: "high",
     aliases: BEDROCK_CLAUDE_ALIASES("claude-opus-5"),
+  },
+
+  // ── Claude Opus 5.5 ─────────────────────────────────────────────
+  "claude-opus-5-5": {
+    maxOutputTokens: 128000,
+    contextWindow: 1000000,
+    defaultThinkingBudget: 32000,
+    thinkingBudgetCap: 120000,
+    supportsThinking: true,
+    supportsTools: true,
+    supportsVision: true,
+    adaptiveThinkingOnly: true,
+    // Opus 5.5 rejects `thinking.type: "disabled"` at every effort level.
+    rejectsThinkingDisabled: true,
+    aliases: BEDROCK_CLAUDE_ALIASES("claude-opus-5-5"),
   },
 
   // ── Claude Opus 4.8 ─────────────────────────────────────────────

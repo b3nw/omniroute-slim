@@ -190,6 +190,7 @@ import { plamoProvider } from "./registry/plamo/index.ts";
 import { clova_studioProvider } from "./registry/clova-studio/index.ts";
 import { internlmProvider } from "./registry/internlm/index.ts";
 import { ant_lingProvider } from "./registry/ant-ling/index.ts";
+import { unificallyProvider } from "./registry/unifically/index.ts";
 import { vercel_ai_gatewayProvider } from "./registry/vercel-ai-gateway/index.ts";
 import { v0_vercelProvider } from "./registry/v0-vercel/index.ts";
 import { opencode_zenProvider } from "./registry/opencode/zen/index.ts";
@@ -457,6 +458,7 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   "clova-studio": clova_studioProvider,
   internlm: internlmProvider,
   "ant-ling": ant_lingProvider,
+  unifically: unificallyProvider,
   "vercel-ai-gateway": vercel_ai_gatewayProvider,
   "v0-vercel": v0_vercelProvider,
   "opencode-zen": opencode_zenProvider,

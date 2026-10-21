@@ -174,7 +174,9 @@ function isCodexResponsesLiteRequest(
 function isCodexDelegationDependentModel(model: unknown): boolean {
   const { baseModel, effort } = splitCodexReasoningSuffix(model);
   if (effort === "ultra" && GPT_5_6_ULTRA_ALIAS_MODELS.has(baseModel)) return true;
-  if (effort === "max" && baseModel === "gpt-5.6-luna") return true;
+  if (effort === "max" && (baseModel === "gpt-5.6-luna" || baseModel === "gpt-6-luna")) {
+    return true;
+  }
   return false;
 }
 
@@ -309,6 +311,8 @@ const MAX_EFFORT_BY_MODEL: Record<string, EffortLevel> = {
   "gpt-5.6-sol": "ultra",
   "gpt-5.6-terra": "ultra",
   "gpt-5.6-luna": "max",
+  "gpt-6-sol": "ultra",
+  "gpt-6-luna": "max",
   "gpt-5.3-codex": "xhigh",
   "gpt-5.1-codex-max": "xhigh",
   "gpt-5-mini": "high",

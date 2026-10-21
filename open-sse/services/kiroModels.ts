@@ -9,7 +9,7 @@
  *
  *   GET https://q.{region}.amazonaws.com/ListAvailableModels?origin=AI_EDITOR
  *   Authorization: Bearer <accessToken>
- *   → { models: [ { modelId, modelName?, tokenLimits?: { maxInputTokens } }, ... ] }
+ *   → { models: [ { modelId, modelName?, tokenLimits?: { maxInputTokens, maxOutputTokens } } ] }
  *
  * This works for both "simple" Builder ID / social logins and AWS IAM Identity
  * Center accounts:
@@ -71,6 +71,7 @@ export type KiroModel = {
     agentic: boolean;
   };
   contextLength?: number;
+  outputTokenLimit?: number;
   rateMultiplier?: number;
   upstreamModelId?: string;
   description?: string;
@@ -188,6 +189,12 @@ function expandKiroModels(data: unknown): KiroModel[] {
     const display = formatDisplayName(item.modelName || item.name, upstreamId, item.rateMultiplier);
     const tokenLimits = asRecord(item.tokenLimits);
     const contextLength = Number(tokenLimits.maxInputTokens) || 200000;
+    // #16742: preserve the upstream output-token limit through live discovery.
+    // Only a finite, positive number is kept, so a missing/zero/garbage value
+    // never pins an auto:discovery override over the registry window.
+    const maxOutputTokens = Number(tokenLimits.maxOutputTokens);
+    const outputTokenLimit =
+      Number.isFinite(maxOutputTokens) && maxOutputTokens > 0 ? maxOutputTokens : undefined;
     const rateMultiplier = Number(item.rateMultiplier);
     const promptCaching = parsePromptCaching(item.promptCaching);
 
@@ -197,6 +204,7 @@ function expandKiroModels(data: unknown): KiroModel[] {
       expanded.push({
         ...variant,
         contextLength,
+        ...(outputTokenLimit ? { outputTokenLimit } : {}),
         rateMultiplier: Number.isFinite(rateMultiplier) ? rateMultiplier : 1.0,
         upstreamModelId: upstreamId,
         description: toNonEmptyString(item.description) || "",

@@ -1,0 +1,1 @@
+- **fix(models):** drop Kilo's variable-price `openrouter/auto-beta` router from the static free catalog, so free-only import and free routing no longer accept it on an ID-only or `-1`-priced listing ([#17138](https://github.com/diegosouzapw/OmniRoute/pull/17138))

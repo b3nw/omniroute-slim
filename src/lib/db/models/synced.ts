@@ -19,6 +19,8 @@ export interface SyncedAvailableModel {
   alwaysThinking?: boolean;
   supportsTools?: boolean;
   supportsVideo?: boolean;
+  /** Discovery economics verdict; false preserves explicit paid evidence (#17121). */
+  isFree?: boolean;
   // #4264: image-input capability captured at sync time (e.g. OpenRouter
   // `architecture.input_modalities`/`modality`) so the catalog can surface vision.
   supportsVision?: boolean;
@@ -86,6 +88,7 @@ function normalizeSyncedAvailableModel(model: unknown): SyncedAvailableModel | n
     ...(record.alwaysThinking === true ? { alwaysThinking: true } : {}),
     ...(typeof record.supportsTools === "boolean" ? { supportsTools: record.supportsTools } : {}),
     ...(typeof record.supportsVideo === "boolean" ? { supportsVideo: record.supportsVideo } : {}),
+    ...(typeof record.isFree === "boolean" ? { isFree: record.isFree } : {}),
     ...(record.supportsVision === true ? { supportsVision: true } : {}),
   };
 }

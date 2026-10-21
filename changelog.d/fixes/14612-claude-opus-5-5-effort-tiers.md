@@ -1,0 +1,1 @@
+- **fix(providers):** Claude Opus 5.5 registry entries (Anthropic, Claude Code, Bedrock) now declare the five effort tiers (`low`, `medium`, `high`, `xhigh`, `max`), and Bedrock marks native `xhigh` support, so reasoning-effort normalization keeps every tier instead of guessing ([#14612](https://github.com/diegosouzapw/OmniRoute/pull/14612))
