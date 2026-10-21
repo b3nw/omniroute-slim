@@ -1,0 +1,1 @@
+- **fix(combo):** the safety-net combo redirect now forwards the caller's `forcedConnectionId` to the inner single-model call instead of dropping the connection pin; the emergency fallback still clears it ([#15280](https://github.com/diegosouzapw/OmniRoute/pull/15280))

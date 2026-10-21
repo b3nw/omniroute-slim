@@ -256,6 +256,10 @@ const REQUEST_SCOPED_UPSTREAM_ERROR_CODES: Record<string, true> = {
   // #10360: our own executor-result contract violation. An internal defect, not
   // a provider/account fault — it must never cool a connection or trip a breaker.
   [EXECUTOR_CONTRACT_VIOLATION_CODE]: true,
+  // Local memory-pressure guard sheds are decided before any upstream call;
+  // they are not a connection-health signal and must not trigger lockout.
+  resource_pressure: true,
+  heap_pressure: true,
 };
 
 // Slim hardening of #14585's invalid_request_error clause: OpenAI-style APIs

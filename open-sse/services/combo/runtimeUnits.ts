@@ -13,6 +13,7 @@ import { isRuntimeUnitAtConcurrencyCap } from "./runtimeUnitCapacity.ts";
 import { isQuotaExhaustionResponse, withQuotaExhaustionClassification } from "./quotaExhaustion.ts";
 import { validateResponseQuality, releaseQualityClone } from "./validateQuality.ts";
 import type { ResponseValidationConfig } from "./responseValidation.ts";
+import { getStrategyTraits } from "./strategyRegistry.ts";
 import type {
   ComboCollectionLike,
   ComboLike,
@@ -164,8 +165,9 @@ async function executeRuntimeUnit(args: {
 }
 
 function orderUnitsForStrategy(strategy: string, units: ResolvedComboUnit[]): ResolvedComboUnit[] {
-  if (strategy === "random") return shuffleUnits(units);
-  if (strategy === "weighted") {
+  const { unitExecutionOrder } = getStrategyTraits(strategy);
+  if (unitExecutionOrder === "shuffle") return shuffleUnits(units);
+  if (unitExecutionOrder === "weighted-pick") {
     const selected = selectWeightedUnit(units);
     if (!selected) return units;
     return [selected, ...units.filter((unit) => unit.executionKey !== selected.executionKey)];
@@ -197,6 +199,7 @@ export async function executeRuntimeUnitCombo(args: {
   const clientRequestedStream = args.body?.stream === true;
   const startTime = Date.now();
   const effectiveStrategy = args.effectiveComboStrategy ?? args.strategy;
+  const { honorsFallbackOnlyTargets } = getStrategyTraits(effectiveStrategy);
   let lastResponse: Response | null = null;
   let fallbackCount = 0;
   let observedFailure = false;
@@ -231,7 +234,7 @@ export async function executeRuntimeUnitCombo(args: {
 
   for (const unit of orderedUnits) {
     const protectedPriorityUnit =
-      effectiveStrategy === "priority" && unit.fallbackOnlyOnQuotaExhaustion === true;
+      honorsFallbackOnlyTargets && unit.fallbackOnlyOnQuotaExhaustion === true;
     if (
       await isRuntimeUnitAtConcurrencyCap(
         unit,

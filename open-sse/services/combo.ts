@@ -300,6 +300,7 @@ import {
 import { getQuotaFetchScope } from "./antigravityQuotaFamily.ts";
 import { expandTargetsByFingerprints } from "./combo/fingerprintExpansion.ts";
 import { resolveComboTargetPipeline } from "./combo/targetResolution.ts";
+import { getStrategyTraits } from "./combo/strategyRegistry.ts";
 import {
   isQuotaExhaustionResponse,
   recordQuotaExhaustionClassification,
@@ -804,6 +805,7 @@ async function handleComboChatInner({
     reasoningTokenBufferEnabled,
   } = phaseComboSetup(comboCtx);
   body = comboCtx.body;
+  const strategyTraits = getStrategyTraits(strategy);
 
   // #10681: opaque per-invocation decision trace (safe routing metadata only).
   const traceInvocationId = invocationId ?? createInvocationId();
@@ -936,7 +938,7 @@ async function handleComboChatInner({
   // Route new round-robin turns to the specialized handler. A native Codex
   // continuation with an established provider/account pin must use the common
   // target pipeline below so it cannot rotate between tool rounds.
-  if (strategy === "round-robin" && !activeNativeTurnPin) {
+  if (strategyTraits.usesRoundRobinLoop && !activeNativeTurnPin) {
     return handleRoundRobinCombo({
       body,
       combo,
@@ -987,7 +989,18 @@ async function handleComboChatInner({
   const _sticky = targetResolution.sticky;
   let orderedTargets = targetResolution.orderedTargets;
   if (activeNativeTurnPin) {
-    orderedTargets = applyNativeCodexTurnPin(orderedTargets, activeNativeTurnPin);
+    const activeConnections = (await getCachedProviderConnections({
+      provider: resolveProviderId(activeNativeTurnPin.provider),
+      isActive: true,
+    })) as Array<Record<string, unknown>>;
+    const activeConnectionIds = activeConnections
+      .map((connection) => String(connection.id))
+      .filter((id) => !apiKeyAllowedConnections?.length || apiKeyAllowedConnections.includes(id));
+    orderedTargets = applyNativeCodexTurnPin(
+      orderedTargets,
+      activeNativeTurnPin,
+      activeConnectionIds
+    );
     if (orderedTargets.length === 0) {
       // #11371: quota-share ordering already reserved a winner slot; release it on
       // this early exit (idempotent).
@@ -1120,7 +1133,8 @@ async function handleComboChatInner({
   // per-connection semaphore. Enabled only for quota-share combos (the cap is the
   // account's) and gated by the kill-switch; the slot wraps the whole dispatch.
   const quotaShareConcurrencyEnabled =
-    strategy === "quota-share" && resilienceSettings.quotaShareConcurrencyLimit.enabled;
+    strategyTraits.quotaShareConcurrencySlot &&
+    resilienceSettings.quotaShareConcurrencyLimit.enabled;
 
   const dispatchWithCooldownRetry = async (): Promise<Response> => {
     // #7360: hoisted OUTSIDE the setTry loop (not reset each iteration) so they
@@ -1249,7 +1263,7 @@ async function handleComboChatInner({
       const rejectedModelKeys = new Set<string>();
       const zeroLatencyOptimizationsEnabled = config.zeroLatencyOptimizationsEnabled === true;
       const hasProtectedPriorityTarget =
-        strategy === "priority" &&
+        strategyTraits.honorsFallbackOnlyTargets &&
         orderedTargets.some((target) => target.fallbackOnlyOnQuotaExhaustion === true);
 
       const executeTarget = async (
@@ -1267,7 +1281,7 @@ async function handleComboChatInner({
         const rawModel = parseModel(modelStr).model || modelStr;
         const provider = target.provider;
         const protectedPriorityTarget =
-          strategy === "priority" && target.fallbackOnlyOnQuotaExhaustion === true;
+          strategyTraits.honorsFallbackOnlyTargets && target.fallbackOnlyOnQuotaExhaustion === true;
         const stopProtectedPriorityTarget = (message: string) => {
           observeFailure(false, target.executionKey);
           clearStaleLKGP(combo.name, target.executionKey, combo.id, log, "COMBO");
@@ -1393,7 +1407,7 @@ async function handleComboChatInner({
         // circuit breaker is never touched by this check. The "auto" strategy is
         // excluded to avoid a redundant duplicate fetch — it already filtered its
         // candidate pool via `routableCandidates` before reaching this loop.
-        if (strategy !== "auto" && provider && target.connectionId) {
+        if (strategyTraits.appliesQuotaCutoffGate && provider && target.connectionId) {
           const quotaCutoff = await resolveQuotaExhaustionCutoffForTarget(
             provider,
             target.connectionId,
@@ -1910,7 +1924,7 @@ async function handleComboChatInner({
             if (provider && provider !== "unknown") {
               recordProviderSuccess(provider, effectiveConnectionId || undefined);
             }
-            if (strategy === "weighted" && stickyWeightedLimit > 1) {
+            if (strategyTraits.stickyPin === "weighted" && stickyWeightedLimit > 1) {
               const stickySuccessKey = getWeightedStepKeyForTarget(target);
               if (stickySuccessKey) {
                 recordStickyWeightedSuccess(combo.name, stickySuccessKey, stickyWeightedLimit);
@@ -1985,7 +1999,7 @@ async function handleComboChatInner({
             // combo.ts decides whether a successful turn should generate a handoff,
             // while chat.ts injects the handoff after the real connectionId is resolved.
             if (
-              strategy === "context-relay" &&
+              strategyTraits.contextRelay &&
               relayOptions?.sessionId &&
               relayConfig &&
               relayConfig.handoffProviders.includes(provider) &&
