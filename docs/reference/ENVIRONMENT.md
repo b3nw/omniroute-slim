@@ -655,6 +655,8 @@ When enabled, OmniRoute reorders HTTP headers and JSON body fields to match the 
 | `CLI_COMPAT_KIMI_CODING` | `=1`       | Mimics Kimi Coding request signature    |
 | `CLI_COMPAT_KILOCODE`    | `=1`       | Mimics Kilo Code request signature      |
 | `CLI_COMPAT_CLINE`       | `=1`       | Mimics Cline request signature          |
+| `CLI_COMPAT_GEMINI_CLI`  | `=1`       | Mimics Gemini CLI request signature (enabled by default; set `=0` or `=false` to disable) |
+| `GEMINI_CLI_LEGACY_TOOL_PREFIX` | `=1` | Opt-in legacy `gemini3_` tool name prefixing and synthetic tool instructions on Gemini 3 models (default: disabled) |
 
 ### Global
 
