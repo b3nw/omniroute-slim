@@ -671,7 +671,7 @@ test("Tier 3: handleReasoningParameters default behavior for Gemini 2.5 and Gemi
   // Gemini 2.5 default when no reasoning parameter is sent
   const gem25Default = handleReasoningParameters({}, "gemini-2.5-pro");
   assert.deepEqual(gem25Default, {
-    thinkingBudget: -1,
+    thinkingBudget: 8192,
     include_thoughts: true,
   });
 

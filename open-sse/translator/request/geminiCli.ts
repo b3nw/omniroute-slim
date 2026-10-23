@@ -140,52 +140,138 @@ export function buildGeminiCliClientMetadata(projectId?: string): Record<string,
   };
 }
 
-export function generateUserPromptId(): string {
-  return randomBytes(7).toString("hex");
+const UUID_V4_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function formatDeterministicUuidV4(seed: string): string {
+  const trimmed = seed.trim();
+  if (UUID_V4_REGEX.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+  const digest = Buffer.from(createHash("sha256").update(trimmed, "utf8").digest().subarray(0, 16));
+  // Set RFC 4122 version 4 nibble (0100xxxx) and variant 1 bits (10xxxxxx)
+  digest[6] = (digest[6] & 0x0f) | 0x40;
+  digest[8] = (digest[8] & 0x3f) | 0x80;
+  return `${digest.subarray(0, 4).toString("hex")}-${digest.subarray(4, 6).toString("hex")}-${digest.subarray(6, 8).toString("hex")}-${digest.subarray(8, 10).toString("hex")}-${digest.subarray(10, 16).toString("hex")}`;
+}
+
+export function generateUserPromptId(sessionId?: string): string {
+  if (typeof sessionId === "string" && sessionId.trim().length > 0) {
+    return formatDeterministicUuidV4(sessionId);
+  }
+  return randomUUID();
+}
+
+export interface StableSessionIdOptions {
+  explicitSessionId?: string;
+  systemInstruction?: string;
+  projectId?: string;
+}
+
+function extractTurnRootAnchors(parts: unknown): string[] {
+  if (!Array.isArray(parts)) return [];
+  const anchors: string[] = [];
+
+  for (const part of parts) {
+    if (!part || typeof part !== "object") continue;
+    const rec = part as Record<string, unknown>;
+
+    const text = typeof rec.text === "string" ? rec.text.trim() : "";
+    if (text.length > 0) {
+      const hash = createHash("sha256").update(text, "utf8").digest("hex");
+      anchors.push(`text:${hash}`);
+    }
+
+    const inlineData = rec.inlineData as Record<string, unknown> | undefined;
+    if (inlineData && typeof inlineData === "object") {
+      const mimeType = typeof inlineData.mimeType === "string" ? inlineData.mimeType : "";
+      const data = typeof inlineData.data === "string" ? inlineData.data : "";
+      if (mimeType || data) {
+        const hash = createHash("sha256").update(`${mimeType}:${data}`, "utf8").digest("hex");
+        anchors.push(`inline:${hash}`);
+      }
+    }
+
+    const fileData = rec.fileData as Record<string, unknown> | undefined;
+    if (fileData && typeof fileData === "object") {
+      const mimeType = typeof fileData.mimeType === "string" ? fileData.mimeType : "";
+      const fileUri = typeof fileData.fileUri === "string" ? fileData.fileUri : "";
+      if (mimeType || fileUri) {
+        anchors.push(`file:${mimeType}:${fileUri}`);
+      }
+    }
+
+    const functionCall = (rec.functionCall || rec.function_call) as
+      | Record<string, unknown>
+      | undefined;
+    if (functionCall && typeof functionCall === "object") {
+      const name = (functionCall.name as string) || "";
+      const callId = (functionCall.id || functionCall.call_id || "") as string;
+      anchors.push(`function_call:${name}:${callId}`);
+    }
+
+    const functionResponse = (rec.functionResponse || rec.function_response) as
+      | Record<string, unknown>
+      | undefined;
+    if (functionResponse && typeof functionResponse === "object") {
+      const name = (functionResponse.name as string) || "";
+      const responseId = (functionResponse.id || functionResponse.call_id || "") as string;
+      anchors.push(`function_response:${name}:${responseId}`);
+    }
+  }
+
+  return anchors;
 }
 
 export function generateStableSessionId(
-  contents: Array<{ role?: string; parts?: Array<Record<string, unknown>> }>
+  contents: Array<{ role?: string; parts?: Array<Record<string, unknown>> }>,
+  options?: StableSessionIdOptions
 ): string {
-  const anchors: string[] = [];
+  const explicit =
+    typeof options?.explicitSessionId === "string" ? options.explicitSessionId.trim() : "";
+  if (explicit) {
+    return formatDeterministicUuidV4(explicit);
+  }
 
-  for (const content of contents) {
-    const role = content.role || "";
-    const parts = Array.isArray(content.parts) ? content.parts : [];
-    for (const part of parts) {
-      if (!part || typeof part !== "object") continue;
-
-      const text = typeof part.text === "string" ? part.text.trim() : "";
-      if (text.length >= 24 && text.split(/\s+/).filter(Boolean).length >= 4) {
-        const hash = createHash("sha256").update(text, "utf8").digest("hex");
-        anchors.push(`text:${role}:${hash}`);
+  // Derive a conversation-invariant anchor from the FIRST non-empty user message
+  // so Turn 1, Turn 2, ..., Turn N of the same conversation produce the exact same UUID v4.
+  let rootAnchors: string[] = [];
+  if (Array.isArray(contents)) {
+    for (const content of contents) {
+      if (!content || (content.role || "user") !== "user") continue;
+      const extracted = extractTurnRootAnchors(content.parts);
+      if (extracted.length > 0) {
+        rootAnchors = extracted;
+        break;
       }
+    }
 
-      const functionCall = (part.functionCall || part.function_call) as
-        Record<string, unknown> | undefined;
-      if (functionCall && typeof functionCall === "object") {
-        const name = (functionCall.name as string) || "";
-        const callId = (functionCall.id || functionCall.call_id || "") as string;
-        anchors.push(`function_call:${name}:${callId}`);
-      }
-
-      const functionResponse = (part.functionResponse || part.function_response) as
-        Record<string, unknown> | undefined;
-      if (functionResponse && typeof functionResponse === "object") {
-        const name = (functionResponse.name as string) || "";
-        const responseId = (functionResponse.id || functionResponse.call_id || "") as string;
-        anchors.push(`function_response:${name}:${responseId}`);
+    if (rootAnchors.length === 0) {
+      for (const content of contents) {
+        if (!content) continue;
+        const extracted = extractTurnRootAnchors(content.parts);
+        if (extracted.length > 0) {
+          rootAnchors = extracted;
+          break;
+        }
       }
     }
   }
 
-  const uniqueAnchors = Array.from(new Set(anchors)).sort();
+  const sysText =
+    typeof options?.systemInstruction === "string" ? options.systemInstruction.trim() : "";
+  const projText = typeof options?.projectId === "string" ? options.projectId.trim() : "";
 
-  if (uniqueAnchors.length >= 2 || uniqueAnchors.some((a) => a.startsWith("function_"))) {
-    const digest = createHash("sha256")
-      .update(JSON.stringify(uniqueAnchors.slice(0, 16)), "utf8")
-      .digest();
-    return `${digest.subarray(0, 4).toString("hex")}-${digest.subarray(4, 6).toString("hex")}-${digest.subarray(6, 8).toString("hex")}-${digest.subarray(8, 10).toString("hex")}-${digest.subarray(10, 16).toString("hex")}`;
+  if (rootAnchors.length > 0 || sysText.length > 0) {
+    const seedParts = [...rootAnchors];
+    if (sysText.length > 0) {
+      const sysHash = createHash("sha256").update(sysText, "utf8").digest("hex");
+      seedParts.push(`sys:${sysHash}`);
+    }
+    if (projText.length > 0) {
+      seedParts.push(`proj:${projText}`);
+    }
+    return formatDeterministicUuidV4(JSON.stringify(seedParts));
   }
 
   return randomUUID();
@@ -708,8 +794,7 @@ export function handleReasoningParameters(
   const baseModel = rawModel.replace(/:thinking$/, "");
   const isGem25 = baseModel.includes("gemini-2.5");
   const isGem3 = isGemini3(baseModel);
-  const isGem3Flash =
-    baseModel.includes("gemini-3-flash") || baseModel.includes("gemini-3.5-flash");
+  const isGem3Flash = isGem3 && baseModel.toLowerCase().includes("flash");
 
   if (!isGem25 && !isGem3) return null;
 
@@ -823,8 +908,14 @@ export function handleReasoningParameters(
     effort === "auto" ||
     (reasoningEffort === undefined && !claudeThinking && !hasThinkingSuffix)
   ) {
+    if (baseModel.toLowerCase().includes("flash-lite")) {
+      return {
+        thinkingBudget: 0,
+        include_thoughts: false,
+      };
+    }
     return {
-      thinkingBudget: -1,
+      thinkingBudget: 8192,
       include_thoughts: true,
     };
   }
@@ -1063,7 +1154,14 @@ export function transformMessages(
 
 export function translateChatRequestToGeminiCli(
   request: Record<string, unknown>,
-  connection?: { projectId?: string; tier?: string } | null
+  connection?: {
+    projectId?: string;
+    tier?: string;
+    sessionId?: string;
+    session_id?: string;
+    enabledCreditTypes?: string[];
+    enabled_credit_types?: string[];
+  } | null
 ): {
   urlAction: string;
   body: Record<string, unknown>;
@@ -1075,15 +1173,23 @@ export function translateChatRequestToGeminiCli(
   const projectId = sanitizeGeminiCliProjectId(connection?.projectId);
 
   const genConfig: Record<string, unknown> = {
-    maxOutputTokens: typeof request.max_tokens === "number" ? request.max_tokens : 64000,
     temperature: typeof request.temperature === "number" ? request.temperature : 1.0,
+    topP: typeof request.top_p === "number" ? request.top_p : 0.95,
+    topK: typeof request.top_k === "number" ? request.top_k : 64,
   };
 
-  if (typeof request.top_p === "number") {
-    genConfig.topP = request.top_p;
-  }
-  if (typeof request.top_k === "number") {
-    genConfig.topK = request.top_k;
+  const rawMaxTokens =
+    typeof request.max_tokens === "number"
+      ? request.max_tokens
+      : typeof request.max_completion_tokens === "number"
+        ? request.max_completion_tokens
+        : typeof (request.generationConfig as Record<string, unknown> | undefined)
+              ?.maxOutputTokens === "number"
+          ? ((request.generationConfig as Record<string, unknown>).maxOutputTokens as number)
+          : undefined;
+
+  if (typeof rawMaxTokens === "number" && Number.isFinite(rawMaxTokens) && rawMaxTokens > 0) {
+    genConfig.maxOutputTokens = rawMaxTokens;
   }
 
   const thinkingConfig = handleReasoningParameters(request, model);
@@ -1125,17 +1231,36 @@ export function translateChatRequestToGeminiCli(
 
   const toolConfig = translateToolChoice(request.tool_choice, model);
 
-  const userPromptId = generateUserPromptId();
-  const sessionId = generateStableSessionId(groupedContents);
+  const metadata =
+    request.metadata && typeof request.metadata === "object"
+      ? (request.metadata as Record<string, unknown>)
+      : undefined;
+  const explicitSessionId = [
+    request.session_id,
+    request.sessionId,
+    metadata?.session_id,
+    metadata?.sessionId,
+    connection?.sessionId,
+    connection?.session_id,
+    request.user,
+  ].find((v): v is string => typeof v === "string" && v.trim().length > 0);
+
+  const sessionId = generateStableSessionId(groupedContents, {
+    explicitSessionId,
+    systemInstruction: systemInstruction?.parts?.[0]?.text,
+    projectId,
+  });
+  const userPromptId = generateUserPromptId(sessionId);
 
   const requestPayload: Record<string, unknown> = {
     contents: groupedContents,
     generationConfig: genConfig,
     session_id: sessionId,
-    safetySettings: Array.isArray(request.safetySettings)
-      ? request.safetySettings
-      : DEFAULT_SAFETY_SETTINGS,
   };
+
+  if (Array.isArray(request.safetySettings)) {
+    requestPayload.safetySettings = request.safetySettings;
+  }
 
   if (finalSystemInstruction) {
     requestPayload.systemInstruction = finalSystemInstruction;
@@ -1149,11 +1274,26 @@ export function translateChatRequestToGeminiCli(
     requestPayload.toolConfig = toolConfig;
   }
 
+  const rawCreditTypes =
+    connection?.enabledCreditTypes ??
+    connection?.enabled_credit_types ??
+    (Array.isArray(request.enabled_credit_types)
+      ? (request.enabled_credit_types as string[])
+      : Array.isArray(request.enabledCreditTypes)
+        ? (request.enabledCreditTypes as string[])
+        : undefined);
+  const enabledCreditTypes = Array.isArray(rawCreditTypes)
+    ? rawCreditTypes.filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+    : undefined;
+
   const body: Record<string, unknown> = {
     model: wireModel,
     ...(projectId ? { project: projectId } : {}),
     user_prompt_id: userPromptId,
     request: requestPayload,
+    ...(enabledCreditTypes && enabledCreditTypes.length > 0
+      ? { enabled_credit_types: enabledCreditTypes }
+      : {}),
   };
 
   return {
