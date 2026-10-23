@@ -679,7 +679,7 @@ test("Tier 3: Reasoning Parameter Mapping for Gemini 2.5 vs Gemini 3", () => {
     include_thoughts: true,
   });
 
-  // Gemini 2.5 default (auto) maps to upstream DEFAULT_THINKING_MODE = 8192 (0 for flash-lite)
+  // Gemini 2.5 default (auto) maps to upstream chat-base-2.5 DEFAULT_THINKING_MODE = 8192
   assert.deepEqual(handleReasoningParameters({}, "gemini-2.5-flash"), {
     thinkingBudget: 8192,
     include_thoughts: true,
@@ -689,8 +689,8 @@ test("Tier 3: Reasoning Parameter Mapping for Gemini 2.5 vs Gemini 3", () => {
     include_thoughts: true,
   });
   assert.deepEqual(handleReasoningParameters({}, "gemini-2.5-flash-lite"), {
-    thinkingBudget: 0,
-    include_thoughts: false,
+    thinkingBudget: 8192,
+    include_thoughts: true,
   });
 
   // Gemini 3.8 Flash & Gemini 3.1/3.5 Flash-Lite recognized as isGem3Flash
@@ -718,25 +718,49 @@ test("Tier 1: Multi-turn session_id and user_prompt_id continuity, generationCon
   const turn1Req: OpenAIChatRequest = {
     model: "gemini-3.8-flash",
     messages: [
-      { role: "system", content: "You are a helpful coding assistant." },
+      { role: "system", content: "You are a helpful coding assistant. [ts=1000]" },
       { role: "user", content: "hi" },
     ],
   };
 
+  // Turn 2 mutates the system prompt (e.g. dynamic timestamp / workspace state)
   const turn2Req: OpenAIChatRequest = {
     model: "gemini-3.8-flash",
     messages: [
-      { role: "system", content: "You are a helpful coding assistant." },
+      { role: "system", content: "You are a helpful coding assistant. [ts=2000, cwd=/app]" },
       { role: "user", content: "hi" },
       { role: "assistant", content: "Hello! How can I help you today?" },
       { role: "user", content: "Explain how KV cache session affinity works on Code Assist." },
     ],
   };
 
+  // Turn 2 tool-call continuation (no new user text prompt yet, only tool response)
+  const turn2ToolContReq: OpenAIChatRequest = {
+    model: "gemini-3.8-flash",
+    messages: [
+      { role: "system", content: "You are a helpful coding assistant. [ts=2005, cwd=/app]" },
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "Hello! How can I help you today?" },
+      { role: "user", content: "Explain how KV cache session affinity works on Code Assist." },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: { name: "read_doc", arguments: '{"path":"README.md"}' },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_1", name: "read_doc", content: '{"ok":true}' },
+    ],
+  };
+
   const turn3Req: OpenAIChatRequest = {
     model: "gemini-3.8-flash",
     messages: [
-      { role: "system", content: "You are a helpful coding assistant." },
+      { role: "system", content: "You are a helpful coding assistant. [ts=3000, cwd=/app]" },
       { role: "user", content: "hi" },
       { role: "assistant", content: "Hello! How can I help you today?" },
       { role: "user", content: "Explain how KV cache session affinity works on Code Assist." },
@@ -758,21 +782,83 @@ test("Tier 1: Multi-turn session_id and user_prompt_id continuity, generationCon
 
   const t1 = translateChatRequestToGeminiCli(turn1Req, { projectId: "proj-1" });
   const t2 = translateChatRequestToGeminiCli(turn2Req, { projectId: "proj-1" });
+  const t2Cont = translateChatRequestToGeminiCli(turn2ToolContReq, { projectId: "proj-1" });
   const t3 = translateChatRequestToGeminiCli(turn3Req, { projectId: "proj-1" });
 
   const s1 = (t1.body.request as Record<string, unknown>).session_id as string;
   const s2 = (t2.body.request as Record<string, unknown>).session_id as string;
+  const s2Cont = (t2Cont.body.request as Record<string, unknown>).session_id as string;
   const s3 = (t3.body.request as Record<string, unknown>).session_id as string;
 
-  // Turn 1, Turn 2, and Turn 3 must produce the exact same RFC 4122 UUID v4 session_id
+  // Turn 1, Turn 2 (with mutated system prompt), Turn 2 tool continuation, and Turn 3
+  // must produce the exact same RFC 4122 UUID v4 session_id
   assert.match(s1, uuidV4Regex);
-  assert.equal(s1, s2, "Turn 1 and Turn 2 must share the exact same session_id");
+  assert.equal(
+    s1,
+    s2,
+    "Turn 1 and Turn 2 must share the exact same session_id despite systemInstruction mutation"
+  );
+  assert.equal(s2, s2Cont, "Turn 2 and Turn 2 tool continuation must share the same session_id");
   assert.equal(s2, s3, "Turn 2 and Turn 3 must share the exact same session_id");
 
-  // user_prompt_id must strictly equal request.session_id on every turn
+  // user_prompt_id parity:
+  // - Single-turn / Turn 1 defaults to sessionId (non-interactive parity, gemini.tsx:968)
+  // - Multi-turn interactive prompts format ${sessionId}########${promptIndex} (useGeminiStream.ts:1885)
+  //   and stay constant across tool-call continuation turns of the same user prompt!
   assert.equal(t1.body.user_prompt_id, s1);
-  assert.equal(t2.body.user_prompt_id, s2);
-  assert.equal(t3.body.user_prompt_id, s3);
+  assert.equal(t2.body.user_prompt_id, `${s2}########1`);
+  assert.equal(t2Cont.body.user_prompt_id, `${s2}########1`);
+  assert.equal(t3.body.user_prompt_id, `${s3}########2`);
+  assert.equal(generateUserPromptId(s1, 0), `${s1}########0`);
+
+  // Explicit prompt_count: 0 formats ${sessionId}########0 on Turn 1
+  const t1Interactive = translateChatRequestToGeminiCli(
+    { ...turn1Req, prompt_count: 0 },
+    { projectId: "proj-1" }
+  );
+  assert.equal(t1Interactive.body.user_prompt_id, `${s1}########0`);
+
+  // request.user acts as a salt (differentiating users with identical "hi" prompt)
+  // WITHOUT collapsing separate conversations from the same user into one session_id!
+  const userAChat1 = translateChatRequestToGeminiCli(
+    { ...turn1Req, user: "user-alice" },
+    { projectId: "proj-1" }
+  );
+  const userBChat1 = translateChatRequestToGeminiCli(
+    { ...turn1Req, user: "user-bob" },
+    { projectId: "proj-1" }
+  );
+  const userAChat2 = translateChatRequestToGeminiCli(
+    {
+      model: "gemini-3.8-flash",
+      user: "user-alice",
+      messages: [{ role: "user", content: "Different conversation topic altogether" }],
+    },
+    { projectId: "proj-1" }
+  );
+  const sUserAChat1 = (userAChat1.body.request as Record<string, unknown>).session_id as string;
+  const sUserBChat1 = (userBChat1.body.request as Record<string, unknown>).session_id as string;
+  const sUserAChat2 = (userAChat2.body.request as Record<string, unknown>).session_id as string;
+  assert.notEqual(
+    sUserAChat1,
+    sUserBChat1,
+    "Different users starting with 'hi' must get distinct session_ids"
+  );
+  assert.notEqual(
+    sUserAChat1,
+    sUserAChat2,
+    "Same request.user on two different conversations must NOT collapse to the same session_id"
+  );
+
+  // Synthetic 'Please continue.' is skipped when an actual user message exists
+  const withSyntheticContinue = generateStableSessionId([
+    { role: "user", parts: [{ text: "Please continue." }] },
+    { role: "user", parts: [{ text: "Real root prompt" }] },
+  ]);
+  const directRealPrompt = generateStableSessionId([
+    { role: "user", parts: [{ text: "Real root prompt" }] },
+  ]);
+  assert.equal(withSyntheticContinue, directRealPrompt);
 
   // Explicit session_id overrides content anchor deterministically as UUID v4
   const explicitTranslated = translateChatRequestToGeminiCli(
@@ -821,13 +907,30 @@ test("Tier 1: Multi-turn session_id and user_prompt_id continuity, generationCon
     DEFAULT_SAFETY_SETTINGS
   );
 
-  // enabled_credit_types omitted by default, included when connection.enabledCreditTypes is provided
+  // enabled_credit_types omitted by default, ignored on untrusted request body,
+  // and included when connection.enabledCreditTypes or connection.providerSpecificData is provided
   assert.equal("enabled_credit_types" in t1.body, false);
+  const untrustedRequestCredits = translateChatRequestToGeminiCli(
+    { ...turn1Req, enabled_credit_types: ["GOOGLE_ONE_AI"] },
+    { projectId: "proj-1" }
+  );
+  assert.equal(
+    "enabled_credit_types" in untrustedRequestCredits.body,
+    false,
+    "Untrusted request.enabled_credit_types must not be forwarded"
+  );
+
   const withCredits = translateChatRequestToGeminiCli(turn1Req, {
     projectId: "proj-1",
-    enabledCreditTypes: ["GOOGLE_ONE_AI"],
+    enabledCreditTypes: [" GOOGLE_ONE_AI ", ""],
   });
   assert.deepEqual(withCredits.body.enabled_credit_types, ["GOOGLE_ONE_AI"]);
+
+  const withProviderDataCredits = translateChatRequestToGeminiCli(turn1Req, {
+    projectId: "proj-1",
+    providerSpecificData: { enabledCreditTypes: ["GOOGLE_ONE_AI"] },
+  });
+  assert.deepEqual(withProviderDataCredits.body.enabled_credit_types, ["GOOGLE_ONE_AI"]);
 });
 
 test("Tier 3: Combinatorial Matrix Across Models, Tools and Reasoning Configurations", () => {

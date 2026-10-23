@@ -155,9 +155,13 @@ export function formatDeterministicUuidV4(seed: string): string {
   return `${digest.subarray(0, 4).toString("hex")}-${digest.subarray(4, 6).toString("hex")}-${digest.subarray(6, 8).toString("hex")}-${digest.subarray(8, 10).toString("hex")}-${digest.subarray(10, 16).toString("hex")}`;
 }
 
-export function generateUserPromptId(sessionId?: string): string {
+export function generateUserPromptId(sessionId?: string, promptCount?: number): string {
   if (typeof sessionId === "string" && sessionId.trim().length > 0) {
-    return formatDeterministicUuidV4(sessionId);
+    const baseSessionId = formatDeterministicUuidV4(sessionId);
+    if (typeof promptCount === "number" && Number.isFinite(promptCount) && promptCount >= 0) {
+      return `${baseSessionId}########${Math.floor(promptCount)}`;
+    }
+    return baseSessionId;
   }
   return randomUUID();
 }
@@ -166,6 +170,52 @@ export interface StableSessionIdOptions {
   explicitSessionId?: string;
   systemInstruction?: string;
   projectId?: string;
+  userSalt?: string;
+}
+
+const SYNTHETIC_CONTINUE_TEXT = "please continue.";
+
+function isSyntheticContinueTurn(parts: unknown): boolean {
+  if (!Array.isArray(parts) || parts.length === 0) return false;
+  let sawText = false;
+  for (const part of parts) {
+    if (!part || typeof part !== "object") continue;
+    const rec = part as Record<string, unknown>;
+    if (rec.inlineData || rec.fileData || rec.functionCall || rec.function_call || rec.functionResponse || rec.function_response) {
+      return false;
+    }
+    const text = typeof rec.text === "string" ? rec.text.trim().toLowerCase() : "";
+    if (!text) continue;
+    if (text !== SYNTHETIC_CONTINUE_TEXT) return false;
+    sawText = true;
+  }
+  return sawText;
+}
+
+export function countUserPromptTurns(
+  contents: Array<{ role?: string; parts?: Array<Record<string, unknown>> }>
+): number {
+  if (!Array.isArray(contents)) return 0;
+  let count = 0;
+  for (const content of contents) {
+    if (!content || (content.role || "user") !== "user") continue;
+    if (!Array.isArray(content.parts) || content.parts.length === 0) continue;
+    if (isSyntheticContinueTurn(content.parts)) continue;
+
+    const hasUserPromptPart = content.parts.some((part) => {
+      if (!part || typeof part !== "object") return false;
+      const rec = part as Record<string, unknown>;
+      if (typeof rec.text === "string" && rec.text.trim().length > 0) return true;
+      if (rec.inlineData && typeof rec.inlineData === "object") return true;
+      if (rec.fileData && typeof rec.fileData === "object") return true;
+      return false;
+    });
+
+    if (hasUserPromptPart) {
+      count++;
+    }
+  }
+  return count;
 }
 
 function extractTurnRootAnchors(parts: unknown): string[] {
@@ -207,7 +257,10 @@ function extractTurnRootAnchors(parts: unknown): string[] {
     if (functionCall && typeof functionCall === "object") {
       const name = (functionCall.name as string) || "";
       const callId = (functionCall.id || functionCall.call_id || "") as string;
-      anchors.push(`function_call:${name}:${callId}`);
+      const argsHash = createHash("sha256")
+        .update(JSON.stringify(functionCall.args ?? {}), "utf8")
+        .digest("hex");
+      anchors.push(`function_call:${name}:${callId}:${argsHash}`);
     }
 
     const functionResponse = (rec.functionResponse || rec.function_response) as
@@ -216,7 +269,10 @@ function extractTurnRootAnchors(parts: unknown): string[] {
     if (functionResponse && typeof functionResponse === "object") {
       const name = (functionResponse.name as string) || "";
       const responseId = (functionResponse.id || functionResponse.call_id || "") as string;
-      anchors.push(`function_response:${name}:${responseId}`);
+      const respHash = createHash("sha256")
+        .update(JSON.stringify(functionResponse.response ?? {}), "utf8")
+        .digest("hex");
+      anchors.push(`function_response:${name}:${responseId}:${respHash}`);
     }
   }
 
@@ -233,12 +289,15 @@ export function generateStableSessionId(
     return formatDeterministicUuidV4(explicit);
   }
 
-  // Derive a conversation-invariant anchor from the FIRST non-empty user message
+  // Derive a conversation-invariant anchor from the FIRST non-empty real user message
   // so Turn 1, Turn 2, ..., Turn N of the same conversation produce the exact same UUID v4.
+  // Deliberately excludes mutable systemInstruction so dynamic timestamps/workspace blocks
+  // injected into system prompts on later turns do not break session affinity.
   let rootAnchors: string[] = [];
   if (Array.isArray(contents)) {
     for (const content of contents) {
       if (!content || (content.role || "user") !== "user") continue;
+      if (isSyntheticContinueTurn(content.parts)) continue;
       const extracted = extractTurnRootAnchors(content.parts);
       if (extracted.length > 0) {
         rootAnchors = extracted;
@@ -258,18 +317,16 @@ export function generateStableSessionId(
     }
   }
 
-  const sysText =
-    typeof options?.systemInstruction === "string" ? options.systemInstruction.trim() : "";
   const projText = typeof options?.projectId === "string" ? options.projectId.trim() : "";
+  const userText = typeof options?.userSalt === "string" ? options.userSalt.trim() : "";
 
-  if (rootAnchors.length > 0 || sysText.length > 0) {
+  if (rootAnchors.length > 0) {
     const seedParts = [...rootAnchors];
-    if (sysText.length > 0) {
-      const sysHash = createHash("sha256").update(sysText, "utf8").digest("hex");
-      seedParts.push(`sys:${sysHash}`);
-    }
     if (projText.length > 0) {
       seedParts.push(`proj:${projText}`);
+    }
+    if (userText.length > 0) {
+      seedParts.push(`user:${userText}`);
     }
     return formatDeterministicUuidV4(JSON.stringify(seedParts));
   }
@@ -908,12 +965,6 @@ export function handleReasoningParameters(
     effort === "auto" ||
     (reasoningEffort === undefined && !claudeThinking && !hasThinkingSuffix)
   ) {
-    if (baseModel.toLowerCase().includes("flash-lite")) {
-      return {
-        thinkingBudget: 0,
-        include_thoughts: false,
-      };
-    }
     return {
       thinkingBudget: 8192,
       include_thoughts: true,
@@ -1159,8 +1210,11 @@ export function translateChatRequestToGeminiCli(
     tier?: string;
     sessionId?: string;
     session_id?: string;
+    userPromptId?: string;
+    user_prompt_id?: string;
     enabledCreditTypes?: string[];
     enabled_credit_types?: string[];
+    providerSpecificData?: Record<string, unknown>;
   } | null
 ): {
   urlAction: string;
@@ -1235,22 +1289,68 @@ export function translateChatRequestToGeminiCli(
     request.metadata && typeof request.metadata === "object"
       ? (request.metadata as Record<string, unknown>)
       : undefined;
+  const providerData =
+    connection?.providerSpecificData && typeof connection.providerSpecificData === "object"
+      ? connection.providerSpecificData
+      : undefined;
+
   const explicitSessionId = [
     request.session_id,
     request.sessionId,
+    request.conversation_id,
+    request.conversationId,
     metadata?.session_id,
     metadata?.sessionId,
+    metadata?.conversation_id,
+    metadata?.conversationId,
     connection?.sessionId,
     connection?.session_id,
-    request.user,
+    providerData?.sessionId,
+    providerData?.session_id,
   ].find((v): v is string => typeof v === "string" && v.trim().length > 0);
+
+  const userSalt =
+    typeof request.user === "string" && request.user.trim().length > 0
+      ? request.user.trim()
+      : undefined;
 
   const sessionId = generateStableSessionId(groupedContents, {
     explicitSessionId,
-    systemInstruction: systemInstruction?.parts?.[0]?.text,
     projectId,
+    userSalt,
   });
-  const userPromptId = generateUserPromptId(sessionId);
+
+  const explicitUserPromptId = [
+    request.user_prompt_id,
+    request.userPromptId,
+    request.prompt_id,
+    request.promptId,
+    metadata?.user_prompt_id,
+    metadata?.prompt_id,
+    connection?.userPromptId,
+    connection?.user_prompt_id,
+    providerData?.userPromptId,
+    providerData?.user_prompt_id,
+  ].find((v): v is string => typeof v === "string" && v.trim().length > 0);
+
+  const explicitPromptCount = [
+    request.prompt_count,
+    request.promptCount,
+    metadata?.prompt_count,
+    metadata?.promptCount,
+  ].find((v): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0);
+
+  const userPromptTurns = countUserPromptTurns(groupedContents);
+  const inferredPromptCount =
+    explicitPromptCount !== undefined
+      ? explicitPromptCount
+      : userPromptTurns > 1
+        ? userPromptTurns - 1
+        : undefined;
+
+  const userPromptId = explicitUserPromptId
+    ? explicitUserPromptId.trim()
+    : generateUserPromptId(sessionId, inferredPromptCount);
 
   const requestPayload: Record<string, unknown> = {
     contents: groupedContents,
@@ -1277,13 +1377,16 @@ export function translateChatRequestToGeminiCli(
   const rawCreditTypes =
     connection?.enabledCreditTypes ??
     connection?.enabled_credit_types ??
-    (Array.isArray(request.enabled_credit_types)
-      ? (request.enabled_credit_types as string[])
-      : Array.isArray(request.enabledCreditTypes)
-        ? (request.enabledCreditTypes as string[])
+    (Array.isArray(providerData?.enabledCreditTypes)
+      ? (providerData.enabledCreditTypes as string[])
+      : Array.isArray(providerData?.enabled_credit_types)
+        ? (providerData.enabled_credit_types as string[])
         : undefined);
   const enabledCreditTypes = Array.isArray(rawCreditTypes)
-    ? rawCreditTypes.filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+    ? rawCreditTypes
+        .filter((t): t is string => typeof t === "string")
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0)
     : undefined;
 
   const body: Record<string, unknown> = {
