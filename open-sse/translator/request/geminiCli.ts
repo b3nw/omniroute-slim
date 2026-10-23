@@ -1207,56 +1207,63 @@ export function translateChatRequestToGeminiCli(
     ? cloneForTransform(request.tools as Array<Record<string, unknown>>)
     : undefined;
 
-  const initialSystemBlocks: Array<{ type: string; text: string }> = [];
-  if (typeof request.system === "string" && request.system) {
-    initialSystemBlocks.push({ type: "text", text: request.system });
-  } else if (Array.isArray(request.system)) {
-    for (const block of request.system) {
-      if (typeof block === "string" && block) {
-        initialSystemBlocks.push({ type: "text", text: block });
-      } else if (
-        block &&
-        typeof block === "object" &&
-        typeof (block as Record<string, unknown>).text === "string" &&
-        (block as Record<string, string>).text
-      ) {
-        initialSystemBlocks.push({ type: "text", text: (block as Record<string, string>).text });
-      }
-    }
-  }
-
-  let messageSystemText = "";
-  const nonSystemMessages: Array<Record<string, unknown>> = [];
-  for (const msg of rawMessages) {
-    if ((msg?.role as string) === "system") {
-      const content = msg.content;
-      let extracted = "";
-      if (typeof content === "string") {
-        extracted = content;
-      } else if (Array.isArray(content)) {
-        extracted = content
-          .map((c) => (typeof c === "string" ? c : (c as Record<string, unknown>)?.text || ""))
-          .join("\n");
-      }
-      if (extracted) {
-        messageSystemText = messageSystemText ? `${messageSystemText}\n\n${extracted}` : extracted;
-      }
-    } else {
-      nonSystemMessages.push(msg);
-    }
-  }
-  if (messageSystemText) {
-    initialSystemBlocks.push({ type: "text", text: messageSystemText });
-  }
-
+  const hasExplicitSystem = request.system !== undefined;
   const transformBody: Record<string, unknown> = {
-    system: initialSystemBlocks,
-    messages: nonSystemMessages,
+    messages: rawMessages,
     tools: clonedTools,
   };
+
+  if (hasExplicitSystem) {
+    const initialSystemBlocks: Array<{ type: string; text: string }> = [];
+    if (typeof request.system === "string" && request.system) {
+      initialSystemBlocks.push({ type: "text", text: request.system });
+    } else if (Array.isArray(request.system)) {
+      for (const block of request.system) {
+        if (typeof block === "string" && block) {
+          initialSystemBlocks.push({ type: "text", text: block });
+        } else if (
+          block &&
+          typeof block === "object" &&
+          typeof (block as Record<string, unknown>).text === "string" &&
+          (block as Record<string, string>).text
+        ) {
+          initialSystemBlocks.push({ type: "text", text: (block as Record<string, string>).text });
+        }
+      }
+    }
+
+    let messageSystemText = "";
+    const nonSystemMessages: Array<Record<string, unknown>> = [];
+    for (const msg of rawMessages) {
+      if ((msg?.role as string) === "system") {
+        const content = msg.content;
+        let extracted = "";
+        if (typeof content === "string") {
+          extracted = content;
+        } else if (Array.isArray(content)) {
+          extracted = content
+            .map((c) => (typeof c === "string" ? c : (c as Record<string, unknown>)?.text || ""))
+            .join("\n");
+        }
+        if (extracted) {
+          messageSystemText = messageSystemText
+            ? `${messageSystemText}\n\n${extracted}`
+            : extracted;
+        }
+      } else {
+        nonSystemMessages.push(msg);
+      }
+    }
+    if (messageSystemText) {
+      initialSystemBlocks.push({ type: "text", text: messageSystemText });
+    }
+    transformBody.system = initialSystemBlocks;
+    transformBody.messages = nonSystemMessages;
+  }
+
   applySystemTransformPipeline(PROVIDER_GEMINI_CLI, transformBody);
 
-  const { contents } = transformMessages(
+  const { systemInstruction, contents } = transformMessages(
     Array.isArray(transformBody.messages)
       ? (transformBody.messages as Array<Record<string, unknown>>)
       : [],
@@ -1264,13 +1271,23 @@ export function translateChatRequestToGeminiCli(
   );
   const groupedContents = fixToolResponseGrouping(contents);
 
-  const transformedSystemTexts = Array.isArray(transformBody.system)
-    ? (transformBody.system as Array<{ type?: string; text?: string }>)
-        .map((b) => (typeof b?.text === "string" ? b.text.trim() : ""))
-        .filter(Boolean)
-    : typeof transformBody.system === "string" && transformBody.system.trim()
-      ? [transformBody.system.trim()]
-      : [];
+  const transformedSystemTexts: string[] = [];
+  if (Array.isArray(transformBody.system)) {
+    for (const b of transformBody.system as Array<{ type?: string; text?: string }>) {
+      if (typeof b?.text === "string" && b.text.trim()) {
+        transformedSystemTexts.push(b.text.trim());
+      }
+    }
+  } else if (typeof transformBody.system === "string" && transformBody.system.trim()) {
+    transformedSystemTexts.push(transformBody.system.trim());
+  }
+  if (systemInstruction && Array.isArray(systemInstruction.parts)) {
+    for (const part of systemInstruction.parts) {
+      if (typeof part.text === "string" && part.text.trim()) {
+        transformedSystemTexts.push(part.text.trim());
+      }
+    }
+  }
 
   let finalSystemInstruction =
     transformedSystemTexts.length > 0

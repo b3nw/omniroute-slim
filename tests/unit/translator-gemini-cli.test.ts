@@ -1020,6 +1020,32 @@ test("Phase 3: translateChatRequestToGeminiCli does not mutate caller request in
     assert.ok(reqPayload.systemInstruction?.parts[0].text.includes(zwjWord));
     assert.ok(reqPayload.contents[0].parts[0].text?.includes(zwjWord));
     assert.ok(reqPayload.tools?.[0].functionDeclarations[0].description.includes(zwjWord));
+
+    // Also verify targets: ["messages"] on messages-only input obfuscates both systemInstruction and contents
+    setSystemTransformsConfig({
+      providers: {
+        [PROVIDER_GEMINI_CLI]: {
+          enabled: true,
+          pipeline: [
+            {
+              kind: "obfuscate_words",
+              words: ["opencode"],
+              targets: ["messages"],
+            },
+          ],
+        },
+      },
+    });
+    const messagesTargetTranslated = translateChatRequestToGeminiCli(callerReq);
+    const messagesTargetPayload = messagesTargetTranslated.body.request as {
+      systemInstruction?: { parts: Array<{ text: string }> };
+      contents: Array<{ role: string; parts: Array<{ text?: string }> }>;
+    };
+    assert.equal(
+      messagesTargetPayload.systemInstruction?.parts[0].text,
+      `Helper for ${zwjWord} workflow.`
+    );
+    assert.equal(messagesTargetPayload.contents[0].parts[0].text, `Run ${zwjWord} check`);
   } finally {
     resetSystemTransformsConfig();
   }
