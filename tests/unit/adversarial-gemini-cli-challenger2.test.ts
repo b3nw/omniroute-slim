@@ -264,7 +264,7 @@ test("Challenge 1.4: Empty properties objects injected with _confirm parameter a
             parts: [
               {
                 functionCall: {
-                  name: "gemini3_getSystemStatus",
+                  name: "getSystemStatus",
                   args: { _confirm: true },
                   id: "call_status_001",
                 },

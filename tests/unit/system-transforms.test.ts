@@ -367,6 +367,70 @@ test("applySystemTransformPipeline: OpenAI-style body with role: 'system' messag
   assert.ok(msgs[0].content.includes("Always use strict types."));
 });
 
+test("applyTransformPipeline: messages-only body with no initial system message or no surviving system message never leaks top-level body.system", () => {
+  // 1. No initial system message + prepend_system_block → inserts system message at index 0
+  const noSysBody: Record<string, unknown> = {
+    messages: [{ role: "user", content: "hi" }],
+  };
+  applyTransformPipeline(noSysBody, [
+    { kind: "prepend_system_block", text: GEMINI_CLI_SYSTEM_PREAMBLE },
+  ]);
+  assert.equal(noSysBody.system, undefined);
+  assert.deepEqual(noSysBody.messages, [
+    { role: "system", content: GEMINI_CLI_SYSTEM_PREAMBLE },
+    { role: "user", content: "hi" },
+  ]);
+
+  // 2. Initial system message completely dropped → removed from messages, body.system stays undefined
+  const droppedSysBody: Record<string, unknown> = {
+    messages: [
+      { role: "system", content: "DROP_ME" },
+      { role: "user", content: "hi" },
+    ],
+  };
+  applyTransformPipeline(droppedSysBody, [
+    { kind: "drop_block_if_contains", needles: ["DROP_ME"] },
+    { kind: "obfuscate_words", words: ["unused"] },
+    { kind: "drop_paragraph_if_contains", needles: ["other"] },
+  ]);
+  assert.equal(droppedSysBody.system, undefined);
+  assert.deepEqual(droppedSysBody.messages, [{ role: "user", content: "hi" }]);
+});
+
+test("applyTransformPipeline: preserves system block boundaries across base-op -> obfuscate_words -> drop_block_if_contains on messages-only body", () => {
+  const body: Record<string, unknown> = {
+    messages: [
+      { role: "system", content: "KEEP" },
+      { role: "user", content: "hello opencode" },
+    ],
+  };
+  applyTransformPipeline(body, [
+    { kind: "prepend_system_block", text: "DROP_PREPENDED" },
+    { kind: "obfuscate_words", words: ["opencode"], targets: ["messages"] },
+    { kind: "drop_block_if_contains", needles: ["DROP_PREPENDED"] },
+  ]);
+  assert.equal(body.system, undefined);
+  const msgs = body.messages as Array<{ role: string; content: string }>;
+  assert.equal(msgs.length, 2);
+  assert.equal(msgs[0].role, "system");
+  assert.equal(msgs[0].content, "KEEP");
+  assert.ok(msgs[1].content.includes(`o${ZWJ}pencode`));
+
+  // Also verify DEFAULT_CC_BRIDGE_PROVIDER_PIPELINE running twice on messages-only body preserves project instruction
+  const ccBody: Record<string, unknown> = {
+    messages: [
+      { role: "system", content: "KEEP_PROJECT_INSTRUCTION" },
+      { role: "user", content: "hello" },
+    ],
+  };
+  applySystemTransformPipeline(PROVIDER_CC_BRIDGE, ccBody, DEFAULT_SYSTEM_TRANSFORMS_CONFIG);
+  applySystemTransformPipeline(PROVIDER_CC_BRIDGE, ccBody, DEFAULT_SYSTEM_TRANSFORMS_CONFIG);
+  assert.equal(ccBody.system, undefined);
+  const ccMsgs = ccBody.messages as Array<{ role: string; content: string }>;
+  assert.equal(ccMsgs[0].role, "system");
+  assert.ok(ccMsgs[0].content.includes("KEEP_PROJECT_INSTRUCTION"));
+});
+
 test("updateSettingsSchema preserves skipIfContains on prepend_system_block round-trip", () => {
   const parsed = updateSettingsSchema.parse({
     systemTransforms: DEFAULT_SYSTEM_TRANSFORMS_CONFIG,

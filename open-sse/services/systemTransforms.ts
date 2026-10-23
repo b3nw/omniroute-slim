@@ -31,10 +31,13 @@ import {
   DEFAULT_IDENTITY_PREFIXES,
   DEFAULT_PARAGRAPH_REMOVAL_ANCHORS,
   DEFAULT_TEXT_REPLACEMENTS,
+  extractSystemBlocksFromMessages,
+  writeSystemBlocksToMessages,
 } from "./ccBridgeTransforms.ts";
 import type {
   CcBridgeTransformsConfig,
   ReplaceTextOp,
+  SystemBlock,
   TransformOp as BaseTransformOp,
 } from "./ccBridgeTransforms.ts";
 
@@ -409,6 +412,7 @@ function applyObfuscateWords(body: RequestBody, op: ObfuscateWordsOp): void {
 
   if (targets.includes("messages") && Array.isArray(body.messages)) {
     for (const msg of body.messages as Array<Record<string, unknown>>) {
+      if (msg?.role === "system" && body.system !== undefined) continue;
       const content = msg.content;
       if (typeof content === "string") {
         msg.content = obfuscateWithList(content, words);
@@ -477,6 +481,13 @@ export function applyTransformPipeline(
     return { body, appliedOpKinds: [] };
   }
 
+  const isMessagesOnly = body.system === undefined && Array.isArray(body.messages);
+  if (isMessagesOnly) {
+    body.system = extractSystemBlocksFromMessages(
+      body.messages as Parameters<typeof extractSystemBlocksFromMessages>[0]
+    );
+  }
+
   const appliedOpKinds: string[] = [];
   let baseRun: BaseTransformOp[] = [];
 
@@ -503,6 +514,15 @@ export function applyTransformPipeline(
     }
   }
   flushBaseRun();
+
+  if (isMessagesOnly && Array.isArray(body.messages)) {
+    const finalBlocks = Array.isArray(body.system) ? (body.system as SystemBlock[]) : [];
+    body.messages = writeSystemBlocksToMessages(
+      body.messages as Parameters<typeof writeSystemBlocksToMessages>[0],
+      finalBlocks
+    );
+    delete body.system;
+  }
 
   return { body, appliedOpKinds };
 }

@@ -475,7 +475,7 @@ test("Tier 2: Tool Transformation Preserves Clean Tool Names & Descriptions + _c
   assert.deepEqual(schema1.required, ["_confirm"]);
 });
 
-test("Tier 2: Response Translation Strips Injected _confirm Argument", () => {
+test("Tier 2: Response Translation Strips Injected _confirm Argument and Preserves gemini3_ Prefix Unless Legacy Flag Enabled", () => {
   const mockChunkWithConfirm = {
     response: {
       candidates: [
@@ -484,7 +484,7 @@ test("Tier 2: Response Translation Strips Injected _confirm Argument", () => {
             parts: [
               {
                 functionCall: {
-                  name: "gemini3_getSystemInfo",
+                  name: "getSystemInfo",
                   args: { _confirm: true },
                   id: "call_sys_info_1",
                 },
@@ -517,6 +517,81 @@ test("Tier 2: Response Translation Strips Injected _confirm Argument", () => {
   )[0].message.tool_calls[0];
   assert.equal(messageToolCall.function.name, "getSystemInfo");
   assert.equal(messageToolCall.function.arguments, "{}");
+
+  // User tool legitimately named `gemini3_read_file` is preserved when legacy prefixing is off (default),
+  // and stripped to `read_file` only when GEMINI_CLI_LEGACY_TOOL_PREFIX=1.
+  const mockGemini3NamedToolChunk = {
+    response: {
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                functionCall: {
+                  name: "gemini3_read_file",
+                  args: { path: "README.md" },
+                  id: "call_read_1",
+                },
+              },
+            ],
+          },
+          finishReason: "STOP",
+        },
+      ],
+    },
+  };
+
+  const savedEnv = process.env.GEMINI_CLI_LEGACY_TOOL_PREFIX;
+  try {
+    delete process.env.GEMINI_CLI_LEGACY_TOOL_PREFIX;
+    const defaultChunks = translateGeminiCliChunkToOpenAI(
+      mockGemini3NamedToolChunk,
+      "gemini-3-flash"
+    );
+    const defaultStreamName = (
+      defaultChunks![0].choices as Array<{
+        delta: { tool_calls: Array<{ function: { name: string } }> };
+      }>
+    )[0].delta.tool_calls[0].function.name;
+    assert.equal(defaultStreamName, "gemini3_read_file");
+
+    const defaultFull = translateGeminiCliResponseToOpenAI(
+      mockGemini3NamedToolChunk,
+      "gemini-3-flash"
+    );
+    const defaultFullName = (
+      defaultFull.choices as Array<{
+        message: { tool_calls: Array<{ function: { name: string } }> };
+      }>
+    )[0].message.tool_calls[0].function.name;
+    assert.equal(defaultFullName, "gemini3_read_file");
+
+    process.env.GEMINI_CLI_LEGACY_TOOL_PREFIX = "1";
+    const legacyChunks = translateGeminiCliChunkToOpenAI(
+      mockGemini3NamedToolChunk,
+      "gemini-3-flash"
+    );
+    const legacyStreamName = (
+      legacyChunks![0].choices as Array<{
+        delta: { tool_calls: Array<{ function: { name: string } }> };
+      }>
+    )[0].delta.tool_calls[0].function.name;
+    assert.equal(legacyStreamName, "read_file");
+
+    const legacyFull = translateGeminiCliResponseToOpenAI(
+      mockGemini3NamedToolChunk,
+      "gemini-3-flash"
+    );
+    const legacyFullName = (
+      legacyFull.choices as Array<{
+        message: { tool_calls: Array<{ function: { name: string } }> };
+      }>
+    )[0].message.tool_calls[0].function.name;
+    assert.equal(legacyFullName, "read_file");
+  } finally {
+    if (savedEnv === undefined) delete process.env.GEMINI_CLI_LEGACY_TOOL_PREFIX;
+    else process.env.GEMINI_CLI_LEGACY_TOOL_PREFIX = savedEnv;
+  }
 });
 
 test("Tier 2: Parallel Tool Response Auto-Repair (fixToolResponseGrouping)", () => {
@@ -959,6 +1034,20 @@ test("Phase 3: ensureTerminalUserTurn replaces empty or metadata-only terminal u
 
   const whitespaceOnlyTurn = ensureTerminalUserTurn([{ role: "user", parts: [{ text: "   " }] }]);
   assert.deepEqual(whitespaceOnlyTurn, [{ role: "user", parts: [{ text: CONTINUE_PROMPT_TEXT }] }]);
+
+  const emptyInlineDataTurn = ensureTerminalUserTurn([
+    { role: "user", parts: [{ inlineData: {} }, { fileData: {} }] },
+  ]);
+  assert.deepEqual(emptyInlineDataTurn, [
+    { role: "user", parts: [{ text: CONTINUE_PROMPT_TEXT }] },
+  ]);
+
+  const validInlineDataTurn = ensureTerminalUserTurn([
+    { role: "user", parts: [{ inlineData: { mimeType: "image/png", data: "YWJj" } }] },
+  ]);
+  assert.deepEqual(validInlineDataTurn, [
+    { role: "user", parts: [{ inlineData: { mimeType: "image/png", data: "YWJj" } }] },
+  ]);
 
   const modelTerminalTurn = ensureTerminalUserTurn([
     { role: "user", parts: [{ text: "Hello" }] },

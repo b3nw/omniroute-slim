@@ -48,6 +48,8 @@ export function isGeminiCliLegacyToolPrefixEnabled(): boolean {
   return process.env.GEMINI_CLI_LEGACY_TOOL_PREFIX === "1";
 }
 
+export const isGemini3ToolPrefixEnabled = isGeminiCliLegacyToolPrefixEnabled;
+
 export const GEMINI3_TOOL_RENAMES: Record<string, string> = {
   // Problematic tool names can be mapped here if needed
 };
@@ -708,14 +710,64 @@ export function fixToolResponseGrouping(
 
 export const CONTINUE_PROMPT_TEXT = "Please continue.";
 
-const NON_EMPTY_PART_KEYS = [
-  "functionCall",
-  "functionResponse",
-  "inlineData",
-  "fileData",
-  "executableCode",
-  "codeExecutionResult",
-] as const;
+function isNonEmptyString(val: unknown): boolean {
+  return typeof val === "string" && val.trim().length > 0;
+}
+
+function isNonEmptyGeminiPart(part: unknown): boolean {
+  if (!part || typeof part !== "object") return false;
+  const record = part as Record<string, unknown>;
+  if (isNonEmptyString(record.text)) return true;
+
+  const fc = record.functionCall;
+  if (fc && typeof fc === "object" && isNonEmptyString((fc as Record<string, unknown>).name)) {
+    return true;
+  }
+
+  const fr = record.functionResponse;
+  if (fr && typeof fr === "object" && isNonEmptyString((fr as Record<string, unknown>).name)) {
+    return true;
+  }
+
+  const inlineData = record.inlineData;
+  if (
+    inlineData &&
+    typeof inlineData === "object" &&
+    isNonEmptyString((inlineData as Record<string, unknown>).data)
+  ) {
+    return true;
+  }
+
+  const fileData = record.fileData;
+  if (
+    fileData &&
+    typeof fileData === "object" &&
+    isNonEmptyString((fileData as Record<string, unknown>).fileUri)
+  ) {
+    return true;
+  }
+
+  const execCode = record.executableCode;
+  if (
+    execCode &&
+    typeof execCode === "object" &&
+    isNonEmptyString((execCode as Record<string, unknown>).code)
+  ) {
+    return true;
+  }
+
+  const execResult = record.codeExecutionResult;
+  if (
+    execResult &&
+    typeof execResult === "object" &&
+    (isNonEmptyString((execResult as Record<string, unknown>).outcome) ||
+      isNonEmptyString((execResult as Record<string, unknown>).output))
+  ) {
+    return true;
+  }
+
+  return false;
+}
 
 /**
  * Mirrors upstream `ensureTerminalUserTurn` (`packages/core/src/core/geminiChat.ts:1919-1936`,
@@ -727,15 +779,7 @@ export function ensureTerminalUserTurn(
 ): Array<{ role: string; parts: Array<Record<string, unknown>> }> {
   const last = contents.at(-1);
   const hasNonEmptyParts =
-    last?.role === "user" &&
-    Array.isArray(last.parts) &&
-    last.parts.some(
-      (part) =>
-        part &&
-        typeof part === "object" &&
-        ((typeof part.text === "string" && part.text.trim().length > 0) ||
-          NON_EMPTY_PART_KEYS.some((k) => k in part && part[k] !== undefined && part[k] !== null))
-    );
+    last?.role === "user" && Array.isArray(last.parts) && last.parts.some(isNonEmptyGeminiPart);
   if (hasNonEmptyParts) {
     return contents;
   }
