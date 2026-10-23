@@ -3,6 +3,7 @@ import {
   GEMINI3_TOOL_PREFIX,
   GEMINI3_TOOL_RENAMES_REVERSE,
   isGemini3,
+  isGemini3ToolPrefixEnabled,
   needsThoughtSignature,
 } from "../request/geminiCli.ts";
 
@@ -123,7 +124,7 @@ export function translateGeminiCliChunkToOpenAI(
       if (hasFunc) {
         const fc = part.functionCall as Record<string, unknown>;
         let funcName = (fc.name as string) || "unknown";
-        if (isGem3) {
+        if (isGem3 && isGemini3ToolPrefixEnabled()) {
           funcName = stripGemini3Prefix(funcName);
         }
 
@@ -305,7 +306,7 @@ export function translateGeminiCliResponseToOpenAI(
       if (part.functionCall && typeof part.functionCall === "object") {
         const fc = part.functionCall as Record<string, unknown>;
         let funcName = (fc.name as string) || "unknown";
-        if (isGem3) {
+        if (isGem3 && isGemini3ToolPrefixEnabled()) {
           funcName = stripGemini3Prefix(funcName);
         }
 

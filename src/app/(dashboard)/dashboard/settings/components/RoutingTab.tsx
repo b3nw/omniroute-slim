@@ -17,7 +17,10 @@ import { HERMES } from "./systemTransformsHermesDefaults";
 // Provider keys (mirror of open-sse/services/systemTransforms.ts).
 const PROVIDER_CLAUDE = "claude";
 const PROVIDER_CC_BRIDGE = "anthropic-compatible-cc";
-const BUILTIN_PROVIDERS = new Set([PROVIDER_CLAUDE, PROVIDER_CC_BRIDGE]);
+const PROVIDER_GEMINI_CLI = "gemini-cli";
+const GEMINI_CLI_SYSTEM_PREAMBLE =
+  "You are Gemini CLI, an interactive CLI agent specializing in software engineering tasks. You are currently operating in **Default** mode. Your primary goal is to help users safely and effectively.";
+const BUILTIN_PROVIDERS = new Set([PROVIDER_CLAUDE, PROVIDER_CC_BRIDGE, PROVIDER_GEMINI_CLI]);
 
 // Canonical provider catalog for the "Add provider" dropdown. Pulled from the
 // shared AI_PROVIDERS registry so the UI stays in sync with backend provider
@@ -170,6 +173,35 @@ const DEFAULT_SYSTEM_TRANSFORMS_CLIENT = {
           versionFormat: "ex-machina",
           cchAlgo: "sha256-first-user",
           buildRevision: "1f2",
+        },
+      ],
+    },
+    [PROVIDER_GEMINI_CLI]: {
+      enabled: true,
+      pipeline: [
+        {
+          kind: "drop_paragraph_if_contains",
+          needles: [
+            ...DEFAULT_PARAGRAPH_REMOVAL_ANCHORS,
+            ...OPENWEBUI_PARAGRAPH_ANCHORS,
+            ...PI_PARAGRAPH_ANCHORS,
+            ...HERMES.anchors,
+          ],
+        },
+        {
+          kind: "drop_paragraph_if_starts_with",
+          prefixes: [...DEFAULT_IDENTITY_PREFIXES, "You are Open WebUI", ...HERMES.prefixes],
+        },
+        ...DEFAULT_TEXT_REPLACEMENTS.map((r) => ({
+          kind: "replace_text" as const,
+          match: r.match,
+          replacement: r.replacement,
+          allOccurrences: true,
+        })),
+        {
+          kind: "prepend_system_block",
+          text: GEMINI_CLI_SYSTEM_PREAMBLE,
+          skipIfContains: "You are Gemini CLI",
         },
       ],
     },
@@ -756,7 +788,21 @@ export default function RoutingTab() {
   const systemTransforms = useMemo(() => {
     const raw = settings.systemTransforms;
     if (raw && typeof raw === "object" && raw.providers && typeof raw.providers === "object") {
-      return raw as { providers: Record<string, { enabled: boolean; pipeline: any[] }> };
+      const normalizedProviders: Record<string, { enabled: boolean; pipeline: any[] }> = {};
+      const rawProviders = raw.providers as Record<string, { enabled: boolean; pipeline: any[] }>;
+      for (const [providerId, providerEntry] of Object.entries(rawProviders)) {
+        if (!providerEntry || typeof providerEntry !== "object") continue;
+        const canonicalId = providerId === "gemini_cli" ? PROVIDER_GEMINI_CLI : providerId;
+        if (
+          canonicalId !== providerId &&
+          rawProviders[canonicalId] &&
+          typeof rawProviders[canonicalId] === "object"
+        ) {
+          continue;
+        }
+        normalizedProviders[canonicalId] = providerEntry;
+      }
+      return { providers: normalizedProviders };
     }
     // Legacy migration shim: { enabled, pipeline } → providers[CC_BRIDGE].
     const legacy = settings.ccBridgeTransforms;
@@ -788,17 +834,18 @@ export default function RoutingTab() {
     providerId: string,
     next: { enabled: boolean; pipeline: any[] }
   ) => {
+    const canonicalId = providerId === "gemini_cli" ? PROVIDER_GEMINI_CLI : providerId;
     const merged = {
       providers: {
         ...systemTransforms.providers,
-        [providerId]: next,
+        [canonicalId]: next,
       },
     };
     // Clear any prior save error for this provider so the user sees a fresh
     // state. If the server rejects, the callback below will repopulate it.
-    setProviderSaveErrors((prev) => ({ ...prev, [providerId]: null }));
+    setProviderSaveErrors((prev) => ({ ...prev, [canonicalId]: null }));
     updateSetting({ systemTransforms: merged }, (msg) =>
-      setProviderSaveErrors((prev) => ({ ...prev, [providerId]: msg }))
+      setProviderSaveErrors((prev) => ({ ...prev, [canonicalId]: msg }))
     );
   };
 
@@ -873,7 +920,7 @@ export default function RoutingTab() {
   );
 
   const addProvider = () => {
-    const id = newProviderId;
+    const id = newProviderId === "gemini_cli" ? PROVIDER_GEMINI_CLI : newProviderId;
     if (!id || systemTransforms.providers[id]) return;
     updateProviderTransforms(id, { enabled: false, pipeline: [] });
     setNewProviderId("");

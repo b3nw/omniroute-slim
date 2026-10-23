@@ -23,6 +23,8 @@ import {
   parseContentParts,
   fixToolResponseGrouping,
   _fix_tool_response_grouping,
+  ensureTerminalUserTurn,
+  CONTINUE_PROMPT_TEXT,
   handleReasoningParameters,
   translateToolChoice,
   transformMessages,
@@ -43,6 +45,13 @@ import {
   clearGeminiThoughtSignatures,
   clearGeminiThoughtSignatureMemoryForTests,
 } from "../../open-sse/services/geminiThoughtSignatureStore.ts";
+import {
+  GEMINI_CLI_SYSTEM_PREAMBLE,
+  PROVIDER_GEMINI_CLI,
+  DEFAULT_GEMINI_CLI_PIPELINE,
+  setSystemTransformsConfig,
+  resetSystemTransformsConfig,
+} from "../../open-sse/services/systemTransforms.ts";
 
 // ============================================================================
 // TIER 1: Model Remapping, Fingerprinting & Request/Response Envelopes
@@ -182,7 +191,7 @@ test("Tier 1: Message & Multipart Translation into CCPA Contents Envelope", () =
     role: string;
     parts: Array<Record<string, unknown>>;
   }>;
-  assert.equal(contents.length, 2);
+  assert.equal(contents.length, 3);
 
   assert.equal(contents[0].role, "user");
   assert.equal(contents[0].parts[0].text, "Analyze this image diagram:");
@@ -193,11 +202,18 @@ test("Tier 1: Message & Multipart Translation into CCPA Contents Envelope", () =
   assert.equal(contents[1].role, "model");
   assert.equal(contents[1].parts[0].text, "I see a single 1x1 pixel image.");
 
+  // Terminal turn is normalized to a user turn carrying content (ensureTerminalUserTurn)
+  assert.equal(contents[2].role, "user");
+  assert.equal(contents[2].parts[0].text, "Please continue.");
+
   const sysInstruction = requestPayload.systemInstruction as {
     role: string;
     parts: Array<{ text: string }>;
   };
-  assert.equal(sysInstruction.parts[0].text, "You are an expert fullstack software architect.");
+  assert.equal(
+    sysInstruction.parts[0].text,
+    `${GEMINI_CLI_SYSTEM_PREAMBLE}\n\nYou are an expert fullstack software architect.`
+  );
 });
 
 test("Tier 1: Response Translation - Streaming Chunk Translation", () => {
@@ -412,7 +428,7 @@ test("Tier 2: Schema Ref Inlining, Cleaning & Strict Schema Enforcement", () => 
   assert.equal(strict.properties.location.additionalProperties, false);
 });
 
-test("Tier 2: Tool Transformation, gemini3_ Prefix & _confirm BOOLEAN Injection", () => {
+test("Tier 2: Tool Transformation Preserves Clean Tool Names & Descriptions + _confirm BOOLEAN Injection", () => {
   const tools = [
     {
       type: "function",
@@ -444,17 +460,18 @@ test("Tier 2: Tool Transformation, gemini3_ Prefix & _confirm BOOLEAN Injection"
   const transformed = transformToolSchemas(tools, "gemini-3-flash");
   assert.equal(transformed.length, 2);
 
-  // Gemini 3 tools get prefix gemini3_ and strict parameters hint injected into description
-  assert.equal(transformed[0].name, "gemini3_queryDatabase");
+  // Clean tool names and clean descriptions by default (no gemini3_ prefix, no STRICT PARAMETERS)
+  assert.equal(transformed[0].name, "queryDatabase");
+  assert.equal(transformed[0].description, "Runs a SQL query");
   assert.ok(
-    String(transformed[0].description).includes("STRICT PARAMETERS"),
-    "Should inject parameter hints into description for Gemini 3"
+    !String(transformed[0].description).includes("STRICT PARAMETERS"),
+    "Must NOT inject STRICT PARAMETERS into description by default"
   );
   const schema0 = transformed[0].parametersJsonSchema as { additionalProperties?: boolean };
   assert.equal(schema0.additionalProperties, false);
 
-  // Parameterless tool receives _confirm with type "BOOLEAN"
-  assert.equal(transformed[1].name, "gemini3_getSystemInfo");
+  // Parameterless tool receives _confirm with type "BOOLEAN" and clean name
+  assert.equal(transformed[1].name, "getSystemInfo");
   const schema1 = transformed[1].parametersJsonSchema as {
     type?: string;
     properties?: Record<string, unknown>;
@@ -468,7 +485,7 @@ test("Tier 2: Tool Transformation, gemini3_ Prefix & _confirm BOOLEAN Injection"
   assert.deepEqual(schema1.required, ["_confirm"]);
 });
 
-test("Tier 2: Response Translation Strips Injected _confirm Argument", () => {
+test("Tier 2: Response Translation Strips Injected _confirm Argument and Preserves gemini3_ Prefix Unless Legacy Flag Enabled", () => {
   const mockChunkWithConfirm = {
     response: {
       candidates: [
@@ -477,7 +494,7 @@ test("Tier 2: Response Translation Strips Injected _confirm Argument", () => {
             parts: [
               {
                 functionCall: {
-                  name: "gemini3_getSystemInfo",
+                  name: "getSystemInfo",
                   args: { _confirm: true },
                   id: "call_sys_info_1",
                 },
@@ -510,6 +527,81 @@ test("Tier 2: Response Translation Strips Injected _confirm Argument", () => {
   )[0].message.tool_calls[0];
   assert.equal(messageToolCall.function.name, "getSystemInfo");
   assert.equal(messageToolCall.function.arguments, "{}");
+
+  // User tool legitimately named `gemini3_read_file` is preserved when legacy prefixing is off (default),
+  // and stripped to `read_file` only when GEMINI_CLI_LEGACY_TOOL_PREFIX=1.
+  const mockGemini3NamedToolChunk = {
+    response: {
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                functionCall: {
+                  name: "gemini3_read_file",
+                  args: { path: "README.md" },
+                  id: "call_read_1",
+                },
+              },
+            ],
+          },
+          finishReason: "STOP",
+        },
+      ],
+    },
+  };
+
+  const savedEnv = process.env.GEMINI_CLI_LEGACY_TOOL_PREFIX;
+  try {
+    delete process.env.GEMINI_CLI_LEGACY_TOOL_PREFIX;
+    const defaultChunks = translateGeminiCliChunkToOpenAI(
+      mockGemini3NamedToolChunk,
+      "gemini-3-flash"
+    );
+    const defaultStreamName = (
+      defaultChunks![0].choices as Array<{
+        delta: { tool_calls: Array<{ function: { name: string } }> };
+      }>
+    )[0].delta.tool_calls[0].function.name;
+    assert.equal(defaultStreamName, "gemini3_read_file");
+
+    const defaultFull = translateGeminiCliResponseToOpenAI(
+      mockGemini3NamedToolChunk,
+      "gemini-3-flash"
+    );
+    const defaultFullName = (
+      defaultFull.choices as Array<{
+        message: { tool_calls: Array<{ function: { name: string } }> };
+      }>
+    )[0].message.tool_calls[0].function.name;
+    assert.equal(defaultFullName, "gemini3_read_file");
+
+    process.env.GEMINI_CLI_LEGACY_TOOL_PREFIX = "1";
+    const legacyChunks = translateGeminiCliChunkToOpenAI(
+      mockGemini3NamedToolChunk,
+      "gemini-3-flash"
+    );
+    const legacyStreamName = (
+      legacyChunks![0].choices as Array<{
+        delta: { tool_calls: Array<{ function: { name: string } }> };
+      }>
+    )[0].delta.tool_calls[0].function.name;
+    assert.equal(legacyStreamName, "read_file");
+
+    const legacyFull = translateGeminiCliResponseToOpenAI(
+      mockGemini3NamedToolChunk,
+      "gemini-3-flash"
+    );
+    const legacyFullName = (
+      legacyFull.choices as Array<{
+        message: { tool_calls: Array<{ function: { name: string } }> };
+      }>
+    )[0].message.tool_calls[0].function.name;
+    assert.equal(legacyFullName, "read_file");
+  } finally {
+    if (savedEnv === undefined) delete process.env.GEMINI_CLI_LEGACY_TOOL_PREFIX;
+    else process.env.GEMINI_CLI_LEGACY_TOOL_PREFIX = savedEnv;
+  }
 });
 
 test("Tier 2: Parallel Tool Response Auto-Repair (fixToolResponseGrouping)", () => {
@@ -1061,11 +1153,12 @@ test("Tier 3: Combinatorial Matrix Across Models, Tools and Reasoning Configurat
         if (isGemini3(model)) {
           assert.equal(translated.body.model, "gemini-3-flash");
           assert.ok(genConfig.thinkingConfig?.thinkingLevel);
+          assert.equal(reqObj.systemInstruction?.parts[0].text, GEMINI_CLI_SYSTEM_PREAMBLE);
+          assert.ok(
+            !reqObj.systemInstruction?.parts[0].text.includes("CRITICAL_TOOL_USAGE_INSTRUCTIONS")
+          );
           if (tools && tools.length > 0) {
-            assert.ok(
-              reqObj.systemInstruction?.parts[0].text.includes("CRITICAL_TOOL_USAGE_INSTRUCTIONS")
-            );
-            assert.ok(reqObj.tools?.[0].functionDeclarations[0].name.startsWith("gemini3_"));
+            assert.equal(reqObj.tools?.[0].functionDeclarations[0].name, "calculateSum");
           }
         } else {
           assert.equal(translated.body.model, "gemini-2.5-pro");
@@ -1074,4 +1167,266 @@ test("Tier 3: Combinatorial Matrix Across Models, Tools and Reasoning Configurat
       }
     }
   }
+});
+
+test("Phase 3: translateChatRequestToGeminiCli scrubs 3rd-party system prompts, prepends Gemini CLI preamble without double-prepending, and preserves clean tool declarations", () => {
+  clearGeminiThoughtSignatureMemoryForTests();
+
+  const reqWithThirdPartyPrompt: OpenAIChatRequest = {
+    model: "gemini-3-flash",
+    messages: [
+      {
+        role: "system",
+        content: [
+          "You are Hermes Agent, an intelligent AI assistant created by Nous Research.",
+          "You are OpenCode, an interactive CLI agent.",
+          "See https://hermes-agent.nousresearch.com and github.com/anomalyco/opencode.",
+          "Project rule: use strict TypeScript.",
+        ].join("\n\n"),
+      },
+      { role: "user", content: "Read the config file and run tests" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_read_1",
+            type: "function",
+            function: { name: "read_file", arguments: '{"path":"tsconfig.json"}' },
+          },
+          {
+            id: "call_bash_2",
+            type: "function",
+            function: { name: "bash", arguments: '{"command":"npm test"}' },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_read_1",
+        name: "read_file",
+        content: '{"compilerOptions":{"strict":true}}',
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_bash_2",
+        name: "bash",
+        content: '{"exitCode":0}',
+      },
+    ],
+    tools: [
+      {
+        type: "function",
+        function: {
+          name: "read_file",
+          description: "Reads a file from disk",
+          parameters: {
+            type: "object",
+            properties: { path: { type: "string" } },
+            required: ["path"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "bash",
+          description: "Executes a bash command",
+          parameters: {
+            type: "object",
+            properties: { command: { type: "string" } },
+            required: ["command"],
+          },
+        },
+      },
+    ],
+    tool_choice: { type: "function", function: { name: "read_file" } },
+  };
+
+  const translated = translateChatRequestToGeminiCli(reqWithThirdPartyPrompt, {
+    projectId: "proj-phase3",
+  });
+  const reqPayload = translated.body.request as {
+    systemInstruction?: { role: string; parts: Array<{ text: string }> };
+    tools?: Array<{ functionDeclarations: Array<{ name: string; description: string }> }>;
+    toolConfig?: { functionCallingConfig: { mode: string; allowedFunctionNames?: string[] } };
+    contents: Array<{
+      role: string;
+      parts: Array<{
+        text?: string;
+        thoughtSignature?: string;
+        functionCall?: { name: string; id: string };
+        functionResponse?: { name: string; id: string };
+      }>;
+    }>;
+  };
+
+  // 1. System prompt scrubbed and preamble prepended
+  const sysText = reqPayload.systemInstruction?.parts[0].text || "";
+  assert.ok(sysText.startsWith(GEMINI_CLI_SYSTEM_PREAMBLE));
+  assert.ok(!sysText.includes("You are Hermes Agent"));
+  assert.ok(!sysText.includes("You are OpenCode"));
+  assert.ok(!sysText.includes("hermes-agent.nousresearch.com"));
+  assert.ok(!sysText.includes("github.com/anomalyco/opencode"));
+  assert.ok(!sysText.includes("CRITICAL_TOOL_USAGE_INSTRUCTIONS"));
+  assert.ok(sysText.includes("Project rule: use strict TypeScript."));
+
+  // 2. Clean tool declarations and toolConfig without gemini3_ or STRICT PARAMETERS
+  const decls = reqPayload.tools?.[0].functionDeclarations || [];
+  assert.equal(decls.length, 2);
+  assert.equal(decls[0].name, "read_file");
+  assert.equal(decls[0].description, "Reads a file from disk");
+  assert.equal(decls[1].name, "bash");
+  assert.equal(decls[1].description, "Executes a bash command");
+  assert.deepEqual(reqPayload.toolConfig?.functionCallingConfig.allowedFunctionNames, ["read_file"]);
+
+  // 3. Clean functionCall and functionResponse names + thoughtSignature on first functionCall only
+  const modelTurn = reqPayload.contents.find((c) => c.role === "model");
+  assert.ok(modelTurn);
+  assert.equal(modelTurn.parts[0].functionCall?.name, "read_file");
+  assert.equal(modelTurn.parts[0].thoughtSignature, "skip_thought_signature_validator");
+  assert.equal(modelTurn.parts[1].functionCall?.name, "bash");
+  assert.equal(modelTurn.parts[1].thoughtSignature, undefined);
+
+  const lastTurn = reqPayload.contents.at(-1);
+  assert.ok(lastTurn);
+  assert.equal(lastTurn.role, "user");
+  assert.equal(lastTurn.parts[0].functionResponse?.name, "read_file");
+  assert.equal(lastTurn.parts[1].functionResponse?.name, "bash");
+
+  // 4. Does not double-prepend when "You are Gemini CLI" is already present
+  const alreadyGeminiReq: OpenAIChatRequest = {
+    model: "gemini-3-flash",
+    messages: [
+      {
+        role: "system",
+        content: `${GEMINI_CLI_SYSTEM_PREAMBLE}\n\nAdditional custom instructions.`,
+      },
+      { role: "user", content: "Hello" },
+    ],
+  };
+  const alreadyTranslated = translateChatRequestToGeminiCli(alreadyGeminiReq);
+  const alreadySysText =
+    (
+      alreadyTranslated.body.request as {
+        systemInstruction?: { parts: Array<{ text: string }> };
+      }
+    ).systemInstruction?.parts[0].text || "";
+  assert.equal(alreadySysText, `${GEMINI_CLI_SYSTEM_PREAMBLE}\n\nAdditional custom instructions.`);
+});
+
+test("Phase 3: translateChatRequestToGeminiCli does not mutate caller request in place and applies obfuscate_words to outgoing contents and tools", () => {
+  try {
+    setSystemTransformsConfig({
+      providers: {
+        [PROVIDER_GEMINI_CLI]: {
+          enabled: true,
+          pipeline: [
+            ...DEFAULT_GEMINI_CLI_PIPELINE,
+            {
+              kind: "obfuscate_words",
+              words: ["opencode"],
+              targets: ["system", "messages", "tools"],
+            },
+          ],
+        },
+      },
+    });
+
+    const callerReq: OpenAIChatRequest = {
+      model: "gemini-3-flash",
+      messages: [
+        { role: "system", content: "Helper for opencode workflow." },
+        { role: "user", content: "Run opencode check" },
+      ],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "check_env",
+            description: "Checks opencode environment",
+            parameters: { type: "object", properties: {} },
+          },
+        },
+      ],
+    };
+    const snapshotBefore = JSON.stringify(callerReq);
+
+    const translated = translateChatRequestToGeminiCli(callerReq);
+    // Caller request must not be mutated in place
+    assert.equal(JSON.stringify(callerReq), snapshotBefore);
+
+    const reqPayload = translated.body.request as {
+      systemInstruction?: { parts: Array<{ text: string }> };
+      contents: Array<{ role: string; parts: Array<{ text?: string }> }>;
+      tools?: Array<{ functionDeclarations: Array<{ description: string }> }>;
+    };
+    const zwjWord = "o\u200dpencode";
+    assert.ok(reqPayload.systemInstruction?.parts[0].text.includes(zwjWord));
+    assert.ok(reqPayload.contents[0].parts[0].text?.includes(zwjWord));
+    assert.ok(reqPayload.tools?.[0].functionDeclarations[0].description.includes(zwjWord));
+
+    // Also verify targets: ["messages"] on messages-only input obfuscates both systemInstruction and contents
+    setSystemTransformsConfig({
+      providers: {
+        [PROVIDER_GEMINI_CLI]: {
+          enabled: true,
+          pipeline: [
+            {
+              kind: "obfuscate_words",
+              words: ["opencode"],
+              targets: ["messages"],
+            },
+          ],
+        },
+      },
+    });
+    const messagesTargetTranslated = translateChatRequestToGeminiCli(callerReq);
+    const messagesTargetPayload = messagesTargetTranslated.body.request as {
+      systemInstruction?: { parts: Array<{ text: string }> };
+      contents: Array<{ role: string; parts: Array<{ text?: string }> }>;
+    };
+    assert.equal(
+      messagesTargetPayload.systemInstruction?.parts[0].text,
+      `Helper for ${zwjWord} workflow.`
+    );
+    assert.equal(messagesTargetPayload.contents[0].parts[0].text, `Run ${zwjWord} check`);
+  } finally {
+    resetSystemTransformsConfig();
+  }
+});
+
+test("Phase 3: ensureTerminalUserTurn replaces empty or metadata-only terminal user parts with CONTINUE_PROMPT_TEXT", () => {
+  const emptyObjectTurn = ensureTerminalUserTurn([{ role: "user", parts: [{}] }]);
+  assert.deepEqual(emptyObjectTurn, [{ role: "user", parts: [{ text: CONTINUE_PROMPT_TEXT }] }]);
+
+  const thoughtOnlyTurn = ensureTerminalUserTurn([{ role: "user", parts: [{ thought: false }] }]);
+  assert.deepEqual(thoughtOnlyTurn, [{ role: "user", parts: [{ text: CONTINUE_PROMPT_TEXT }] }]);
+
+  const whitespaceOnlyTurn = ensureTerminalUserTurn([{ role: "user", parts: [{ text: "   " }] }]);
+  assert.deepEqual(whitespaceOnlyTurn, [{ role: "user", parts: [{ text: CONTINUE_PROMPT_TEXT }] }]);
+
+  const emptyInlineDataTurn = ensureTerminalUserTurn([
+    { role: "user", parts: [{ inlineData: {} }, { fileData: {} }] },
+  ]);
+  assert.deepEqual(emptyInlineDataTurn, [
+    { role: "user", parts: [{ text: CONTINUE_PROMPT_TEXT }] },
+  ]);
+
+  const validInlineDataTurn = ensureTerminalUserTurn([
+    { role: "user", parts: [{ inlineData: { mimeType: "image/png", data: "YWJj" } }] },
+  ]);
+  assert.deepEqual(validInlineDataTurn, [
+    { role: "user", parts: [{ inlineData: { mimeType: "image/png", data: "YWJj" } }] },
+  ]);
+
+  const modelTerminalTurn = ensureTerminalUserTurn([
+    { role: "user", parts: [{ text: "Hello" }] },
+    { role: "model", parts: [{ text: "Thinking..." }] },
+  ]);
+  assert.equal(modelTerminalTurn.length, 3);
+  assert.deepEqual(modelTerminalTurn[2], {
+    role: "user",
+    parts: [{ text: CONTINUE_PROMPT_TEXT }],
+  });
 });

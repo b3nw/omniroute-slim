@@ -10,13 +10,17 @@ const {
   DEFAULT_SYSTEM_TRANSFORMS_CONFIG,
   DEFAULT_CLAUDE_PIPELINE,
   DEFAULT_CC_BRIDGE_PROVIDER_PIPELINE,
+  DEFAULT_GEMINI_CLI_PIPELINE,
   DEFAULT_OBFUSCATE_WORDS,
   OPENWEBUI_PARAGRAPH_ANCHORS,
   OPENWEBUI_IDENTITY_PREFIXES,
   PI_PARAGRAPH_ANCHORS,
   PROVIDER_CLAUDE,
   PROVIDER_CC_BRIDGE,
+  PROVIDER_GEMINI_CLI,
+  GEMINI_CLI_SYSTEM_PREAMBLE,
 } = await import("../../open-sse/services/systemTransforms.ts");
+const { updateSettingsSchema } = await import("../../src/shared/validation/settingsSchemas.ts");
 
 const ZWJ = "\u200d";
 
@@ -24,11 +28,18 @@ const ZWJ = "\u200d";
 // Defaults
 // ────────────────────────────────────────────────────────────────────────────
 
-test("defaults: PROVIDER_CLAUDE and PROVIDER_CC_BRIDGE keys are present", () => {
+test("defaults: PROVIDER_CLAUDE, PROVIDER_CC_BRIDGE, and PROVIDER_GEMINI_CLI keys are present", () => {
   assert.equal(PROVIDER_CLAUDE, "claude");
   assert.equal(PROVIDER_CC_BRIDGE, "anthropic-compatible-cc");
+  assert.equal(PROVIDER_GEMINI_CLI, "gemini-cli");
   assert.ok(DEFAULT_SYSTEM_TRANSFORMS_CONFIG.providers[PROVIDER_CLAUDE]);
   assert.ok(DEFAULT_SYSTEM_TRANSFORMS_CONFIG.providers[PROVIDER_CC_BRIDGE]);
+  assert.ok(DEFAULT_SYSTEM_TRANSFORMS_CONFIG.providers[PROVIDER_GEMINI_CLI]);
+  assert.equal(DEFAULT_SYSTEM_TRANSFORMS_CONFIG.providers[PROVIDER_GEMINI_CLI].enabled, true);
+  assert.deepEqual(
+    DEFAULT_SYSTEM_TRANSFORMS_CONFIG.providers[PROVIDER_GEMINI_CLI].pipeline,
+    DEFAULT_GEMINI_CLI_PIPELINE
+  );
 });
 
 test("defaults: claude pipeline omits inject_billing_header", () => {
@@ -279,6 +290,225 @@ test("applySystemTransformPipeline: anthropic-compatible-cc-* falls back to PROV
   assert.ok(result.appliedOpKinds.includes("inject_billing_header"));
   const blocks = body.system as Array<{ text: string }>;
   assert.ok(blocks[0].text.startsWith("x-anthropic-billing-header:"));
+});
+
+test("applySystemTransformPipeline: gemini-cli and gemini_cli scrub 3rd-party prompts and prepend Gemini CLI preamble", () => {
+  for (const providerId of ["gemini-cli", "gemini_cli"]) {
+    const body = {
+      system: [
+        {
+          type: "text",
+          text: [
+            "You are Hermes Agent, an intelligent AI assistant created by Nous Research.",
+            "You are OpenCode, an interactive CLI tool.",
+            "See documentation at https://hermes-agent.nousresearch.com/docs and github.com/anomalyco/opencode.",
+            "Here is some useful information about the environment you are running in:",
+            "Always write clean TypeScript.",
+          ].join("\n\n"),
+        },
+      ],
+      messages: [{ role: "user", content: "hi" }],
+    };
+
+    const result = applySystemTransformPipeline(
+      providerId,
+      body,
+      DEFAULT_SYSTEM_TRANSFORMS_CONFIG
+    );
+    assert.ok(result.appliedOpKinds.includes("drop_paragraph_if_contains"));
+    assert.ok(result.appliedOpKinds.includes("drop_paragraph_if_starts_with"));
+    assert.ok(result.appliedOpKinds.includes("replace_text"));
+    assert.ok(result.appliedOpKinds.includes("prepend_system_block"));
+
+    const blocks = body.system as Array<{ text: string }>;
+    assert.equal(blocks[0].text, GEMINI_CLI_SYSTEM_PREAMBLE);
+    const combined = blocks.map((b) => b.text).join("\n\n");
+    assert.ok(!combined.includes("You are Hermes Agent"));
+    assert.ok(!combined.includes("You are OpenCode"));
+    assert.ok(!combined.includes("hermes-agent.nousresearch.com"));
+    assert.ok(!combined.includes("github.com/anomalyco/opencode"));
+    assert.ok(combined.includes("Environment context you are running in:"));
+    assert.ok(combined.includes("Always write clean TypeScript."));
+  }
+});
+
+test("applySystemTransformPipeline: gemini-cli does not double-prepend if 'You are Gemini CLI' is already present", () => {
+  const existingPreamble =
+    "You are Gemini CLI, an interactive CLI agent specializing in software engineering tasks. Custom mode.";
+  const body = {
+    system: [{ type: "text", text: `${existingPreamble}\n\nFollow repository rules.` }],
+    messages: [{ role: "user", content: "hi" }],
+  };
+  applySystemTransformPipeline("gemini-cli", body, DEFAULT_SYSTEM_TRANSFORMS_CONFIG);
+  const blocks = body.system as Array<{ text: string }>;
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].text, `${existingPreamble}\n\nFollow repository rules.`);
+});
+
+test("applySystemTransformPipeline: OpenAI-style body with role: 'system' message updates body.messages without adding top-level body.system", () => {
+  const body: Record<string, unknown> = {
+    messages: [
+      {
+        role: "system",
+        content: [
+          "You are OpenCode, an interactive CLI agent.",
+          { type: "text", text: "Always use strict types." },
+        ],
+      },
+      { role: "user", content: "hi" },
+    ],
+  };
+  applySystemTransformPipeline("gemini-cli", body, DEFAULT_SYSTEM_TRANSFORMS_CONFIG);
+  assert.equal(body.system, undefined);
+  const msgs = body.messages as Array<{ role: string; content: string }>;
+  assert.equal(msgs[0].role, "system");
+  assert.ok(msgs[0].content.startsWith(GEMINI_CLI_SYSTEM_PREAMBLE));
+  assert.ok(!msgs[0].content.includes("You are OpenCode"));
+  assert.ok(msgs[0].content.includes("Always use strict types."));
+});
+
+test("applyTransformPipeline: messages-only body with no initial system message or no surviving system message never leaks top-level body.system", () => {
+  // 1. No initial system message + prepend_system_block → inserts system message at index 0
+  const noSysBody: Record<string, unknown> = {
+    messages: [{ role: "user", content: "hi" }],
+  };
+  applyTransformPipeline(noSysBody, [
+    { kind: "prepend_system_block", text: GEMINI_CLI_SYSTEM_PREAMBLE },
+  ]);
+  assert.equal(noSysBody.system, undefined);
+  assert.deepEqual(noSysBody.messages, [
+    { role: "system", content: GEMINI_CLI_SYSTEM_PREAMBLE },
+    { role: "user", content: "hi" },
+  ]);
+
+  // 2. Initial system message completely dropped → removed from messages, body.system stays undefined
+  const droppedSysBody: Record<string, unknown> = {
+    messages: [
+      { role: "system", content: "DROP_ME" },
+      { role: "user", content: "hi" },
+    ],
+  };
+  applyTransformPipeline(droppedSysBody, [
+    { kind: "drop_block_if_contains", needles: ["DROP_ME"] },
+    { kind: "obfuscate_words", words: ["unused"] },
+    { kind: "drop_paragraph_if_contains", needles: ["other"] },
+  ]);
+  assert.equal(droppedSysBody.system, undefined);
+  assert.deepEqual(droppedSysBody.messages, [{ role: "user", content: "hi" }]);
+});
+
+test("applyTransformPipeline: preserves system block boundaries across base-op -> obfuscate_words -> drop_block_if_contains on messages-only body", () => {
+  const body: Record<string, unknown> = {
+    messages: [
+      { role: "system", content: "KEEP" },
+      { role: "user", content: "hello opencode" },
+    ],
+  };
+  applyTransformPipeline(body, [
+    { kind: "prepend_system_block", text: "DROP_PREPENDED" },
+    { kind: "obfuscate_words", words: ["opencode"], targets: ["messages"] },
+    { kind: "drop_block_if_contains", needles: ["DROP_PREPENDED"] },
+  ]);
+  assert.equal(body.system, undefined);
+  const msgs = body.messages as Array<{ role: string; content: string }>;
+  assert.equal(msgs.length, 2);
+  assert.equal(msgs[0].role, "system");
+  assert.equal(msgs[0].content, "KEEP");
+  assert.ok(msgs[1].content.includes(`o${ZWJ}pencode`));
+
+  // Also verify DEFAULT_CC_BRIDGE_PROVIDER_PIPELINE running twice on messages-only body preserves project instruction
+  const ccBody: Record<string, unknown> = {
+    messages: [
+      { role: "system", content: "KEEP_PROJECT_INSTRUCTION" },
+      { role: "user", content: "hello" },
+    ],
+  };
+  applySystemTransformPipeline(PROVIDER_CC_BRIDGE, ccBody, DEFAULT_SYSTEM_TRANSFORMS_CONFIG);
+  applySystemTransformPipeline(PROVIDER_CC_BRIDGE, ccBody, DEFAULT_SYSTEM_TRANSFORMS_CONFIG);
+  assert.equal(ccBody.system, undefined);
+  const ccMsgs = ccBody.messages as Array<{ role: string; content: string }>;
+  assert.equal(ccMsgs[0].role, "system");
+  assert.ok(ccMsgs[0].content.includes("KEEP_PROJECT_INSTRUCTION"));
+});
+
+test("applyTransformPipeline: obfuscate_words with targets=['messages'] obfuscates messages-only role='system' content without double-obfuscating when targets=['system','messages']", () => {
+  const messagesOnlyTargetBody: Record<string, unknown> = {
+    messages: [
+      { role: "system", content: "opencode system instruction" },
+      { role: "user", content: "opencode user text" },
+    ],
+  };
+  applyTransformPipeline(messagesOnlyTargetBody, [
+    { kind: "obfuscate_words", words: ["opencode"], targets: ["messages"] },
+  ]);
+  assert.equal(messagesOnlyTargetBody.system, undefined);
+  const msgs1 = messagesOnlyTargetBody.messages as Array<{ role: string; content: string }>;
+  assert.equal(msgs1[0].content, `o${ZWJ}pencode system instruction`);
+  assert.equal(msgs1[1].content, `o${ZWJ}pencode user text`);
+
+  const bothTargetsBody: Record<string, unknown> = {
+    messages: [
+      { role: "system", content: "opencode system instruction" },
+      { role: "user", content: "opencode user text" },
+    ],
+  };
+  applyTransformPipeline(bothTargetsBody, [
+    { kind: "obfuscate_words", words: ["opencode"], targets: ["system", "messages"] },
+  ]);
+  assert.equal(bothTargetsBody.system, undefined);
+  const msgs2 = bothTargetsBody.messages as Array<{ role: string; content: string }>;
+  assert.equal(msgs2[0].content, `o${ZWJ}pencode system instruction`);
+  assert.equal(msgs2[1].content, `o${ZWJ}pencode user text`);
+});
+
+test("updateSettingsSchema preserves skipIfContains on prepend_system_block round-trip", () => {
+  const parsed = updateSettingsSchema.parse({
+    systemTransforms: DEFAULT_SYSTEM_TRANSFORMS_CONFIG,
+  });
+  const geminiPipeline = parsed.systemTransforms?.providers["gemini-cli"]?.pipeline || [];
+  const prependOp = geminiPipeline.find(
+    (op: { kind: string }) => op.kind === "prepend_system_block"
+  ) as { kind: string; text: string; skipIfContains?: string } | undefined;
+  assert.ok(prependOp);
+  assert.equal(prependOp.skipIfContains, "You are Gemini CLI");
+});
+
+test("setSystemTransformsConfig deterministically prefers canonical gemini-cli over gemini_cli alias regardless of key order", () => {
+  const canonicalEntry = {
+    enabled: true,
+    pipeline: [{ kind: "prepend_system_block", text: "canonical-gemini-cli" }],
+  };
+  const aliasEntry = {
+    enabled: false,
+    pipeline: [{ kind: "prepend_system_block", text: "alias-gemini-cli" }],
+  };
+
+  setSystemTransformsConfig({
+    providers: {
+      "gemini-cli": canonicalEntry,
+      gemini_cli: aliasEntry,
+    },
+  });
+  assert.equal(getSystemTransformsConfig().providers[PROVIDER_GEMINI_CLI].enabled, true);
+  assert.equal(
+    (getSystemTransformsConfig().providers[PROVIDER_GEMINI_CLI].pipeline[0] as { text: string })
+      .text,
+    "canonical-gemini-cli"
+  );
+
+  setSystemTransformsConfig({
+    providers: {
+      gemini_cli: aliasEntry,
+      "gemini-cli": canonicalEntry,
+    },
+  });
+  assert.equal(getSystemTransformsConfig().providers[PROVIDER_GEMINI_CLI].enabled, true);
+  assert.equal(
+    (getSystemTransformsConfig().providers[PROVIDER_GEMINI_CLI].pipeline[0] as { text: string })
+      .text,
+    "canonical-gemini-cli"
+  );
+  resetSystemTransformsConfig();
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -560,6 +790,50 @@ const UI_DEFAULTS_SNAPSHOT = {
           versionFormat: "ex-machina",
           cchAlgo: "sha256-first-user",
           buildRevision: "1f2",
+        },
+      ],
+    },
+    "gemini-cli": {
+      enabled: true,
+      pipeline: [
+        {
+          kind: "drop_paragraph_if_contains",
+          needles: [
+            "github.com/anomalyco/opencode",
+            "opencode.ai/docs",
+            "github.com/cline/cline",
+            "github.com/getcursor/cursor",
+            "continue.dev",
+            "github.com/open-webui/open-webui",
+            "openwebui.com",
+            "docs.openwebui.com",
+            "@earendil-works/pi-coding-agent",
+            "/.pi/",
+            "Pi documentation (read only when the user asks about pi itself",
+            "hermes-agent.nousresearch.com",
+            "github.com/NousResearch/hermes-agent",
+          ],
+        },
+        {
+          kind: "drop_paragraph_if_starts_with",
+          prefixes: ["You are OpenCode", "You are Open WebUI", "You are Hermes Agent"],
+        },
+        {
+          kind: "replace_text",
+          match: "if OpenCode honestly",
+          replacement: "if the assistant honestly",
+          allOccurrences: true,
+        },
+        {
+          kind: "replace_text",
+          match: "Here is some useful information about the environment you are running in:",
+          replacement: "Environment context you are running in:",
+          allOccurrences: true,
+        },
+        {
+          kind: "prepend_system_block",
+          text: "You are Gemini CLI, an interactive CLI agent specializing in software engineering tasks. You are currently operating in **Default** mode. Your primary goal is to help users safely and effectively.",
+          skipIfContains: "You are Gemini CLI",
         },
       ],
     },

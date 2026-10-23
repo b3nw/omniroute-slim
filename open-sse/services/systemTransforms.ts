@@ -31,10 +31,13 @@ import {
   DEFAULT_IDENTITY_PREFIXES,
   DEFAULT_PARAGRAPH_REMOVAL_ANCHORS,
   DEFAULT_TEXT_REPLACEMENTS,
+  extractSystemBlocksFromMessages,
+  writeSystemBlocksToMessages,
 } from "./ccBridgeTransforms.ts";
 import type {
   CcBridgeTransformsConfig,
   ReplaceTextOp,
+  SystemBlock,
   TransformOp as BaseTransformOp,
 } from "./ccBridgeTransforms.ts";
 
@@ -154,6 +157,18 @@ export const PROVIDER_CLAUDE = "claude";
 export const PROVIDER_CC_BRIDGE = "anthropic-compatible-cc";
 
 /**
+ * Provider key for the Gemini CLI (`gemini-cli` / `gemini_cli`) Code Assist path.
+ */
+export const PROVIDER_GEMINI_CLI = "gemini-cli";
+
+/**
+ * Exact interactive default preamble from upstream `google-gemini/gemini-cli`
+ * (`packages/core/src/prompts/snippets.ts:191-195`).
+ */
+export const GEMINI_CLI_SYSTEM_PREAMBLE =
+  "You are Gemini CLI, an interactive CLI agent specializing in software engineering tasks. You are currently operating in **Default** mode. Your primary goal is to help users safely and effectively.";
+
+/**
  * Default pipeline for the native `claude` provider path.
  *
  * Cosmetic ops only — native executor already injects billing+sentinel
@@ -242,6 +257,44 @@ export const DEFAULT_CC_BRIDGE_PROVIDER_PIPELINE: TransformOp[] = [
   ...DEFAULT_CC_BRIDGE_PIPELINE,
 ];
 
+/**
+ * Default pipeline for `gemini-cli` (`gemini_cli`).
+ *
+ * Drops third-party client anchor and identity paragraphs (OpenCode, Open WebUI,
+ * Pi, Hermes Agent), applies standard phrase replacements, and prepends the
+ * authentic Gemini CLI preamble unless `"You are Gemini CLI"` is already present.
+ */
+export const DEFAULT_GEMINI_CLI_PIPELINE: TransformOp[] = [
+  {
+    kind: "drop_paragraph_if_contains",
+    needles: [
+      ...DEFAULT_PARAGRAPH_REMOVAL_ANCHORS,
+      ...OPENWEBUI_PARAGRAPH_ANCHORS,
+      ...PI_PARAGRAPH_ANCHORS,
+      ...HERMES_PARAGRAPH_ANCHORS,
+    ],
+  },
+  {
+    kind: "drop_paragraph_if_starts_with",
+    prefixes: [
+      ...DEFAULT_IDENTITY_PREFIXES,
+      ...OPENWEBUI_IDENTITY_PREFIXES,
+      ...HERMES_IDENTITY_PREFIXES,
+    ],
+  },
+  ...DEFAULT_TEXT_REPLACEMENTS.map<ReplaceTextOp>((r) => ({
+    kind: "replace_text" as const,
+    match: r.match,
+    replacement: r.replacement,
+    allOccurrences: true,
+  })),
+  {
+    kind: "prepend_system_block",
+    text: GEMINI_CLI_SYSTEM_PREAMBLE,
+    skipIfContains: "You are Gemini CLI",
+  },
+];
+
 export const DEFAULT_SYSTEM_TRANSFORMS_CONFIG: SystemTransformsConfig = {
   providers: {
     [PROVIDER_CLAUDE]: {
@@ -257,6 +310,10 @@ export const DEFAULT_SYSTEM_TRANSFORMS_CONFIG: SystemTransformsConfig = {
     [PROVIDER_CC_BRIDGE]: {
       enabled: true,
       pipeline: DEFAULT_CC_BRIDGE_PROVIDER_PIPELINE,
+    },
+    [PROVIDER_GEMINI_CLI]: {
+      enabled: true,
+      pipeline: DEFAULT_GEMINI_CLI_PIPELINE,
     },
   },
 };
@@ -318,13 +375,20 @@ function obfuscateWithList(text: string, words: string[]): string {
   return result;
 }
 
-function applyObfuscateWords(body: RequestBody, op: ObfuscateWordsOp): void {
+function applyObfuscateWords(
+  body: RequestBody,
+  op: ObfuscateWordsOp,
+  options?: { systemOriginatedFromMessages?: boolean }
+): void {
   const words = op.words || [];
   if (words.length === 0) return;
   const targets =
     op.targets && op.targets.length > 0 ? op.targets : ["system", "messages", "tools"];
 
-  if (targets.includes("system")) {
+  if (
+    targets.includes("system") ||
+    (options?.systemOriginatedFromMessages && targets.includes("messages"))
+  ) {
     if (typeof body.system === "string") {
       body.system = obfuscateWithList(body.system, words);
     } else if (Array.isArray(body.system)) {
@@ -333,11 +397,29 @@ function applyObfuscateWords(body: RequestBody, op: ObfuscateWordsOp): void {
           block.text = obfuscateWithList(block.text, words);
         }
       }
+    } else if (
+      body.system === undefined &&
+      !targets.includes("messages") &&
+      Array.isArray(body.messages)
+    ) {
+      for (const msg of body.messages as Array<Record<string, unknown>>) {
+        if (msg?.role !== "system") continue;
+        if (typeof msg.content === "string") {
+          msg.content = obfuscateWithList(msg.content, words);
+        } else if (Array.isArray(msg.content)) {
+          for (const block of msg.content as Array<Record<string, unknown>>) {
+            if (block && typeof block === "object" && typeof block.text === "string") {
+              block.text = obfuscateWithList(block.text, words);
+            }
+          }
+        }
+      }
     }
   }
 
   if (targets.includes("messages") && Array.isArray(body.messages)) {
     for (const msg of body.messages as Array<Record<string, unknown>>) {
+      if (msg?.role === "system" && body.system !== undefined) continue;
       const content = msg.content;
       if (typeof content === "string") {
         msg.content = obfuscateWithList(content, words);
@@ -406,6 +488,13 @@ export function applyTransformPipeline(
     return { body, appliedOpKinds: [] };
   }
 
+  const isMessagesOnly = body.system === undefined && Array.isArray(body.messages);
+  if (isMessagesOnly) {
+    body.system = extractSystemBlocksFromMessages(
+      body.messages as Parameters<typeof extractSystemBlocksFromMessages>[0]
+    );
+  }
+
   const appliedOpKinds: string[] = [];
   let baseRun: BaseTransformOp[] = [];
 
@@ -425,13 +514,22 @@ export function applyTransformPipeline(
   for (const op of pipeline) {
     if (isObfuscateWordsOp(op)) {
       flushBaseRun();
-      applyObfuscateWords(body, op);
+      applyObfuscateWords(body, op, { systemOriginatedFromMessages: isMessagesOnly });
       appliedOpKinds.push(op.kind);
     } else {
       baseRun.push(op);
     }
   }
   flushBaseRun();
+
+  if (isMessagesOnly && Array.isArray(body.messages)) {
+    const finalBlocks = Array.isArray(body.system) ? (body.system as SystemBlock[]) : [];
+    body.messages = writeSystemBlocksToMessages(
+      body.messages as Parameters<typeof writeSystemBlocksToMessages>[0],
+      finalBlocks
+    );
+    delete body.system;
+  }
 
   return { body, appliedOpKinds };
 }
@@ -466,11 +564,12 @@ function resolveProviderConfig(
   config: SystemTransformsConfig
 ): ProviderTransformsConfig | undefined {
   if (!providerId) return undefined;
-  const exact = config.providers[providerId];
+  const normalizedId = providerId === "gemini_cli" ? PROVIDER_GEMINI_CLI : providerId;
+  const exact = config.providers[normalizedId] ?? config.providers[providerId];
   if (exact) return exact;
 
   // CC bridge providers (anthropic-compatible-cc-*) all share one config.
-  if (providerId.startsWith(`${PROVIDER_CC_BRIDGE}-`) || providerId === PROVIDER_CC_BRIDGE) {
+  if (normalizedId.startsWith(`${PROVIDER_CC_BRIDGE}-`) || normalizedId === PROVIDER_CC_BRIDGE) {
     return config.providers[PROVIDER_CC_BRIDGE];
   }
   return undefined;
@@ -532,8 +631,18 @@ export function setSystemTransformsConfig(input: unknown): void {
     const providers = candidate.providers as Record<string, unknown>;
     for (const [providerId, providerEntry] of Object.entries(providers)) {
       if (!providerEntry || typeof providerEntry !== "object") continue;
+      const canonicalId = providerId === "gemini_cli" ? PROVIDER_GEMINI_CLI : providerId;
+      // If both canonical `gemini-cli` and alias `gemini_cli` are present,
+      // canonical `gemini-cli` deterministically takes precedence regardless of key order.
+      if (
+        canonicalId !== providerId &&
+        providers[canonicalId] &&
+        typeof providers[canonicalId] === "object"
+      ) {
+        continue;
+      }
       const entry = providerEntry as Record<string, unknown>;
-      next.providers[providerId] = {
+      next.providers[canonicalId] = {
         enabled: entry.enabled !== false,
         pipeline: Array.isArray(entry.pipeline) ? (entry.pipeline as TransformOp[]) : [],
       };

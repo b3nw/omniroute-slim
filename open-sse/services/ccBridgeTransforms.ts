@@ -77,6 +77,8 @@ export interface PrependSystemBlockOp {
   text: string;
   /** Skip if any earlier block already starts with this prefix. */
   idempotencyKey?: string;
+  /** Skip if any existing text block already contains this substring. */
+  skipIfContains?: string;
 }
 
 export interface AppendSystemBlockOp {
@@ -200,7 +202,7 @@ export const DEFAULT_CC_BRIDGE_TRANSFORMS_CONFIG: CcBridgeTransformsConfig = {
 // Billing header value
 // ────────────────────────────────────────────────────────────────────────────
 
-interface SystemBlock {
+export interface SystemBlock {
   type: string;
   text?: string;
   [key: string]: unknown;
@@ -214,7 +216,7 @@ interface MessageContentBlock {
 
 interface Message {
   role?: string;
-  content?: string | MessageContentBlock[];
+  content?: string | Array<string | MessageContentBlock>;
   [key: string]: unknown;
 }
 
@@ -230,7 +232,12 @@ export function extractFirstUserMessageText(messages: Message[]): string {
     if (typeof msg.content === "string") return msg.content;
     if (Array.isArray(msg.content)) {
       for (const block of msg.content) {
-        if (block?.type === "text" && typeof block.text === "string") {
+        if (
+          block &&
+          typeof block === "object" &&
+          block.type === "text" &&
+          typeof block.text === "string"
+        ) {
           return block.text;
         }
       }
@@ -347,6 +354,91 @@ function normalizeSystemToBlocks(system: unknown): SystemBlock[] {
   return [];
 }
 
+const SYSTEM_BLOCKS_SYMBOL = Symbol.for("omniroute.systemBlocks");
+
+export function extractSystemBlocksFromMessages(messages: Message[]): SystemBlock[] {
+  const blocks: SystemBlock[] = [];
+  for (const msg of messages) {
+    if (msg?.role !== "system") continue;
+    if (typeof msg.content === "string") {
+      const meta = (
+        msg as unknown as Record<symbol, { joinedText?: string; blocks?: SystemBlock[] }>
+      )[SYSTEM_BLOCKS_SYMBOL];
+      if (meta && meta.joinedText === msg.content && Array.isArray(meta.blocks)) {
+        for (const b of meta.blocks) {
+          if (b && typeof b === "object") blocks.push({ ...b });
+        }
+      } else if (msg.content.length > 0) {
+        blocks.push({ type: "text", text: msg.content });
+      }
+    } else if (Array.isArray(msg.content)) {
+      for (const part of msg.content) {
+        if (typeof part === "string" && part.length > 0) {
+          blocks.push({ type: "text", text: part });
+        } else if (
+          part &&
+          typeof part === "object" &&
+          typeof part.text === "string" &&
+          part.text.length > 0
+        ) {
+          blocks.push({
+            ...part,
+            type: typeof part.type === "string" ? part.type : "text",
+            text: part.text,
+          });
+        }
+      }
+    }
+  }
+  return blocks;
+}
+
+export function writeSystemBlocksToMessages(messages: Message[], blocks: SystemBlock[]): Message[] {
+  const nonEmptyBlocks = blocks.filter((b) => !isTextBlock(b) || b.text.length > 0);
+  const joinedText = nonEmptyBlocks
+    .filter(isTextBlock)
+    .map((b) => b.text)
+    .join("\n\n");
+
+  if (nonEmptyBlocks.length === 0 || !joinedText) {
+    return messages.filter((m) => m?.role !== "system");
+  }
+
+  const firstSysIdx = messages.findIndex((m) => m?.role === "system");
+  const sysMsg: Message =
+    firstSysIdx >= 0
+      ? { ...messages[firstSysIdx], role: "system", content: joinedText }
+      : { role: "system", content: joinedText };
+
+  Object.defineProperty(sysMsg, SYSTEM_BLOCKS_SYMBOL, {
+    value: {
+      joinedText,
+      blocks: nonEmptyBlocks.map((b) => ({ ...b })),
+    },
+    enumerable: false,
+    configurable: true,
+    writable: true,
+  });
+
+  if (firstSysIdx >= 0) {
+    const result: Message[] = [];
+    let replaced = false;
+    for (const m of messages) {
+      if (m?.role === "system") {
+        if (!replaced) {
+          result.push(sysMsg);
+          replaced = true;
+        }
+      } else {
+        result.push(m);
+      }
+    }
+    return result;
+  }
+
+  return [sysMsg, ...messages];
+}
+
 function isTextBlock(block: SystemBlock): block is SystemBlock & { text: string } {
   return block.type === "text" && typeof block.text === "string";
 }
@@ -441,22 +533,41 @@ function applyDropBlockIfContains(blocks: SystemBlock[], op: DropBlockIfContains
 
 function applyPrependSystemBlock(blocks: SystemBlock[], op: PrependSystemBlockOp): SystemBlock[] {
   if (!op.text) return blocks;
-  // Idempotency: skip if any text block already starts with idempotencyKey (when
-  // set) or with op.text itself (default). Scans ALL blocks, not just the first.
+  if (
+    op.skipIfContains &&
+    blocks.some((b) => isTextBlock(b) && b.text.includes(op.skipIfContains!))
+  ) {
+    return blocks;
+  }
+  // Idempotency: skip if any text block (or paragraph within a joined text block)
+  // already starts with idempotencyKey (when set) or with op.text itself (default).
   const prefix = op.idempotencyKey ?? op.text;
-  const alreadyPresent = blocks.some((b) => isTextBlock(b) && b.text.startsWith(prefix));
+  const alreadyPresent = blocks.some(
+    (b) =>
+      isTextBlock(b) &&
+      (b.text.startsWith(prefix) ||
+        b.text.startsWith(op.text) ||
+        b.text.split(/\n\n+/).some((p) => p.startsWith(prefix) || p.startsWith(op.text)))
+  );
   if (alreadyPresent) return blocks;
   return [{ type: "text", text: op.text }, ...blocks];
 }
 
 function applyAppendSystemBlock(blocks: SystemBlock[], op: AppendSystemBlockOp): SystemBlock[] {
   if (!op.text) return blocks;
-  // Idempotency: skip if any text block already starts with idempotencyKey (when
-  // set) or is an exact match of op.text (default). Scans ALL blocks.
+  // Idempotency: skip if any text block (or paragraph within a joined text block)
+  // already starts with idempotencyKey (when set) or is an exact match of op.text (default).
   const prefix = op.idempotencyKey;
   const alreadyPresent = prefix
-    ? blocks.some((b) => isTextBlock(b) && b.text.startsWith(prefix))
-    : blocks.some((b) => isTextBlock(b) && b.text === op.text);
+    ? blocks.some(
+        (b) =>
+          isTextBlock(b) &&
+          (b.text.startsWith(prefix) || b.text.split(/\n\n+/).some((p) => p.startsWith(prefix)))
+      )
+    : blocks.some(
+        (b) =>
+          isTextBlock(b) && (b.text === op.text || b.text.split(/\n\n+/).some((p) => p === op.text))
+      );
   if (alreadyPresent) return blocks;
   return [...blocks, { type: "text", text: op.text }];
 }
@@ -481,8 +592,25 @@ function applyInjectBillingHeader(
 
   // Idempotency: replace any existing billing header block (ex-machina + native
   // OAuth path both rebuild on retry; see executors/base.ts issue #1712).
+  // If a block is a joined multi-paragraph string starting with the billing header,
+  // strip only the billing-header paragraph(s) so downstream instructions survive.
   const headerPrefix = "x-anthropic-billing-header:";
-  const filtered = blocks.filter((b) => !(isTextBlock(b) && b.text.startsWith(headerPrefix)));
+  const filtered: SystemBlock[] = [];
+  for (const b of blocks) {
+    if (!isTextBlock(b) || !b.text.startsWith(headerPrefix)) {
+      filtered.push(b);
+      continue;
+    }
+    if (b.text.includes("\n\n")) {
+      const remaining = b.text
+        .split(/\n\n+/)
+        .filter((p) => !p.startsWith(headerPrefix))
+        .join("\n\n");
+      if (remaining.length > 0) {
+        filtered.push({ ...b, text: remaining });
+      }
+    }
+  }
   return [{ type: "text", text: headerValue }, ...filtered];
 }
 
@@ -514,7 +642,11 @@ export function applyCcBridgeTransformPipeline(
     return { body, appliedOpKinds: [] };
   }
 
-  let blocks = normalizeSystemToBlocks(body.system);
+  const isMessagesOnly = body.system === undefined && Array.isArray(body.messages);
+
+  let blocks = isMessagesOnly
+    ? extractSystemBlocksFromMessages(body.messages!)
+    : normalizeSystemToBlocks(body.system);
   const appliedOpKinds: string[] = [];
 
   for (const op of config.pipeline) {
@@ -555,7 +687,11 @@ export function applyCcBridgeTransformPipeline(
   // ex-machina sanitizeSystemText trim semantics).
   blocks = blocks.filter((b) => !isTextBlock(b) || b.text.length > 0);
 
-  body.system = blocks;
+  if (isMessagesOnly && Array.isArray(body.messages)) {
+    body.messages = writeSystemBlocksToMessages(body.messages, blocks);
+  } else {
+    body.system = blocks;
+  }
   return { body, appliedOpKinds };
 }
 
