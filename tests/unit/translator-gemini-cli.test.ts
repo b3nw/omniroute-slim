@@ -101,10 +101,11 @@ test("Tier 1: project is omitted when missing, empty or 'default'", () => {
 });
 
 test("Tier 1: Fingerprinting & Client Metadata Generation", () => {
+  const uuidV4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const promptId1 = generateUserPromptId();
   const promptId2 = generateUserPromptId();
-  assert.match(promptId1, /^[0-9a-f]{14}$/);
-  assert.match(promptId2, /^[0-9a-f]{14}$/);
+  assert.match(promptId1, uuidV4Regex);
+  assert.match(promptId2, uuidV4Regex);
   assert.notEqual(promptId1, promptId2);
 
   const contentsWithAnchors = [
@@ -120,11 +121,16 @@ test("Tier 1: Fingerprinting & Client Metadata Generation", () => {
 
   const sessionId1 = generateStableSessionId(contentsWithAnchors);
   const sessionId2 = generateStableSessionId(contentsWithAnchors);
-  assert.match(sessionId1, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  assert.match(sessionId1, uuidV4Regex);
   assert.equal(
     sessionId1,
     sessionId2,
     "Stable session ID should be deterministic for identical anchors"
+  );
+  assert.equal(
+    generateUserPromptId(sessionId1),
+    sessionId1,
+    "generateUserPromptId(sessionId) must equal sessionId"
   );
 
   const metadata = buildGeminiCliClientMetadata("test-duet-project-999");
@@ -165,9 +171,13 @@ test("Tier 1: Message & Multipart Translation into CCPA Contents Envelope", () =
   assert.equal(translated.wireModel, "gemini-3-flash");
   assert.equal(translated.body.model, "gemini-3-flash");
   assert.equal(translated.body.project, "gcp-proj-alpha");
-  assert.match(String(translated.body.user_prompt_id), /^[0-9a-f]{14}$/);
+  assert.match(
+    String(translated.body.user_prompt_id),
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  );
 
   const requestPayload = translated.body.request as Record<string, unknown>;
+  assert.equal(translated.body.user_prompt_id, requestPayload.session_id);
   const contents = requestPayload.contents as Array<{
     role: string;
     parts: Array<Record<string, unknown>>;
@@ -668,6 +678,341 @@ test("Tier 3: Reasoning Parameter Mapping for Gemini 2.5 vs Gemini 3", () => {
     thinkingBudget: 24576,
     include_thoughts: true,
   });
+
+  // Gemini 2.5 default (auto) maps to upstream chat-base-2.5 DEFAULT_THINKING_MODE = 8192
+  assert.deepEqual(handleReasoningParameters({}, "gemini-2.5-flash"), {
+    thinkingBudget: 8192,
+    include_thoughts: true,
+  });
+  assert.deepEqual(handleReasoningParameters({}, "gemini-2.5-pro"), {
+    thinkingBudget: 8192,
+    include_thoughts: true,
+  });
+  assert.deepEqual(handleReasoningParameters({}, "gemini-2.5-flash-lite"), {
+    thinkingBudget: 8192,
+    include_thoughts: true,
+  });
+
+  // Gemini 3.8 Flash & Gemini 3.1/3.5 Flash-Lite recognized as isGem3Flash
+  for (const flashModel of ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]) {
+    assert.deepEqual(
+      handleReasoningParameters({ reasoning_effort: "none" }, flashModel),
+      { thinkingLevel: "minimal", include_thoughts: true },
+      `${flashModel} none -> minimal`
+    );
+    assert.deepEqual(
+      handleReasoningParameters({ reasoning_effort: "medium" }, flashModel),
+      { thinkingLevel: "medium", include_thoughts: true },
+      `${flashModel} medium -> medium`
+    );
+  }
+});
+
+test("Tier 1: Multi-turn session_id and user_prompt_id continuity, generationConfig defaults, and credits/safety alignment", () => {
+  const uuidV4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  const turn1Req: OpenAIChatRequest = {
+    model: "gemini-3.8-flash",
+    messages: [
+      { role: "system", content: "You are a helpful coding assistant. [ts=1000]" },
+      { role: "user", content: "hi" },
+    ],
+  };
+
+  // Turn 2 mutates the system prompt (e.g. dynamic timestamp / workspace state)
+  const turn2Req: OpenAIChatRequest = {
+    model: "gemini-3.8-flash",
+    messages: [
+      { role: "system", content: "You are a helpful coding assistant. [ts=2000, cwd=/app]" },
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "Hello! How can I help you today?" },
+      { role: "user", content: "Explain how KV cache session affinity works on Code Assist." },
+    ],
+  };
+
+  // Turn 2 tool-call continuation (no new user text prompt yet, only tool response)
+  const turn2ToolContReq: OpenAIChatRequest = {
+    model: "gemini-3.8-flash",
+    messages: [
+      { role: "system", content: "You are a helpful coding assistant. [ts=2005, cwd=/app]" },
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "Hello! How can I help you today?" },
+      { role: "user", content: "Explain how KV cache session affinity works on Code Assist." },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: { name: "read_doc", arguments: '{"path":"README.md"}' },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_1", name: "read_doc", content: '{"ok":true}' },
+    ],
+  };
+
+  const turn3Req: OpenAIChatRequest = {
+    model: "gemini-3.8-flash",
+    messages: [
+      { role: "system", content: "You are a helpful coding assistant. [ts=3000, cwd=/app]" },
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "Hello! How can I help you today?" },
+      { role: "user", content: "Explain how KV cache session affinity works on Code Assist." },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: { name: "read_doc", arguments: '{"path":"README.md"}' },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_1", name: "read_doc", content: '{"ok":true}' },
+      { role: "user", content: "Summarize that doc." },
+    ],
+  };
+
+  const t1 = translateChatRequestToGeminiCli(turn1Req, { projectId: "proj-1" });
+  const t2 = translateChatRequestToGeminiCli(turn2Req, { projectId: "proj-1" });
+  const t2Cont = translateChatRequestToGeminiCli(turn2ToolContReq, { projectId: "proj-1" });
+  const t3 = translateChatRequestToGeminiCli(turn3Req, { projectId: "proj-1" });
+
+  const s1 = (t1.body.request as Record<string, unknown>).session_id as string;
+  const s2 = (t2.body.request as Record<string, unknown>).session_id as string;
+  const s2Cont = (t2Cont.body.request as Record<string, unknown>).session_id as string;
+  const s3 = (t3.body.request as Record<string, unknown>).session_id as string;
+
+  // Turn 1, Turn 2 (with mutated system prompt), Turn 2 tool continuation, and Turn 3
+  // must produce the exact same RFC 4122 UUID v4 session_id
+  assert.match(s1, uuidV4Regex);
+  assert.equal(
+    s1,
+    s2,
+    "Turn 1 and Turn 2 must share the exact same session_id despite systemInstruction mutation"
+  );
+  assert.equal(s2, s2Cont, "Turn 2 and Turn 2 tool continuation must share the same session_id");
+  assert.equal(s2, s3, "Turn 2 and Turn 3 must share the exact same session_id");
+
+  // user_prompt_id parity:
+  // - Single-turn / Turn 1 defaults to sessionId (non-interactive parity, gemini.tsx:968)
+  // - Multi-turn interactive prompts format ${sessionId}########${promptIndex} (useGeminiStream.ts:1885)
+  //   and stay constant across tool-call continuation turns of the same user prompt!
+  assert.equal(t1.body.user_prompt_id, s1);
+  assert.equal(t2.body.user_prompt_id, `${s2}########1`);
+  assert.equal(t2Cont.body.user_prompt_id, `${s2}########1`);
+  assert.equal(t3.body.user_prompt_id, `${s3}########2`);
+  assert.equal(generateUserPromptId(s1, 0), `${s1}########0`);
+
+  // Explicit prompt_count: 0 formats ${sessionId}########0 on Turn 1
+  const t1Interactive = translateChatRequestToGeminiCli(
+    { ...turn1Req, prompt_count: 0 },
+    { projectId: "proj-1" }
+  );
+  assert.equal(t1Interactive.body.user_prompt_id, `${s1}########0`);
+
+  // request.user acts as a salt (differentiating users with identical "hi" prompt)
+  // WITHOUT collapsing separate conversations from the same user into one session_id!
+  const userAChat1 = translateChatRequestToGeminiCli(
+    { ...turn1Req, user: "user-alice" },
+    { projectId: "proj-1" }
+  );
+  const userBChat1 = translateChatRequestToGeminiCli(
+    { ...turn1Req, user: "user-bob" },
+    { projectId: "proj-1" }
+  );
+  const userAChat2 = translateChatRequestToGeminiCli(
+    {
+      model: "gemini-3.8-flash",
+      user: "user-alice",
+      messages: [{ role: "user", content: "Different conversation topic altogether" }],
+    },
+    { projectId: "proj-1" }
+  );
+  const sUserAChat1 = (userAChat1.body.request as Record<string, unknown>).session_id as string;
+  const sUserBChat1 = (userBChat1.body.request as Record<string, unknown>).session_id as string;
+  const sUserAChat2 = (userAChat2.body.request as Record<string, unknown>).session_id as string;
+  assert.notEqual(
+    sUserAChat1,
+    sUserBChat1,
+    "Different users starting with 'hi' must get distinct session_ids"
+  );
+  assert.notEqual(
+    sUserAChat1,
+    sUserAChat2,
+    "Same request.user on two different conversations must NOT collapse to the same session_id"
+  );
+
+  // Synthetic 'Please continue.' is skipped in both primary and fallback anchor searches
+  const withSyntheticContinue = generateStableSessionId([
+    { role: "user", parts: [{ text: "Please continue." }] },
+    { role: "user", parts: [{ text: "Real root prompt" }] },
+  ]);
+  const directRealPrompt = generateStableSessionId([
+    { role: "user", parts: [{ text: "Real root prompt" }] },
+  ]);
+  assert.equal(withSyntheticContinue, directRealPrompt);
+
+  const fallbackWithSyntheticContinue = generateStableSessionId([
+    { role: "user", parts: [{ text: "Please continue." }] },
+    { role: "model", parts: [{ text: "Assistant-first context block" }] },
+  ]);
+  const fallbackDirectModel = generateStableSessionId([
+    { role: "model", parts: [{ text: "Assistant-first context block" }] },
+  ]);
+  assert.equal(
+    fallbackWithSyntheticContinue,
+    fallbackDirectModel,
+    "Fallback anchor search must skip synthetic 'Please continue.' turn"
+  );
+
+  // Truncated assistant-first tool histories must NOT anchor on functionResponse-only turns
+  // so placeholder vs actual tool results produce the exact same session_id
+  const assistantFirstPlaceholder = generateStableSessionId([
+    { role: "user", parts: [{ text: "" }] },
+    {
+      role: "model",
+      parts: [{ functionCall: { name: "read_file", args: { path: "a.ts" }, id: "call_abc" } }],
+    },
+    {
+      role: "user",
+      parts: [
+        {
+          functionResponse: {
+            name: "read_file",
+            id: "call_abc",
+            response: { result: { error: "recovered placeholder", recovered: true } },
+          },
+        },
+      ],
+    },
+  ]);
+  const assistantFirstRealResult = generateStableSessionId([
+    { role: "user", parts: [{ text: "" }] },
+    {
+      role: "model",
+      parts: [{ functionCall: { name: "read_file", args: { path: "a.ts" }, id: "call_abc" } }],
+    },
+    {
+      role: "user",
+      parts: [
+        {
+          functionResponse: {
+            name: "read_file",
+            id: "call_abc",
+            response: { result: "export const x = 1;" },
+          },
+        },
+      ],
+    },
+  ]);
+  assert.equal(
+    assistantFirstPlaceholder,
+    assistantFirstRealResult,
+    "functionResponse-only user turns must not be chosen over earliest model functionCall anchor"
+  );
+
+  // Real user typing "Please continue." in messages is preserved as a real user prompt turn
+  const realUserContinueTurn2 = translateChatRequestToGeminiCli(
+    {
+      model: "gemini-3.8-flash",
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "Part 1 of explanation..." },
+        { role: "user", content: "Please continue." },
+      ],
+    },
+    { projectId: "proj-1" }
+  );
+  assert.equal(
+    (realUserContinueTurn2.body.request as Record<string, unknown>).session_id,
+    s1,
+    "Real user 'Please continue.' on Turn 2 keeps Turn 1 session_id"
+  );
+  assert.equal(
+    realUserContinueTurn2.body.user_prompt_id,
+    `${s1}########1`,
+    "Real user 'Please continue.' on Turn 2 is counted as user prompt index 1"
+  );
+
+  // Explicit session_id overrides content anchor deterministically as UUID v4
+  const explicitTranslated = translateChatRequestToGeminiCli(
+    { ...turn1Req, session_id: "custom-session-token-42" },
+    { projectId: "proj-1" }
+  );
+  const explicitSess = (explicitTranslated.body.request as Record<string, unknown>)
+    .session_id as string;
+  assert.match(explicitSess, uuidV4Regex);
+  assert.equal(explicitTranslated.body.user_prompt_id, explicitSess);
+  assert.notEqual(explicitSess, s1);
+
+  // generationConfig: maxOutputTokens omitted when max_tokens not specified; topP=0.95, topK=64 defaults
+  const genConfig1 = (t1.body.request as Record<string, unknown>).generationConfig as Record<
+    string,
+    unknown
+  >;
+  assert.equal(
+    "maxOutputTokens" in genConfig1,
+    false,
+    "maxOutputTokens must be omitted by default"
+  );
+  assert.equal(genConfig1.temperature, 1.0);
+  assert.equal(genConfig1.topP, 0.95);
+  assert.equal(genConfig1.topK, 64);
+
+  // When max_tokens IS provided, maxOutputTokens is set
+  const withMaxTokens = translateChatRequestToGeminiCli(
+    { ...turn1Req, max_tokens: 4096, top_p: 0.8, top_k: 40 },
+    { projectId: "proj-1" }
+  );
+  const genConfigMax = (withMaxTokens.body.request as Record<string, unknown>)
+    .generationConfig as Record<string, unknown>;
+  assert.equal(genConfigMax.maxOutputTokens, 4096);
+  assert.equal(genConfigMax.topP, 0.8);
+  assert.equal(genConfigMax.topK, 40);
+
+  // safetySettings omitted unless explicitly provided
+  assert.equal(
+    "safetySettings" in (t1.body.request as Record<string, unknown>),
+    false,
+    "safetySettings must be omitted when not passed on request"
+  );
+  const withSafety = translateChatRequestToGeminiCli(
+    { ...turn1Req, safetySettings: DEFAULT_SAFETY_SETTINGS },
+    { projectId: "proj-1" }
+  );
+  assert.deepEqual(
+    (withSafety.body.request as Record<string, unknown>).safetySettings,
+    DEFAULT_SAFETY_SETTINGS
+  );
+
+  // enabled_credit_types omitted by default, ignored on untrusted request body,
+  // and included when connection.enabledCreditTypes or connection.providerSpecificData is provided
+  assert.equal("enabled_credit_types" in t1.body, false);
+  const untrustedRequestCredits = translateChatRequestToGeminiCli(
+    { ...turn1Req, enabled_credit_types: ["GOOGLE_ONE_AI"] },
+    { projectId: "proj-1" }
+  );
+  assert.equal(
+    "enabled_credit_types" in untrustedRequestCredits.body,
+    false,
+    "Untrusted request.enabled_credit_types must not be forwarded"
+  );
+
+  const withCredits = translateChatRequestToGeminiCli(turn1Req, {
+    projectId: "proj-1",
+    enabledCreditTypes: [" GOOGLE_ONE_AI ", ""],
+  });
+  assert.deepEqual(withCredits.body.enabled_credit_types, ["GOOGLE_ONE_AI"]);
+
+  const withProviderDataCredits = translateChatRequestToGeminiCli(turn1Req, {
+    projectId: "proj-1",
+    providerSpecificData: { enabledCreditTypes: ["GOOGLE_ONE_AI"] },
+  });
+  assert.deepEqual(withProviderDataCredits.body.enabled_credit_types, ["GOOGLE_ONE_AI"]);
 });
 
 test("Tier 3: Combinatorial Matrix Across Models, Tools and Reasoning Configurations", () => {

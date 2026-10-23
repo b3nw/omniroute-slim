@@ -692,7 +692,7 @@ test("Tier 3: handleReasoningParameters default behavior for Gemini 2.5 and Gemi
   // Gemini 2.5 default when no reasoning parameter is sent
   const gem25Default = handleReasoningParameters({}, "gemini-2.5-pro");
   assert.deepEqual(gem25Default, {
-    thinkingBudget: -1,
+    thinkingBudget: 8192,
     include_thoughts: true,
   });
 
@@ -1133,4 +1133,71 @@ test("Tier 2: GeminiCliExecutor.countTokens includes request.model Ordered Befor
   // Key order preserved as passed (`user_prompt_id` before `model`, `session_id` before `contents`)
   assert.deepEqual(Object.keys(parsedOptOut), ["user_prompt_id", "request", "model"]);
   assert.deepEqual(Object.keys(parsedOptOut.request), ["session_id", "contents"]);
+});
+
+test("Tier 3: GeminiCliExecutor forwards providerSpecificData.enabledCreditTypes and sessionId in transformRequest and execute", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const executor = new GeminiCliExecutor();
+  const transformed = (await executor.transformRequest(
+    "gemini-3.8-flash",
+    {
+      model: "gemini-3.8-flash",
+      messages: [{ role: "user", content: "Check credit forwarding" }],
+    },
+    true,
+    {
+      accessToken: "ya29.test",
+      projectId: "proj-credits-1",
+      providerSpecificData: {
+        tier: "LEGACY",
+        enabledCreditTypes: [" GOOGLE_ONE_AI ", ""],
+        sessionId: "executor-session-seed-99",
+      },
+    }
+  )) as Record<string, unknown>;
+
+  assert.deepEqual(transformed.enabled_credit_types, ["GOOGLE_ONE_AI"]);
+  const reqPayload = transformed.request as Record<string, unknown>;
+  assert.equal(typeof reqPayload.session_id, "string");
+  assert.equal(transformed.user_prompt_id, reqPayload.session_id);
+
+  let capturedWireBody: Record<string, unknown> | null = null;
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    capturedWireBody = JSON.parse(String(init?.body || "{}")) as Record<string, unknown>;
+    return new Response("data: [DONE]\n\n", {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  }) as typeof fetch;
+
+  const res = await executor.execute({
+    model: "gemini-3.8-flash",
+    body: {
+      model: "gemini-3.8-flash",
+      messages: [{ role: "user", content: "Check execute credit forwarding" }],
+    },
+    stream: true,
+    credentials: {
+      accessToken: "ya29.test",
+      projectId: "proj-credits-1",
+      providerSpecificData: {
+        enabledCreditTypes: ["GOOGLE_ONE_AI"],
+        sessionId: "executor-session-seed-99",
+      },
+    },
+  });
+  assert.equal(res.response.status, 200);
+
+  assert.ok(capturedWireBody);
+  assert.deepEqual((capturedWireBody as Record<string, unknown>).enabled_credit_types, [
+    "GOOGLE_ONE_AI",
+  ]);
+  assert.equal(
+    ((capturedWireBody as Record<string, unknown>).request as Record<string, unknown>).session_id,
+    reqPayload.session_id
+  );
 });
