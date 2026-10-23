@@ -380,9 +380,17 @@ export class GeminiCliExecutor extends BaseExecutor {
       return body;
     }
 
+    const credRecord = credentials as Record<string, unknown>;
     const translated = translateChatRequestToGeminiCli(body as OpenAIChatRequest, {
       projectId,
       tier,
+      providerSpecificData: credentials?.providerSpecificData,
+      enabledCreditTypes: credRecord?.enabledCreditTypes as string[] | undefined,
+      enabled_credit_types: credRecord?.enabled_credit_types as string[] | undefined,
+      sessionId: credRecord?.sessionId as string | undefined,
+      session_id: credRecord?.session_id as string | undefined,
+      userPromptId: credRecord?.userPromptId as string | undefined,
+      user_prompt_id: credRecord?.user_prompt_id as string | undefined,
     });
     return translated.body;
   }
@@ -528,9 +536,17 @@ export class GeminiCliExecutor extends BaseExecutor {
         wireModel = mapModelToGeminiCliWire(requestPayload.model);
       }
     } else {
+      const activeCredRecord = activeCredentials as Record<string, unknown>;
       const translated = translateChatRequestToGeminiCli(rawBody as OpenAIChatRequest, {
         projectId,
         tier,
+        providerSpecificData: activeCredentials?.providerSpecificData,
+        enabledCreditTypes: activeCredRecord?.enabledCreditTypes as string[] | undefined,
+        enabled_credit_types: activeCredRecord?.enabled_credit_types as string[] | undefined,
+        sessionId: activeCredRecord?.sessionId as string | undefined,
+        session_id: activeCredRecord?.session_id as string | undefined,
+        userPromptId: activeCredRecord?.userPromptId as string | undefined,
+        user_prompt_id: activeCredRecord?.user_prompt_id as string | undefined,
       });
       requestPayload = translated.body;
       wireModel = translated.wireModel;

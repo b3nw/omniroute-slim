@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { getGeminiThoughtSignature } from "../../services/geminiThoughtSignatureStore.ts";
 
 export type OpenAIChatRequest = Record<string, unknown>;
@@ -140,8 +140,7 @@ export function buildGeminiCliClientMetadata(projectId?: string): Record<string,
   };
 }
 
-const UUID_V4_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function formatDeterministicUuidV4(seed: string): string {
   const trimmed = seed.trim();
@@ -175,13 +174,44 @@ export interface StableSessionIdOptions {
 
 const SYNTHETIC_CONTINUE_TEXT = "please continue.";
 
-function isSyntheticContinueTurn(parts: unknown): boolean {
+export function markSyntheticContinueTurn<T extends Record<string, unknown>>(turn: T): T {
+  Object.defineProperty(turn, "_omnirouteSyntheticContinue", {
+    value: true,
+    enumerable: false,
+    configurable: true,
+  });
+  return turn;
+}
+
+function markRealUserTurn<T extends Record<string, unknown>>(turn: T): T {
+  Object.defineProperty(turn, "_omnirouteRealUserTurn", {
+    value: true,
+    enumerable: false,
+    configurable: true,
+  });
+  return turn;
+}
+
+function isSyntheticContinueTurn(content: unknown): boolean {
+  if (!content || typeof content !== "object") return false;
+  const turn = content as Record<string, unknown>;
+  if (turn._omnirouteSyntheticContinue === true) return true;
+  if (turn._omnirouteRealUserTurn === true) return false;
+
+  const parts = Array.isArray(turn.parts) ? turn.parts : Array.isArray(content) ? content : null;
   if (!Array.isArray(parts) || parts.length === 0) return false;
   let sawText = false;
   for (const part of parts) {
     if (!part || typeof part !== "object") continue;
     const rec = part as Record<string, unknown>;
-    if (rec.inlineData || rec.fileData || rec.functionCall || rec.function_call || rec.functionResponse || rec.function_response) {
+    if (
+      rec.inlineData ||
+      rec.fileData ||
+      rec.functionCall ||
+      rec.function_call ||
+      rec.functionResponse ||
+      rec.function_response
+    ) {
       return false;
     }
     const text = typeof rec.text === "string" ? rec.text.trim().toLowerCase() : "";
@@ -192,26 +222,49 @@ function isSyntheticContinueTurn(parts: unknown): boolean {
   return sawText;
 }
 
+function hasNonToolResultUserContent(
+  content: { role?: string; parts?: Array<Record<string, unknown>> } | null | undefined
+): boolean {
+  if (!content || (content.role || "user") !== "user") return false;
+  if (isSyntheticContinueTurn(content)) return false;
+  if (!Array.isArray(content.parts) || content.parts.length === 0) return false;
+  return content.parts.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const rec = part as Record<string, unknown>;
+    if (typeof rec.text === "string" && rec.text.trim().length > 0) return true;
+    if (rec.inlineData && typeof rec.inlineData === "object") return true;
+    if (rec.fileData && typeof rec.fileData === "object") return true;
+    return false;
+  });
+}
+
+function isFunctionResponseOnlyTurn(
+  content: { role?: string; parts?: Array<Record<string, unknown>> } | null | undefined
+): boolean {
+  if (!content || !Array.isArray(content.parts) || content.parts.length === 0) return false;
+  let sawFunctionResponse = false;
+  for (const part of content.parts) {
+    if (!part || typeof part !== "object") continue;
+    const rec = part as Record<string, unknown>;
+    if (rec.functionResponse || rec.function_response) {
+      sawFunctionResponse = true;
+      continue;
+    }
+    if (typeof rec.text === "string" && rec.text.trim().length === 0) {
+      continue;
+    }
+    return false;
+  }
+  return sawFunctionResponse;
+}
+
 export function countUserPromptTurns(
   contents: Array<{ role?: string; parts?: Array<Record<string, unknown>> }>
 ): number {
   if (!Array.isArray(contents)) return 0;
   let count = 0;
   for (const content of contents) {
-    if (!content || (content.role || "user") !== "user") continue;
-    if (!Array.isArray(content.parts) || content.parts.length === 0) continue;
-    if (isSyntheticContinueTurn(content.parts)) continue;
-
-    const hasUserPromptPart = content.parts.some((part) => {
-      if (!part || typeof part !== "object") return false;
-      const rec = part as Record<string, unknown>;
-      if (typeof rec.text === "string" && rec.text.trim().length > 0) return true;
-      if (rec.inlineData && typeof rec.inlineData === "object") return true;
-      if (rec.fileData && typeof rec.fileData === "object") return true;
-      return false;
-    });
-
-    if (hasUserPromptPart) {
+    if (hasNonToolResultUserContent(content)) {
       count++;
     }
   }
@@ -252,8 +305,7 @@ function extractTurnRootAnchors(parts: unknown): string[] {
     }
 
     const functionCall = (rec.functionCall || rec.function_call) as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     if (functionCall && typeof functionCall === "object") {
       const name = (functionCall.name as string) || "";
       const callId = (functionCall.id || functionCall.call_id || "") as string;
@@ -264,8 +316,7 @@ function extractTurnRootAnchors(parts: unknown): string[] {
     }
 
     const functionResponse = (rec.functionResponse || rec.function_response) as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     if (functionResponse && typeof functionResponse === "object") {
       const name = (functionResponse.name as string) || "";
       const responseId = (functionResponse.id || functionResponse.call_id || "") as string;
@@ -295,9 +346,9 @@ export function generateStableSessionId(
   // injected into system prompts on later turns do not break session affinity.
   let rootAnchors: string[] = [];
   if (Array.isArray(contents)) {
+    // 1. Primary pass: first real user turn containing non-tool-result user content
     for (const content of contents) {
-      if (!content || (content.role || "user") !== "user") continue;
-      if (isSyntheticContinueTurn(content.parts)) continue;
+      if (!hasNonToolResultUserContent(content)) continue;
       const extracted = extractTurnRootAnchors(content.parts);
       if (extracted.length > 0) {
         rootAnchors = extracted;
@@ -305,9 +356,25 @@ export function generateStableSessionId(
       }
     }
 
+    // 2. Fallback pass: first non-synthetic, non-functionResponse-only turn
+    // (e.g. earliest model/functionCall turn in truncated assistant-first histories)
     if (rootAnchors.length === 0) {
       for (const content of contents) {
-        if (!content) continue;
+        if (!content || isSyntheticContinueTurn(content) || isFunctionResponseOnlyTurn(content)) {
+          continue;
+        }
+        const extracted = extractTurnRootAnchors(content.parts);
+        if (extracted.length > 0) {
+          rootAnchors = extracted;
+          break;
+        }
+      }
+    }
+
+    // 3. Last-resort pass: any non-synthetic turn with extractable anchors
+    if (rootAnchors.length === 0) {
+      for (const content of contents) {
+        if (!content || isSyntheticContinueTurn(content)) continue;
         const extracted = extractTurnRootAnchors(content.parts);
         if (extracted.length > 0) {
           rootAnchors = extracted;
@@ -1099,7 +1166,17 @@ export function transformMessages(
     if (role === "user") {
       const parts = parseContentParts(content);
       if (parts.length > 0) {
-        contents.push({ role: "user", parts });
+        const hasRealTextOrMedia = parts.some(
+          (p) =>
+            (typeof p.text === "string" && p.text.trim().length > 0) ||
+            Boolean(p.inlineData) ||
+            Boolean(p.fileData)
+        );
+        const turn = { role: "user", parts };
+        if (hasRealTextOrMedia) {
+          markRealUserTurn(turn);
+        }
+        contents.push(turn);
       }
     } else if (role === "assistant") {
       const parts = parseContentParts(content);
@@ -1189,7 +1266,7 @@ export function transformMessages(
   }
 
   if (contents.length === 0 || contents[0].role !== "user") {
-    contents.unshift({ role: "user", parts: [{ text: "" }] });
+    contents.unshift(markSyntheticContinueTurn({ role: "user", parts: [{ text: "" }] }));
   }
 
   return {

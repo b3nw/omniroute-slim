@@ -694,11 +694,7 @@ test("Tier 3: Reasoning Parameter Mapping for Gemini 2.5 vs Gemini 3", () => {
   });
 
   // Gemini 3.8 Flash & Gemini 3.1/3.5 Flash-Lite recognized as isGem3Flash
-  for (const flashModel of [
-    "gemini-3.8-flash",
-    "gemini-3.1-flash-lite",
-    "gemini-3.5-flash-lite",
-  ]) {
+  for (const flashModel of ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]) {
     assert.deepEqual(
       handleReasoningParameters({ reasoning_effort: "none" }, flashModel),
       { thinkingLevel: "minimal", include_thoughts: true },
@@ -850,7 +846,7 @@ test("Tier 1: Multi-turn session_id and user_prompt_id continuity, generationCon
     "Same request.user on two different conversations must NOT collapse to the same session_id"
   );
 
-  // Synthetic 'Please continue.' is skipped when an actual user message exists
+  // Synthetic 'Please continue.' is skipped in both primary and fallback anchor searches
   const withSyntheticContinue = generateStableSessionId([
     { role: "user", parts: [{ text: "Please continue." }] },
     { role: "user", parts: [{ text: "Real root prompt" }] },
@@ -859,6 +855,88 @@ test("Tier 1: Multi-turn session_id and user_prompt_id continuity, generationCon
     { role: "user", parts: [{ text: "Real root prompt" }] },
   ]);
   assert.equal(withSyntheticContinue, directRealPrompt);
+
+  const fallbackWithSyntheticContinue = generateStableSessionId([
+    { role: "user", parts: [{ text: "Please continue." }] },
+    { role: "model", parts: [{ text: "Assistant-first context block" }] },
+  ]);
+  const fallbackDirectModel = generateStableSessionId([
+    { role: "model", parts: [{ text: "Assistant-first context block" }] },
+  ]);
+  assert.equal(
+    fallbackWithSyntheticContinue,
+    fallbackDirectModel,
+    "Fallback anchor search must skip synthetic 'Please continue.' turn"
+  );
+
+  // Truncated assistant-first tool histories must NOT anchor on functionResponse-only turns
+  // so placeholder vs actual tool results produce the exact same session_id
+  const assistantFirstPlaceholder = generateStableSessionId([
+    { role: "user", parts: [{ text: "" }] },
+    {
+      role: "model",
+      parts: [{ functionCall: { name: "read_file", args: { path: "a.ts" }, id: "call_abc" } }],
+    },
+    {
+      role: "user",
+      parts: [
+        {
+          functionResponse: {
+            name: "read_file",
+            id: "call_abc",
+            response: { result: { error: "recovered placeholder", recovered: true } },
+          },
+        },
+      ],
+    },
+  ]);
+  const assistantFirstRealResult = generateStableSessionId([
+    { role: "user", parts: [{ text: "" }] },
+    {
+      role: "model",
+      parts: [{ functionCall: { name: "read_file", args: { path: "a.ts" }, id: "call_abc" } }],
+    },
+    {
+      role: "user",
+      parts: [
+        {
+          functionResponse: {
+            name: "read_file",
+            id: "call_abc",
+            response: { result: "export const x = 1;" },
+          },
+        },
+      ],
+    },
+  ]);
+  assert.equal(
+    assistantFirstPlaceholder,
+    assistantFirstRealResult,
+    "functionResponse-only user turns must not be chosen over earliest model functionCall anchor"
+  );
+
+  // Real user typing "Please continue." in messages is preserved as a real user prompt turn
+  const realUserContinueTurn2 = translateChatRequestToGeminiCli(
+    {
+      model: "gemini-3.8-flash",
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "Part 1 of explanation..." },
+        { role: "user", content: "Please continue." },
+      ],
+    },
+    { projectId: "proj-1" }
+  );
+  assert.equal(
+    (realUserContinueTurn2.body.request as Record<string, unknown>).session_id,
+    s1,
+    "Real user 'Please continue.' on Turn 2 keeps Turn 1 session_id"
+  );
+  assert.equal(
+    realUserContinueTurn2.body.user_prompt_id,
+    `${s1}########1`,
+    "Real user 'Please continue.' on Turn 2 is counted as user prompt index 1"
+  );
 
   // Explicit session_id overrides content anchor deterministically as UUID v4
   const explicitTranslated = translateChatRequestToGeminiCli(
@@ -876,7 +954,11 @@ test("Tier 1: Multi-turn session_id and user_prompt_id continuity, generationCon
     string,
     unknown
   >;
-  assert.equal("maxOutputTokens" in genConfig1, false, "maxOutputTokens must be omitted by default");
+  assert.equal(
+    "maxOutputTokens" in genConfig1,
+    false,
+    "maxOutputTokens must be omitted by default"
+  );
   assert.equal(genConfig1.temperature, 1.0);
   assert.equal(genConfig1.topP, 0.95);
   assert.equal(genConfig1.topK, 64);
