@@ -21,10 +21,25 @@
 
 1. **Worktree-First Development**:
    - All feature work, refactoring, and bug fixes must happen in dedicated topic branches in git worktrees under `OmniRoute-Slim/worktrees/<short-name>`.
-2. **Local Documentation**:
+   - Topic branches must be cut from the dev integration trunk (`feat/dev-superset` or `dev`), never from arbitrary stale points.
+2. **Additive Dev Integration**:
+   - Dev container images must NEVER be dispatched from isolated topic branches.
+   - When a topic branch passes Codex review and local quality gates, merge it into the integration trunk (`feat/dev-superset`).
+   - Every newly landed feature must register its unit test paths in `ops/features.json`.
+   - Run `node scripts/generate-features-matrix.mjs --check` before dispatching a build to verify all registered features remain present and verified.
+3. **Monotonic Tag Grammar & Build Identity**:
+   - Lab images follow the strict tag grammar: `{tier}.{upstream_base}.{seq}.{sha8}` (e.g. `dev.3.8.51.15.3f196e83`).
+   - `{seq}` is the git distance from the upstream alignment pivot: `git rev-list --count $(git merge-base HEAD upstream/v${UPSTREAM_BASE})..HEAD`.
+   - Every additive dev build strictly advances `{seq}`. A lower `{seq}` indicates a stale branch.
+   - Floating aliases: `dev-current` for dev; `prod-current` and `prod-previous` for prod. The legacy `lab-latest` tag is prohibited.
+   - Immutable tags fail closed: `.gitea/workflows/build-lab.yml` blocks overwriting existing published tags unless `allow_overwrite: true` is explicitly provided.
+4. **Runtime Introspection**:
+   - The Dockerfile bakes dynamic OCI labels (`revision`, `ref.name`, `version`, `created`) and runtime build metadata into the image.
+   - Verify deployed instances via `GET /api/system/version` to confirm that `{seq}` and commit SHA advance additively.
+5. **Local Documentation**:
    - Local scratchpads, PR notes, checklists, and design docs must live in `local-ops/docs/`.
    - Never commit temporary files or draft notes to source control.
-3. **Remote Operations & Deployments**:
+6. **Remote Operations & Deployments**:
    - Never push directly to remote git repositories without explicit user confirmation.
    - All docker management and deployments must be performed via `komodo` MCP server tools.
 

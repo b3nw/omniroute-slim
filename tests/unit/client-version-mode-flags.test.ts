@@ -169,7 +169,7 @@ test("fresh install: all four products default to off and getters keep the basel
   );
   assert.match(
     geminiDiscovery.getGeminiCliAuthHeaders("tok")["User-Agent"],
-    /^GeminiCLI\/(?:0\.61\.0|0\.31\.0) /
+    /^GeminiCLI\/(?:0\.66\.0|0\.61\.0|0\.31\.0) /
   );
 });
 
@@ -272,7 +272,7 @@ test("each product getter consults the registry first and falls back when off", 
   assert.equal(codexClient.getCodexClientVersion(), codexClient.DEFAULT_CODEX_CLIENT_VERSION);
   assert.match(
     geminiDiscovery.getGeminiCliAuthHeaders("tok")["User-Agent"],
-    /^GeminiCLI\/(?:0\.61\.0|0\.31\.0) /
+    /^GeminiCLI\/(?:0\.66\.0|0\.61\.0|0\.31\.0) /
   );
 });
 
@@ -1159,7 +1159,7 @@ test("a stale reload paused at the scheduler import cannot resync over a newer r
       { force: true, source: "stale", revision }
     );
     while (registry.getClientVersionRegistryRevision() !== revision) {
-      await Promise.resolve();
+      await new Promise((resolve) => setImmediate(resolve));
     }
     assert.equal(registry.setClientVersionModes(newerModes, { revision: revision + 1 }), true);
     service.syncClientVersionScheduler(newerModes);

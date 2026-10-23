@@ -549,6 +549,10 @@ test("Challenge 4.1: Multi-endpoint fallback chains smoothly on 503 Service Unav
   }) as typeof fetch;
 
   const executor = new GeminiCliExecutor();
+  (executor as unknown as { config: { baseUrls: string[] } }).config.baseUrls = [
+    "https://cloudcode-pa.googleapis.com/v1internal",
+    "https://daily-cloudcode-pa.googleapis.com/v1internal",
+  ];
   const result = await executor.execute({
     model: "gemini-3-flash",
     body: {
@@ -597,6 +601,10 @@ test("Challenge 4.2: Upstream 429 Rate Limit DOES NOT trigger endpoint fallback"
   }) as typeof fetch;
 
   const executor = new GeminiCliExecutor();
+  (executor as unknown as { config: { baseUrls: string[] } }).config.baseUrls = [
+    "https://cloudcode-pa.googleapis.com/v1internal",
+    "https://daily-cloudcode-pa.googleapis.com/v1internal",
+  ];
   const result = await executor.execute({
     model: "gemini-3-flash",
     body: {

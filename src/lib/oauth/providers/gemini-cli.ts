@@ -1,6 +1,7 @@
 import { GEMINI_CLI_CODE_ASSIST_REDIRECT_URI, GEMINI_CLI_CONFIG } from "../constants/oauth";
 import {
   discoverGeminiCliProjectAndTier,
+  getGeminiCliAuthHeaders,
   type GeminiCliDiscoveryResult,
 } from "@omniroute/open-sse/services/geminiCliDiscovery.ts";
 
@@ -83,7 +84,7 @@ async function exchangeGeminiCliToken(
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       Accept: "application/json",
-      "User-Agent": "GeminiCLI/0.31.0",
+      "User-Agent": getGeminiCliAuthHeaders("")["User-Agent"],
     },
     body: new URLSearchParams(bodyParams),
   });
