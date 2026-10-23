@@ -788,7 +788,21 @@ export default function RoutingTab() {
   const systemTransforms = useMemo(() => {
     const raw = settings.systemTransforms;
     if (raw && typeof raw === "object" && raw.providers && typeof raw.providers === "object") {
-      return raw as { providers: Record<string, { enabled: boolean; pipeline: any[] }> };
+      const normalizedProviders: Record<string, { enabled: boolean; pipeline: any[] }> = {};
+      const rawProviders = raw.providers as Record<string, { enabled: boolean; pipeline: any[] }>;
+      for (const [providerId, providerEntry] of Object.entries(rawProviders)) {
+        if (!providerEntry || typeof providerEntry !== "object") continue;
+        const canonicalId = providerId === "gemini_cli" ? PROVIDER_GEMINI_CLI : providerId;
+        if (
+          canonicalId !== providerId &&
+          rawProviders[canonicalId] &&
+          typeof rawProviders[canonicalId] === "object"
+        ) {
+          continue;
+        }
+        normalizedProviders[canonicalId] = providerEntry;
+      }
+      return { providers: normalizedProviders };
     }
     // Legacy migration shim: { enabled, pipeline } → providers[CC_BRIDGE].
     const legacy = settings.ccBridgeTransforms;
@@ -820,17 +834,18 @@ export default function RoutingTab() {
     providerId: string,
     next: { enabled: boolean; pipeline: any[] }
   ) => {
+    const canonicalId = providerId === "gemini_cli" ? PROVIDER_GEMINI_CLI : providerId;
     const merged = {
       providers: {
         ...systemTransforms.providers,
-        [providerId]: next,
+        [canonicalId]: next,
       },
     };
     // Clear any prior save error for this provider so the user sees a fresh
     // state. If the server rejects, the callback below will repopulate it.
-    setProviderSaveErrors((prev) => ({ ...prev, [providerId]: null }));
+    setProviderSaveErrors((prev) => ({ ...prev, [canonicalId]: null }));
     updateSetting({ systemTransforms: merged }, (msg) =>
-      setProviderSaveErrors((prev) => ({ ...prev, [providerId]: msg }))
+      setProviderSaveErrors((prev) => ({ ...prev, [canonicalId]: msg }))
     );
   };
 
@@ -905,7 +920,7 @@ export default function RoutingTab() {
   );
 
   const addProvider = () => {
-    const id = newProviderId;
+    const id = newProviderId === "gemini_cli" ? PROVIDER_GEMINI_CLI : newProviderId;
     if (!id || systemTransforms.providers[id]) return;
     updateProviderTransforms(id, { enabled: false, pipeline: [] });
     setNewProviderId("");

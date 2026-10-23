@@ -387,6 +387,23 @@ function applyObfuscateWords(body: RequestBody, op: ObfuscateWordsOp): void {
           block.text = obfuscateWithList(block.text, words);
         }
       }
+    } else if (
+      body.system === undefined &&
+      !targets.includes("messages") &&
+      Array.isArray(body.messages)
+    ) {
+      for (const msg of body.messages as Array<Record<string, unknown>>) {
+        if (msg?.role !== "system") continue;
+        if (typeof msg.content === "string") {
+          msg.content = obfuscateWithList(msg.content, words);
+        } else if (Array.isArray(msg.content)) {
+          for (const block of msg.content as Array<Record<string, unknown>>) {
+            if (block && typeof block === "object" && typeof block.text === "string") {
+              block.text = obfuscateWithList(block.text, words);
+            }
+          }
+        }
+      }
     }
   }
 
@@ -587,8 +604,17 @@ export function setSystemTransformsConfig(input: unknown): void {
     const providers = candidate.providers as Record<string, unknown>;
     for (const [providerId, providerEntry] of Object.entries(providers)) {
       if (!providerEntry || typeof providerEntry !== "object") continue;
-      const entry = providerEntry as Record<string, unknown>;
       const canonicalId = providerId === "gemini_cli" ? PROVIDER_GEMINI_CLI : providerId;
+      // If both canonical `gemini-cli` and alias `gemini_cli` are present,
+      // canonical `gemini-cli` deterministically takes precedence regardless of key order.
+      if (
+        canonicalId !== providerId &&
+        providers[canonicalId] &&
+        typeof providers[canonicalId] === "object"
+      ) {
+        continue;
+      }
+      const entry = providerEntry as Record<string, unknown>;
       next.providers[canonicalId] = {
         enabled: entry.enabled !== false,
         pipeline: Array.isArray(entry.pipeline) ? (entry.pipeline as TransformOp[]) : [],

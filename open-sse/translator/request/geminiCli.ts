@@ -708,6 +708,15 @@ export function fixToolResponseGrouping(
 
 export const CONTINUE_PROMPT_TEXT = "Please continue.";
 
+const NON_EMPTY_PART_KEYS = [
+  "functionCall",
+  "functionResponse",
+  "inlineData",
+  "fileData",
+  "executableCode",
+  "codeExecutionResult",
+] as const;
+
 /**
  * Mirrors upstream `ensureTerminalUserTurn` (`packages/core/src/core/geminiChat.ts:1919-1936`,
  * commit `249d51c26`): guarantees `contents` ends on a `role: "user"` turn carrying non-empty
@@ -724,8 +733,8 @@ export function ensureTerminalUserTurn(
       (part) =>
         part &&
         typeof part === "object" &&
-        (part.text !== "" ||
-          Object.keys(part).some((k) => k !== "text" && k !== "thought" && k !== "callIndex"))
+        ((typeof part.text === "string" && part.text.trim().length > 0) ||
+          NON_EMPTY_PART_KEYS.some((k) => k in part && part[k] !== undefined && part[k] !== null))
     );
   if (hasNonEmptyParts) {
     return contents;
@@ -1106,6 +1115,17 @@ export function transformMessages(
   };
 }
 
+function cloneForTransform<T>(value: T): T {
+  if (value === undefined || value === null || typeof value !== "object") {
+    return value;
+  }
+  try {
+    return structuredClone(value);
+  } catch {
+    return JSON.parse(JSON.stringify(value)) as T;
+  }
+}
+
 export function translateChatRequestToGeminiCli(
   request: Record<string, unknown>,
   connection?: { projectId?: string; tier?: string } | null
@@ -1137,11 +1157,11 @@ export function translateChatRequestToGeminiCli(
   }
 
   const rawMessages = Array.isArray(request.messages)
-    ? (request.messages as Array<Record<string, unknown>>)
+    ? cloneForTransform(request.messages as Array<Record<string, unknown>>)
     : [];
-  const { systemInstruction, contents } = transformMessages(rawMessages, model);
-
-  const groupedContents = fixToolResponseGrouping(contents);
+  const clonedTools = Array.isArray(request.tools)
+    ? cloneForTransform(request.tools as Array<Record<string, unknown>>)
+    : undefined;
 
   const initialSystemBlocks: Array<{ type: string; text: string }> = [];
   if (typeof request.system === "string" && request.system) {
@@ -1160,20 +1180,45 @@ export function translateChatRequestToGeminiCli(
       }
     }
   }
-  if (systemInstruction && Array.isArray(systemInstruction.parts)) {
-    for (const part of systemInstruction.parts) {
-      if (typeof part.text === "string" && part.text) {
-        initialSystemBlocks.push({ type: "text", text: part.text });
+
+  let messageSystemText = "";
+  const nonSystemMessages: Array<Record<string, unknown>> = [];
+  for (const msg of rawMessages) {
+    if ((msg?.role as string) === "system") {
+      const content = msg.content;
+      let extracted = "";
+      if (typeof content === "string") {
+        extracted = content;
+      } else if (Array.isArray(content)) {
+        extracted = content
+          .map((c) => (typeof c === "string" ? c : (c as Record<string, unknown>)?.text || ""))
+          .join("\n");
       }
+      if (extracted) {
+        messageSystemText = messageSystemText ? `${messageSystemText}\n\n${extracted}` : extracted;
+      }
+    } else {
+      nonSystemMessages.push(msg);
     }
+  }
+  if (messageSystemText) {
+    initialSystemBlocks.push({ type: "text", text: messageSystemText });
   }
 
   const transformBody: Record<string, unknown> = {
     system: initialSystemBlocks,
-    messages: rawMessages,
-    tools: request.tools,
+    messages: nonSystemMessages,
+    tools: clonedTools,
   };
   applySystemTransformPipeline(PROVIDER_GEMINI_CLI, transformBody);
+
+  const { contents } = transformMessages(
+    Array.isArray(transformBody.messages)
+      ? (transformBody.messages as Array<Record<string, unknown>>)
+      : [],
+    model
+  );
+  const groupedContents = fixToolResponseGrouping(contents);
 
   const transformedSystemTexts = Array.isArray(transformBody.system)
     ? (transformBody.system as Array<{ type?: string; text?: string }>)
@@ -1192,8 +1237,11 @@ export function translateChatRequestToGeminiCli(
       : undefined;
 
   let toolsList: Array<{ functionDeclarations: Array<Record<string, unknown>> }> | undefined;
-  if (Array.isArray(request.tools) && request.tools.length > 0) {
-    const decls = transformToolSchemas(request.tools, model);
+  const transformedTools = Array.isArray(transformBody.tools)
+    ? (transformBody.tools as Array<Record<string, unknown>>)
+    : [];
+  if (transformedTools.length > 0) {
+    const decls = transformToolSchemas(transformedTools, model);
     if (decls.length > 0) {
       toolsList = [{ functionDeclarations: decls }];
 

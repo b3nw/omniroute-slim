@@ -61,6 +61,7 @@ const transformPrependSystemBlockSchema = z.object({
   kind: z.literal("prepend_system_block"),
   text: z.string().min(1).max(2000),
   idempotencyKey: z.string().max(100).optional(),
+  skipIfContains: z.string().max(500).optional(),
 });
 
 const transformAppendSystemBlockSchema = z.object({

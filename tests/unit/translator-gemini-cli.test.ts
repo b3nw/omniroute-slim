@@ -23,6 +23,8 @@ import {
   parseContentParts,
   fixToolResponseGrouping,
   _fix_tool_response_grouping,
+  ensureTerminalUserTurn,
+  CONTINUE_PROMPT_TEXT,
   handleReasoningParameters,
   translateToolChoice,
   transformMessages,
@@ -43,7 +45,13 @@ import {
   clearGeminiThoughtSignatures,
   clearGeminiThoughtSignatureMemoryForTests,
 } from "../../open-sse/services/geminiThoughtSignatureStore.ts";
-import { GEMINI_CLI_SYSTEM_PREAMBLE } from "../../open-sse/services/systemTransforms.ts";
+import {
+  GEMINI_CLI_SYSTEM_PREAMBLE,
+  PROVIDER_GEMINI_CLI,
+  DEFAULT_GEMINI_CLI_PIPELINE,
+  setSystemTransformsConfig,
+  resetSystemTransformsConfig,
+} from "../../open-sse/services/systemTransforms.ts";
 
 // ============================================================================
 // TIER 1: Model Remapping, Fingerprinting & Request/Response Envelopes
@@ -885,4 +893,80 @@ test("Phase 3: translateChatRequestToGeminiCli scrubs 3rd-party system prompts, 
       }
     ).systemInstruction?.parts[0].text || "";
   assert.equal(alreadySysText, `${GEMINI_CLI_SYSTEM_PREAMBLE}\n\nAdditional custom instructions.`);
+});
+
+test("Phase 3: translateChatRequestToGeminiCli does not mutate caller request in place and applies obfuscate_words to outgoing contents and tools", () => {
+  try {
+    setSystemTransformsConfig({
+      providers: {
+        [PROVIDER_GEMINI_CLI]: {
+          enabled: true,
+          pipeline: [
+            ...DEFAULT_GEMINI_CLI_PIPELINE,
+            {
+              kind: "obfuscate_words",
+              words: ["opencode"],
+              targets: ["system", "messages", "tools"],
+            },
+          ],
+        },
+      },
+    });
+
+    const callerReq: OpenAIChatRequest = {
+      model: "gemini-3-flash",
+      messages: [
+        { role: "system", content: "Helper for opencode workflow." },
+        { role: "user", content: "Run opencode check" },
+      ],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "check_env",
+            description: "Checks opencode environment",
+            parameters: { type: "object", properties: {} },
+          },
+        },
+      ],
+    };
+    const snapshotBefore = JSON.stringify(callerReq);
+
+    const translated = translateChatRequestToGeminiCli(callerReq);
+    // Caller request must not be mutated in place
+    assert.equal(JSON.stringify(callerReq), snapshotBefore);
+
+    const reqPayload = translated.body.request as {
+      systemInstruction?: { parts: Array<{ text: string }> };
+      contents: Array<{ role: string; parts: Array<{ text?: string }> }>;
+      tools?: Array<{ functionDeclarations: Array<{ description: string }> }>;
+    };
+    const zwjWord = "o\u200dpencode";
+    assert.ok(reqPayload.systemInstruction?.parts[0].text.includes(zwjWord));
+    assert.ok(reqPayload.contents[0].parts[0].text?.includes(zwjWord));
+    assert.ok(reqPayload.tools?.[0].functionDeclarations[0].description.includes(zwjWord));
+  } finally {
+    resetSystemTransformsConfig();
+  }
+});
+
+test("Phase 3: ensureTerminalUserTurn replaces empty or metadata-only terminal user parts with CONTINUE_PROMPT_TEXT", () => {
+  const emptyObjectTurn = ensureTerminalUserTurn([{ role: "user", parts: [{}] }]);
+  assert.deepEqual(emptyObjectTurn, [{ role: "user", parts: [{ text: CONTINUE_PROMPT_TEXT }] }]);
+
+  const thoughtOnlyTurn = ensureTerminalUserTurn([{ role: "user", parts: [{ thought: false }] }]);
+  assert.deepEqual(thoughtOnlyTurn, [{ role: "user", parts: [{ text: CONTINUE_PROMPT_TEXT }] }]);
+
+  const whitespaceOnlyTurn = ensureTerminalUserTurn([{ role: "user", parts: [{ text: "   " }] }]);
+  assert.deepEqual(whitespaceOnlyTurn, [{ role: "user", parts: [{ text: CONTINUE_PROMPT_TEXT }] }]);
+
+  const modelTerminalTurn = ensureTerminalUserTurn([
+    { role: "user", parts: [{ text: "Hello" }] },
+    { role: "model", parts: [{ text: "Thinking..." }] },
+  ]);
+  assert.equal(modelTerminalTurn.length, 3);
+  assert.deepEqual(modelTerminalTurn[2], {
+    role: "user",
+    parts: [{ text: CONTINUE_PROMPT_TEXT }],
+  });
 });

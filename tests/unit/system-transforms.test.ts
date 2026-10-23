@@ -20,6 +20,7 @@ const {
   PROVIDER_GEMINI_CLI,
   GEMINI_CLI_SYSTEM_PREAMBLE,
 } = await import("../../open-sse/services/systemTransforms.ts");
+const { updateSettingsSchema } = await import("../../src/shared/validation/settingsSchemas.ts");
 
 const ZWJ = "\u200d";
 
@@ -342,6 +343,78 @@ test("applySystemTransformPipeline: gemini-cli does not double-prepend if 'You a
   const blocks = body.system as Array<{ text: string }>;
   assert.equal(blocks.length, 1);
   assert.equal(blocks[0].text, `${existingPreamble}\n\nFollow repository rules.`);
+});
+
+test("applySystemTransformPipeline: OpenAI-style body with role: 'system' message updates body.messages without adding top-level body.system", () => {
+  const body: Record<string, unknown> = {
+    messages: [
+      {
+        role: "system",
+        content: [
+          "You are OpenCode, an interactive CLI agent.",
+          { type: "text", text: "Always use strict types." },
+        ],
+      },
+      { role: "user", content: "hi" },
+    ],
+  };
+  applySystemTransformPipeline("gemini-cli", body, DEFAULT_SYSTEM_TRANSFORMS_CONFIG);
+  assert.equal(body.system, undefined);
+  const msgs = body.messages as Array<{ role: string; content: string }>;
+  assert.equal(msgs[0].role, "system");
+  assert.ok(msgs[0].content.startsWith(GEMINI_CLI_SYSTEM_PREAMBLE));
+  assert.ok(!msgs[0].content.includes("You are OpenCode"));
+  assert.ok(msgs[0].content.includes("Always use strict types."));
+});
+
+test("updateSettingsSchema preserves skipIfContains on prepend_system_block round-trip", () => {
+  const parsed = updateSettingsSchema.parse({
+    systemTransforms: DEFAULT_SYSTEM_TRANSFORMS_CONFIG,
+  });
+  const geminiPipeline = parsed.systemTransforms?.providers["gemini-cli"]?.pipeline || [];
+  const prependOp = geminiPipeline.find(
+    (op: { kind: string }) => op.kind === "prepend_system_block"
+  ) as { kind: string; text: string; skipIfContains?: string } | undefined;
+  assert.ok(prependOp);
+  assert.equal(prependOp.skipIfContains, "You are Gemini CLI");
+});
+
+test("setSystemTransformsConfig deterministically prefers canonical gemini-cli over gemini_cli alias regardless of key order", () => {
+  const canonicalEntry = {
+    enabled: true,
+    pipeline: [{ kind: "prepend_system_block", text: "canonical-gemini-cli" }],
+  };
+  const aliasEntry = {
+    enabled: false,
+    pipeline: [{ kind: "prepend_system_block", text: "alias-gemini-cli" }],
+  };
+
+  setSystemTransformsConfig({
+    providers: {
+      "gemini-cli": canonicalEntry,
+      gemini_cli: aliasEntry,
+    },
+  });
+  assert.equal(getSystemTransformsConfig().providers[PROVIDER_GEMINI_CLI].enabled, true);
+  assert.equal(
+    (getSystemTransformsConfig().providers[PROVIDER_GEMINI_CLI].pipeline[0] as { text: string })
+      .text,
+    "canonical-gemini-cli"
+  );
+
+  setSystemTransformsConfig({
+    providers: {
+      gemini_cli: aliasEntry,
+      "gemini-cli": canonicalEntry,
+    },
+  });
+  assert.equal(getSystemTransformsConfig().providers[PROVIDER_GEMINI_CLI].enabled, true);
+  assert.equal(
+    (getSystemTransformsConfig().providers[PROVIDER_GEMINI_CLI].pipeline[0] as { text: string })
+      .text,
+    "canonical-gemini-cli"
+  );
+  resetSystemTransformsConfig();
 });
 
 // ────────────────────────────────────────────────────────────────────────────

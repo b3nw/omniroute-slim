@@ -216,7 +216,7 @@ interface MessageContentBlock {
 
 interface Message {
   role?: string;
-  content?: string | MessageContentBlock[];
+  content?: string | Array<string | MessageContentBlock>;
   [key: string]: unknown;
 }
 
@@ -232,7 +232,12 @@ export function extractFirstUserMessageText(messages: Message[]): string {
     if (typeof msg.content === "string") return msg.content;
     if (Array.isArray(msg.content)) {
       for (const block of msg.content) {
-        if (block?.type === "text" && typeof block.text === "string") {
+        if (
+          block &&
+          typeof block === "object" &&
+          block.type === "text" &&
+          typeof block.text === "string"
+        ) {
           return block.text;
         }
       }
@@ -595,7 +600,6 @@ export function applyCcBridgeTransformPipeline(
   // ex-machina sanitizeSystemText trim semantics).
   blocks = blocks.filter((b) => !isTextBlock(b) || b.text.length > 0);
 
-  body.system = blocks;
   if (hasSystemMessages && Array.isArray(body.messages)) {
     const nonSystem = body.messages.filter((m) => m?.role !== "system");
     const joinedText = blocks
@@ -605,6 +609,8 @@ export function applyCcBridgeTransformPipeline(
     body.messages = joinedText
       ? [{ role: "system", content: joinedText }, ...nonSystem]
       : nonSystem;
+  } else {
+    body.system = blocks;
   }
   return { body, appliedOpKinds };
 }
