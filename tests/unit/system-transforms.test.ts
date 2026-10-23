@@ -10,12 +10,15 @@ const {
   DEFAULT_SYSTEM_TRANSFORMS_CONFIG,
   DEFAULT_CLAUDE_PIPELINE,
   DEFAULT_CC_BRIDGE_PROVIDER_PIPELINE,
+  DEFAULT_GEMINI_CLI_PIPELINE,
   DEFAULT_OBFUSCATE_WORDS,
   OPENWEBUI_PARAGRAPH_ANCHORS,
   OPENWEBUI_IDENTITY_PREFIXES,
   PI_PARAGRAPH_ANCHORS,
   PROVIDER_CLAUDE,
   PROVIDER_CC_BRIDGE,
+  PROVIDER_GEMINI_CLI,
+  GEMINI_CLI_SYSTEM_PREAMBLE,
 } = await import("../../open-sse/services/systemTransforms.ts");
 
 const ZWJ = "\u200d";
@@ -24,11 +27,18 @@ const ZWJ = "\u200d";
 // Defaults
 // ────────────────────────────────────────────────────────────────────────────
 
-test("defaults: PROVIDER_CLAUDE and PROVIDER_CC_BRIDGE keys are present", () => {
+test("defaults: PROVIDER_CLAUDE, PROVIDER_CC_BRIDGE, and PROVIDER_GEMINI_CLI keys are present", () => {
   assert.equal(PROVIDER_CLAUDE, "claude");
   assert.equal(PROVIDER_CC_BRIDGE, "anthropic-compatible-cc");
+  assert.equal(PROVIDER_GEMINI_CLI, "gemini-cli");
   assert.ok(DEFAULT_SYSTEM_TRANSFORMS_CONFIG.providers[PROVIDER_CLAUDE]);
   assert.ok(DEFAULT_SYSTEM_TRANSFORMS_CONFIG.providers[PROVIDER_CC_BRIDGE]);
+  assert.ok(DEFAULT_SYSTEM_TRANSFORMS_CONFIG.providers[PROVIDER_GEMINI_CLI]);
+  assert.equal(DEFAULT_SYSTEM_TRANSFORMS_CONFIG.providers[PROVIDER_GEMINI_CLI].enabled, true);
+  assert.deepEqual(
+    DEFAULT_SYSTEM_TRANSFORMS_CONFIG.providers[PROVIDER_GEMINI_CLI].pipeline,
+    DEFAULT_GEMINI_CLI_PIPELINE
+  );
 });
 
 test("defaults: claude pipeline omits inject_billing_header", () => {
@@ -279,6 +289,59 @@ test("applySystemTransformPipeline: anthropic-compatible-cc-* falls back to PROV
   assert.ok(result.appliedOpKinds.includes("inject_billing_header"));
   const blocks = body.system as Array<{ text: string }>;
   assert.ok(blocks[0].text.startsWith("x-anthropic-billing-header:"));
+});
+
+test("applySystemTransformPipeline: gemini-cli and gemini_cli scrub 3rd-party prompts and prepend Gemini CLI preamble", () => {
+  for (const providerId of ["gemini-cli", "gemini_cli"]) {
+    const body = {
+      system: [
+        {
+          type: "text",
+          text: [
+            "You are Hermes Agent, an intelligent AI assistant created by Nous Research.",
+            "You are OpenCode, an interactive CLI tool.",
+            "See documentation at https://hermes-agent.nousresearch.com/docs and github.com/anomalyco/opencode.",
+            "Here is some useful information about the environment you are running in:",
+            "Always write clean TypeScript.",
+          ].join("\n\n"),
+        },
+      ],
+      messages: [{ role: "user", content: "hi" }],
+    };
+
+    const result = applySystemTransformPipeline(
+      providerId,
+      body,
+      DEFAULT_SYSTEM_TRANSFORMS_CONFIG
+    );
+    assert.ok(result.appliedOpKinds.includes("drop_paragraph_if_contains"));
+    assert.ok(result.appliedOpKinds.includes("drop_paragraph_if_starts_with"));
+    assert.ok(result.appliedOpKinds.includes("replace_text"));
+    assert.ok(result.appliedOpKinds.includes("prepend_system_block"));
+
+    const blocks = body.system as Array<{ text: string }>;
+    assert.equal(blocks[0].text, GEMINI_CLI_SYSTEM_PREAMBLE);
+    const combined = blocks.map((b) => b.text).join("\n\n");
+    assert.ok(!combined.includes("You are Hermes Agent"));
+    assert.ok(!combined.includes("You are OpenCode"));
+    assert.ok(!combined.includes("hermes-agent.nousresearch.com"));
+    assert.ok(!combined.includes("github.com/anomalyco/opencode"));
+    assert.ok(combined.includes("Environment context you are running in:"));
+    assert.ok(combined.includes("Always write clean TypeScript."));
+  }
+});
+
+test("applySystemTransformPipeline: gemini-cli does not double-prepend if 'You are Gemini CLI' is already present", () => {
+  const existingPreamble =
+    "You are Gemini CLI, an interactive CLI agent specializing in software engineering tasks. Custom mode.";
+  const body = {
+    system: [{ type: "text", text: `${existingPreamble}\n\nFollow repository rules.` }],
+    messages: [{ role: "user", content: "hi" }],
+  };
+  applySystemTransformPipeline("gemini-cli", body, DEFAULT_SYSTEM_TRANSFORMS_CONFIG);
+  const blocks = body.system as Array<{ text: string }>;
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].text, `${existingPreamble}\n\nFollow repository rules.`);
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -560,6 +623,50 @@ const UI_DEFAULTS_SNAPSHOT = {
           versionFormat: "ex-machina",
           cchAlgo: "sha256-first-user",
           buildRevision: "1f2",
+        },
+      ],
+    },
+    "gemini-cli": {
+      enabled: true,
+      pipeline: [
+        {
+          kind: "drop_paragraph_if_contains",
+          needles: [
+            "github.com/anomalyco/opencode",
+            "opencode.ai/docs",
+            "github.com/cline/cline",
+            "github.com/getcursor/cursor",
+            "continue.dev",
+            "github.com/open-webui/open-webui",
+            "openwebui.com",
+            "docs.openwebui.com",
+            "@earendil-works/pi-coding-agent",
+            "/.pi/",
+            "Pi documentation (read only when the user asks about pi itself",
+            "hermes-agent.nousresearch.com",
+            "github.com/NousResearch/hermes-agent",
+          ],
+        },
+        {
+          kind: "drop_paragraph_if_starts_with",
+          prefixes: ["You are OpenCode", "You are Open WebUI", "You are Hermes Agent"],
+        },
+        {
+          kind: "replace_text",
+          match: "if OpenCode honestly",
+          replacement: "if the assistant honestly",
+          allOccurrences: true,
+        },
+        {
+          kind: "replace_text",
+          match: "Here is some useful information about the environment you are running in:",
+          replacement: "Environment context you are running in:",
+          allOccurrences: true,
+        },
+        {
+          kind: "prepend_system_block",
+          text: "You are Gemini CLI, an interactive CLI agent specializing in software engineering tasks. You are currently operating in **Default** mode. Your primary goal is to help users safely and effectively.",
+          skipIfContains: "You are Gemini CLI",
         },
       ],
     },

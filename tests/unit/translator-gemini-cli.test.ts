@@ -43,6 +43,7 @@ import {
   clearGeminiThoughtSignatures,
   clearGeminiThoughtSignatureMemoryForTests,
 } from "../../open-sse/services/geminiThoughtSignatureStore.ts";
+import { GEMINI_CLI_SYSTEM_PREAMBLE } from "../../open-sse/services/systemTransforms.ts";
 
 // ============================================================================
 // TIER 1: Model Remapping, Fingerprinting & Request/Response Envelopes
@@ -172,7 +173,7 @@ test("Tier 1: Message & Multipart Translation into CCPA Contents Envelope", () =
     role: string;
     parts: Array<Record<string, unknown>>;
   }>;
-  assert.equal(contents.length, 2);
+  assert.equal(contents.length, 3);
 
   assert.equal(contents[0].role, "user");
   assert.equal(contents[0].parts[0].text, "Analyze this image diagram:");
@@ -183,11 +184,18 @@ test("Tier 1: Message & Multipart Translation into CCPA Contents Envelope", () =
   assert.equal(contents[1].role, "model");
   assert.equal(contents[1].parts[0].text, "I see a single 1x1 pixel image.");
 
+  // Terminal turn is normalized to a user turn carrying content (ensureTerminalUserTurn)
+  assert.equal(contents[2].role, "user");
+  assert.equal(contents[2].parts[0].text, "Please continue.");
+
   const sysInstruction = requestPayload.systemInstruction as {
     role: string;
     parts: Array<{ text: string }>;
   };
-  assert.equal(sysInstruction.parts[0].text, "You are an expert fullstack software architect.");
+  assert.equal(
+    sysInstruction.parts[0].text,
+    `${GEMINI_CLI_SYSTEM_PREAMBLE}\n\nYou are an expert fullstack software architect.`
+  );
 });
 
 test("Tier 1: Response Translation - Streaming Chunk Translation", () => {
@@ -402,7 +410,7 @@ test("Tier 2: Schema Ref Inlining, Cleaning & Strict Schema Enforcement", () => 
   assert.equal(strict.properties.location.additionalProperties, false);
 });
 
-test("Tier 2: Tool Transformation, gemini3_ Prefix & _confirm BOOLEAN Injection", () => {
+test("Tier 2: Tool Transformation Preserves Clean Tool Names & Descriptions + _confirm BOOLEAN Injection", () => {
   const tools = [
     {
       type: "function",
@@ -434,17 +442,18 @@ test("Tier 2: Tool Transformation, gemini3_ Prefix & _confirm BOOLEAN Injection"
   const transformed = transformToolSchemas(tools, "gemini-3-flash");
   assert.equal(transformed.length, 2);
 
-  // Gemini 3 tools get prefix gemini3_ and strict parameters hint injected into description
-  assert.equal(transformed[0].name, "gemini3_queryDatabase");
+  // Clean tool names and clean descriptions by default (no gemini3_ prefix, no STRICT PARAMETERS)
+  assert.equal(transformed[0].name, "queryDatabase");
+  assert.equal(transformed[0].description, "Runs a SQL query");
   assert.ok(
-    String(transformed[0].description).includes("STRICT PARAMETERS"),
-    "Should inject parameter hints into description for Gemini 3"
+    !String(transformed[0].description).includes("STRICT PARAMETERS"),
+    "Must NOT inject STRICT PARAMETERS into description by default"
   );
   const schema0 = transformed[0].parametersJsonSchema as { additionalProperties?: boolean };
   assert.equal(schema0.additionalProperties, false);
 
-  // Parameterless tool receives _confirm with type "BOOLEAN"
-  assert.equal(transformed[1].name, "gemini3_getSystemInfo");
+  // Parameterless tool receives _confirm with type "BOOLEAN" and clean name
+  assert.equal(transformed[1].name, "getSystemInfo");
   const schema1 = transformed[1].parametersJsonSchema as {
     type?: string;
     properties?: Record<string, unknown>;
@@ -716,11 +725,12 @@ test("Tier 3: Combinatorial Matrix Across Models, Tools and Reasoning Configurat
         if (isGemini3(model)) {
           assert.equal(translated.body.model, "gemini-3-flash");
           assert.ok(genConfig.thinkingConfig?.thinkingLevel);
+          assert.equal(reqObj.systemInstruction?.parts[0].text, GEMINI_CLI_SYSTEM_PREAMBLE);
+          assert.ok(
+            !reqObj.systemInstruction?.parts[0].text.includes("CRITICAL_TOOL_USAGE_INSTRUCTIONS")
+          );
           if (tools && tools.length > 0) {
-            assert.ok(
-              reqObj.systemInstruction?.parts[0].text.includes("CRITICAL_TOOL_USAGE_INSTRUCTIONS")
-            );
-            assert.ok(reqObj.tools?.[0].functionDeclarations[0].name.startsWith("gemini3_"));
+            assert.equal(reqObj.tools?.[0].functionDeclarations[0].name, "calculateSum");
           }
         } else {
           assert.equal(translated.body.model, "gemini-2.5-pro");
@@ -729,4 +739,150 @@ test("Tier 3: Combinatorial Matrix Across Models, Tools and Reasoning Configurat
       }
     }
   }
+});
+
+test("Phase 3: translateChatRequestToGeminiCli scrubs 3rd-party system prompts, prepends Gemini CLI preamble without double-prepending, and preserves clean tool declarations", () => {
+  clearGeminiThoughtSignatureMemoryForTests();
+
+  const reqWithThirdPartyPrompt: OpenAIChatRequest = {
+    model: "gemini-3-flash",
+    messages: [
+      {
+        role: "system",
+        content: [
+          "You are Hermes Agent, an intelligent AI assistant created by Nous Research.",
+          "You are OpenCode, an interactive CLI agent.",
+          "See https://hermes-agent.nousresearch.com and github.com/anomalyco/opencode.",
+          "Project rule: use strict TypeScript.",
+        ].join("\n\n"),
+      },
+      { role: "user", content: "Read the config file and run tests" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_read_1",
+            type: "function",
+            function: { name: "read_file", arguments: '{"path":"tsconfig.json"}' },
+          },
+          {
+            id: "call_bash_2",
+            type: "function",
+            function: { name: "bash", arguments: '{"command":"npm test"}' },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_read_1",
+        name: "read_file",
+        content: '{"compilerOptions":{"strict":true}}',
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_bash_2",
+        name: "bash",
+        content: '{"exitCode":0}',
+      },
+    ],
+    tools: [
+      {
+        type: "function",
+        function: {
+          name: "read_file",
+          description: "Reads a file from disk",
+          parameters: {
+            type: "object",
+            properties: { path: { type: "string" } },
+            required: ["path"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "bash",
+          description: "Executes a bash command",
+          parameters: {
+            type: "object",
+            properties: { command: { type: "string" } },
+            required: ["command"],
+          },
+        },
+      },
+    ],
+    tool_choice: { type: "function", function: { name: "read_file" } },
+  };
+
+  const translated = translateChatRequestToGeminiCli(reqWithThirdPartyPrompt, {
+    projectId: "proj-phase3",
+  });
+  const reqPayload = translated.body.request as {
+    systemInstruction?: { role: string; parts: Array<{ text: string }> };
+    tools?: Array<{ functionDeclarations: Array<{ name: string; description: string }> }>;
+    toolConfig?: { functionCallingConfig: { mode: string; allowedFunctionNames?: string[] } };
+    contents: Array<{
+      role: string;
+      parts: Array<{
+        text?: string;
+        thoughtSignature?: string;
+        functionCall?: { name: string; id: string };
+        functionResponse?: { name: string; id: string };
+      }>;
+    }>;
+  };
+
+  // 1. System prompt scrubbed and preamble prepended
+  const sysText = reqPayload.systemInstruction?.parts[0].text || "";
+  assert.ok(sysText.startsWith(GEMINI_CLI_SYSTEM_PREAMBLE));
+  assert.ok(!sysText.includes("You are Hermes Agent"));
+  assert.ok(!sysText.includes("You are OpenCode"));
+  assert.ok(!sysText.includes("hermes-agent.nousresearch.com"));
+  assert.ok(!sysText.includes("github.com/anomalyco/opencode"));
+  assert.ok(!sysText.includes("CRITICAL_TOOL_USAGE_INSTRUCTIONS"));
+  assert.ok(sysText.includes("Project rule: use strict TypeScript."));
+
+  // 2. Clean tool declarations and toolConfig without gemini3_ or STRICT PARAMETERS
+  const decls = reqPayload.tools?.[0].functionDeclarations || [];
+  assert.equal(decls.length, 2);
+  assert.equal(decls[0].name, "read_file");
+  assert.equal(decls[0].description, "Reads a file from disk");
+  assert.equal(decls[1].name, "bash");
+  assert.equal(decls[1].description, "Executes a bash command");
+  assert.deepEqual(reqPayload.toolConfig?.functionCallingConfig.allowedFunctionNames, ["read_file"]);
+
+  // 3. Clean functionCall and functionResponse names + thoughtSignature on first functionCall only
+  const modelTurn = reqPayload.contents.find((c) => c.role === "model");
+  assert.ok(modelTurn);
+  assert.equal(modelTurn.parts[0].functionCall?.name, "read_file");
+  assert.equal(modelTurn.parts[0].thoughtSignature, "skip_thought_signature_validator");
+  assert.equal(modelTurn.parts[1].functionCall?.name, "bash");
+  assert.equal(modelTurn.parts[1].thoughtSignature, undefined);
+
+  const lastTurn = reqPayload.contents.at(-1);
+  assert.ok(lastTurn);
+  assert.equal(lastTurn.role, "user");
+  assert.equal(lastTurn.parts[0].functionResponse?.name, "read_file");
+  assert.equal(lastTurn.parts[1].functionResponse?.name, "bash");
+
+  // 4. Does not double-prepend when "You are Gemini CLI" is already present
+  const alreadyGeminiReq: OpenAIChatRequest = {
+    model: "gemini-3-flash",
+    messages: [
+      {
+        role: "system",
+        content: `${GEMINI_CLI_SYSTEM_PREAMBLE}\n\nAdditional custom instructions.`,
+      },
+      { role: "user", content: "Hello" },
+    ],
+  };
+  const alreadyTranslated = translateChatRequestToGeminiCli(alreadyGeminiReq);
+  const alreadySysText =
+    (
+      alreadyTranslated.body.request as {
+        systemInstruction?: { parts: Array<{ text: string }> };
+      }
+    ).systemInstruction?.parts[0].text || "";
+  assert.equal(alreadySysText, `${GEMINI_CLI_SYSTEM_PREAMBLE}\n\nAdditional custom instructions.`);
 });

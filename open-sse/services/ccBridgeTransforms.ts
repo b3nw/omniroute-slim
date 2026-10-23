@@ -77,6 +77,8 @@ export interface PrependSystemBlockOp {
   text: string;
   /** Skip if any earlier block already starts with this prefix. */
   idempotencyKey?: string;
+  /** Skip if any existing text block already contains this substring. */
+  skipIfContains?: string;
 }
 
 export interface AppendSystemBlockOp {
@@ -347,6 +349,30 @@ function normalizeSystemToBlocks(system: unknown): SystemBlock[] {
   return [];
 }
 
+function extractSystemBlocksFromMessages(messages: Message[]): SystemBlock[] {
+  const blocks: SystemBlock[] = [];
+  for (const msg of messages) {
+    if (msg?.role !== "system") continue;
+    if (typeof msg.content === "string") {
+      if (msg.content.length > 0) blocks.push({ type: "text", text: msg.content });
+    } else if (Array.isArray(msg.content)) {
+      for (const part of msg.content) {
+        if (typeof part === "string" && part.length > 0) {
+          blocks.push({ type: "text", text: part });
+        } else if (
+          part &&
+          typeof part === "object" &&
+          typeof part.text === "string" &&
+          part.text.length > 0
+        ) {
+          blocks.push({ type: "text", text: part.text });
+        }
+      }
+    }
+  }
+  return blocks;
+}
+
 function isTextBlock(block: SystemBlock): block is SystemBlock & { text: string } {
   return block.type === "text" && typeof block.text === "string";
 }
@@ -441,6 +467,12 @@ function applyDropBlockIfContains(blocks: SystemBlock[], op: DropBlockIfContains
 
 function applyPrependSystemBlock(blocks: SystemBlock[], op: PrependSystemBlockOp): SystemBlock[] {
   if (!op.text) return blocks;
+  if (
+    op.skipIfContains &&
+    blocks.some((b) => isTextBlock(b) && b.text.includes(op.skipIfContains!))
+  ) {
+    return blocks;
+  }
   // Idempotency: skip if any text block already starts with idempotencyKey (when
   // set) or with op.text itself (default). Scans ALL blocks, not just the first.
   const prefix = op.idempotencyKey ?? op.text;
@@ -514,7 +546,15 @@ export function applyCcBridgeTransformPipeline(
     return { body, appliedOpKinds: [] };
   }
 
-  let blocks = normalizeSystemToBlocks(body.system);
+  const hadExplicitSystem = body.system !== undefined;
+  const hasSystemMessages =
+    !hadExplicitSystem &&
+    Array.isArray(body.messages) &&
+    body.messages.some((m) => m && typeof m === "object" && m.role === "system");
+
+  let blocks = hasSystemMessages
+    ? extractSystemBlocksFromMessages(body.messages!)
+    : normalizeSystemToBlocks(body.system);
   const appliedOpKinds: string[] = [];
 
   for (const op of config.pipeline) {
@@ -556,6 +596,16 @@ export function applyCcBridgeTransformPipeline(
   blocks = blocks.filter((b) => !isTextBlock(b) || b.text.length > 0);
 
   body.system = blocks;
+  if (hasSystemMessages && Array.isArray(body.messages)) {
+    const nonSystem = body.messages.filter((m) => m?.role !== "system");
+    const joinedText = blocks
+      .filter(isTextBlock)
+      .map((b) => b.text)
+      .join("\n\n");
+    body.messages = joinedText
+      ? [{ role: "system", content: joinedText }, ...nonSystem]
+      : nonSystem;
+  }
   return { body, appliedOpKinds };
 }
 

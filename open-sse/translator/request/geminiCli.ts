@@ -1,5 +1,9 @@
 import { createHash, randomBytes, randomUUID } from "crypto";
 import { getGeminiThoughtSignature } from "../../services/geminiThoughtSignatureStore.ts";
+import {
+  applySystemTransformPipeline,
+  PROVIDER_GEMINI_CLI,
+} from "../../services/systemTransforms.ts";
 
 export type OpenAIChatRequest = Record<string, unknown>;
 
@@ -34,6 +38,15 @@ export function sanitizeGeminiCliProjectId(projectId: unknown): string | undefin
 }
 
 export const GEMINI3_TOOL_PREFIX = "gemini3_";
+
+/**
+ * Upstream `google-gemini/gemini-cli` never prefixes tool names with `gemini3_`
+ * and never injects `<CRITICAL_TOOL_USAGE_INSTRUCTIONS>` or `STRICT PARAMETERS`.
+ * Keep legacy prefixing strictly opt-in via `GEMINI_CLI_LEGACY_TOOL_PREFIX=1`.
+ */
+export function isGeminiCliLegacyToolPrefixEnabled(): boolean {
+  return process.env.GEMINI_CLI_LEGACY_TOOL_PREFIX === "1";
+}
 
 export const GEMINI3_TOOL_RENAMES: Record<string, string> = {
   // Problematic tool names can be mapped here if needed
@@ -478,12 +491,6 @@ export function transformToolSchemas(tools: unknown[], model = ""): Array<Record
     }
 
     if (isGem3) {
-      let name = (funcDef.name as string) || "";
-      if (name) {
-        name = GEMINI3_TOOL_RENAMES[name] || name;
-        funcDef.name = `${GEMINI3_TOOL_PREFIX}${name}`;
-      }
-
       if (funcDef.parametersJsonSchema) {
         funcDef.parametersJsonSchema = enforceStrictSchema(funcDef.parametersJsonSchema) as Record<
           string,
@@ -491,7 +498,15 @@ export function transformToolSchemas(tools: unknown[], model = ""): Array<Record
         >;
       }
 
-      funcDef = injectSignatureIntoDescription(funcDef);
+      if (isGeminiCliLegacyToolPrefixEnabled()) {
+        let name = (funcDef.name as string) || "";
+        if (name) {
+          name = GEMINI3_TOOL_RENAMES[name] || name;
+          funcDef.name = `${GEMINI3_TOOL_PREFIX}${name}`;
+        }
+
+        funcDef = injectSignatureIntoDescription(funcDef);
+      }
     }
 
     transformedDeclarations.push(funcDef);
@@ -688,7 +703,37 @@ export function fixToolResponseGrouping(
     }
   }
 
-  return newContents;
+  return ensureTerminalUserTurn(newContents);
+}
+
+export const CONTINUE_PROMPT_TEXT = "Please continue.";
+
+/**
+ * Mirrors upstream `ensureTerminalUserTurn` (`packages/core/src/core/geminiChat.ts:1919-1936`,
+ * commit `249d51c26`): guarantees `contents` ends on a `role: "user"` turn carrying non-empty
+ * parts.
+ */
+export function ensureTerminalUserTurn(
+  contents: Array<{ role: string; parts: Array<Record<string, unknown>> }>
+): Array<{ role: string; parts: Array<Record<string, unknown>> }> {
+  const last = contents.at(-1);
+  const hasNonEmptyParts =
+    last?.role === "user" &&
+    Array.isArray(last.parts) &&
+    last.parts.some(
+      (part) =>
+        part &&
+        typeof part === "object" &&
+        (part.text !== "" ||
+          Object.keys(part).some((k) => k !== "text" && k !== "thought" && k !== "callIndex"))
+    );
+  if (hasNonEmptyParts) {
+    return contents;
+  }
+  if (last?.role === "user") {
+    return [...contents.slice(0, -1), { ...last, parts: [{ text: CONTINUE_PROMPT_TEXT }] }];
+  }
+  return [...contents, { role: "user", parts: [{ text: CONTINUE_PROMPT_TEXT }] }];
 }
 
 export const _fix_tool_response_grouping = fixToolResponseGrouping;
@@ -882,7 +927,7 @@ export function translateToolChoice(
     if (tc.type === "function" && tc.function && typeof tc.function === "object") {
       let name = ((tc.function as Record<string, unknown>).name as string) || "";
       if (name) {
-        if (isGem3) {
+        if (isGem3 && isGeminiCliLegacyToolPrefixEnabled()) {
           name = GEMINI3_TOOL_RENAMES[name] || name;
           name = `${GEMINI3_TOOL_PREFIX}${name}`;
         }
@@ -979,7 +1024,7 @@ export function transformMessages(
               argsObj = fn.arguments as Record<string, unknown>;
             }
 
-            if (isGem3) {
+            if (isGem3 && isGeminiCliLegacyToolPrefixEnabled()) {
               funcName = GEMINI3_TOOL_RENAMES[funcName] || funcName;
               funcName = `${GEMINI3_TOOL_PREFIX}${funcName}`;
             }
@@ -1016,7 +1061,7 @@ export function transformMessages(
       const toolCallId = (msg.tool_call_id as string) || "";
       let funcName = toolCallIdToName.get(toolCallId) || "unknown_function";
 
-      if (isGem3) {
+      if (isGem3 && isGeminiCliLegacyToolPrefixEnabled()) {
         funcName = GEMINI3_TOOL_RENAMES[funcName] || funcName;
         funcName = `${GEMINI3_TOOL_PREFIX}${funcName}`;
       }
@@ -1098,7 +1143,53 @@ export function translateChatRequestToGeminiCli(
 
   const groupedContents = fixToolResponseGrouping(contents);
 
-  let finalSystemInstruction = systemInstruction;
+  const initialSystemBlocks: Array<{ type: string; text: string }> = [];
+  if (typeof request.system === "string" && request.system) {
+    initialSystemBlocks.push({ type: "text", text: request.system });
+  } else if (Array.isArray(request.system)) {
+    for (const block of request.system) {
+      if (typeof block === "string" && block) {
+        initialSystemBlocks.push({ type: "text", text: block });
+      } else if (
+        block &&
+        typeof block === "object" &&
+        typeof (block as Record<string, unknown>).text === "string" &&
+        (block as Record<string, string>).text
+      ) {
+        initialSystemBlocks.push({ type: "text", text: (block as Record<string, string>).text });
+      }
+    }
+  }
+  if (systemInstruction && Array.isArray(systemInstruction.parts)) {
+    for (const part of systemInstruction.parts) {
+      if (typeof part.text === "string" && part.text) {
+        initialSystemBlocks.push({ type: "text", text: part.text });
+      }
+    }
+  }
+
+  const transformBody: Record<string, unknown> = {
+    system: initialSystemBlocks,
+    messages: rawMessages,
+    tools: request.tools,
+  };
+  applySystemTransformPipeline(PROVIDER_GEMINI_CLI, transformBody);
+
+  const transformedSystemTexts = Array.isArray(transformBody.system)
+    ? (transformBody.system as Array<{ type?: string; text?: string }>)
+        .map((b) => (typeof b?.text === "string" ? b.text.trim() : ""))
+        .filter(Boolean)
+    : typeof transformBody.system === "string" && transformBody.system.trim()
+      ? [transformBody.system.trim()]
+      : [];
+
+  let finalSystemInstruction =
+    transformedSystemTexts.length > 0
+      ? {
+          role: "user",
+          parts: [{ text: transformedSystemTexts.join("\n\n") }],
+        }
+      : undefined;
 
   let toolsList: Array<{ functionDeclarations: Array<Record<string, unknown>> }> | undefined;
   if (Array.isArray(request.tools) && request.tools.length > 0) {
@@ -1106,7 +1197,7 @@ export function translateChatRequestToGeminiCli(
     if (decls.length > 0) {
       toolsList = [{ functionDeclarations: decls }];
 
-      if (isGem3) {
+      if (isGem3 && isGeminiCliLegacyToolPrefixEnabled()) {
         if (finalSystemInstruction && finalSystemInstruction.parts.length > 0) {
           const currentText = finalSystemInstruction.parts[0].text;
           finalSystemInstruction = {

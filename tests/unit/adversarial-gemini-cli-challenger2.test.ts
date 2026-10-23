@@ -231,7 +231,7 @@ test("Challenge 1.4: Empty properties objects injected with _confirm parameter a
 
   // Tool 1: getSystemStatus
   const t1 = transformedTools[0];
-  assert.equal(t1.name, "gemini3_getSystemStatus");
+  assert.equal(t1.name, "getSystemStatus");
   const t1Schema = t1.parametersJsonSchema as {
     type: string;
     properties: Record<string, { type: string }>;
@@ -244,7 +244,7 @@ test("Challenge 1.4: Empty properties objects injected with _confirm parameter a
 
   // Tool 2: ping
   const t2 = transformedTools[1];
-  assert.equal(t2.name, "gemini3_ping");
+  assert.equal(t2.name, "ping");
   const t2Schema = t2.parametersJsonSchema as {
     type: string;
     properties: Record<string, { type: string }>;

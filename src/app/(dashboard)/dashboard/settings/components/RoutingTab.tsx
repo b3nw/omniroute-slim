@@ -17,7 +17,10 @@ import { HERMES } from "./systemTransformsHermesDefaults";
 // Provider keys (mirror of open-sse/services/systemTransforms.ts).
 const PROVIDER_CLAUDE = "claude";
 const PROVIDER_CC_BRIDGE = "anthropic-compatible-cc";
-const BUILTIN_PROVIDERS = new Set([PROVIDER_CLAUDE, PROVIDER_CC_BRIDGE]);
+const PROVIDER_GEMINI_CLI = "gemini-cli";
+const GEMINI_CLI_SYSTEM_PREAMBLE =
+  "You are Gemini CLI, an interactive CLI agent specializing in software engineering tasks. You are currently operating in **Default** mode. Your primary goal is to help users safely and effectively.";
+const BUILTIN_PROVIDERS = new Set([PROVIDER_CLAUDE, PROVIDER_CC_BRIDGE, PROVIDER_GEMINI_CLI]);
 
 // Canonical provider catalog for the "Add provider" dropdown. Pulled from the
 // shared AI_PROVIDERS registry so the UI stays in sync with backend provider
@@ -170,6 +173,35 @@ const DEFAULT_SYSTEM_TRANSFORMS_CLIENT = {
           versionFormat: "ex-machina",
           cchAlgo: "sha256-first-user",
           buildRevision: "1f2",
+        },
+      ],
+    },
+    [PROVIDER_GEMINI_CLI]: {
+      enabled: true,
+      pipeline: [
+        {
+          kind: "drop_paragraph_if_contains",
+          needles: [
+            ...DEFAULT_PARAGRAPH_REMOVAL_ANCHORS,
+            ...OPENWEBUI_PARAGRAPH_ANCHORS,
+            ...PI_PARAGRAPH_ANCHORS,
+            ...HERMES.anchors,
+          ],
+        },
+        {
+          kind: "drop_paragraph_if_starts_with",
+          prefixes: [...DEFAULT_IDENTITY_PREFIXES, "You are Open WebUI", ...HERMES.prefixes],
+        },
+        ...DEFAULT_TEXT_REPLACEMENTS.map((r) => ({
+          kind: "replace_text" as const,
+          match: r.match,
+          replacement: r.replacement,
+          allOccurrences: true,
+        })),
+        {
+          kind: "prepend_system_block",
+          text: GEMINI_CLI_SYSTEM_PREAMBLE,
+          skipIfContains: "You are Gemini CLI",
         },
       ],
     },
