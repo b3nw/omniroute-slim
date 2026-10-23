@@ -375,13 +375,20 @@ function obfuscateWithList(text: string, words: string[]): string {
   return result;
 }
 
-function applyObfuscateWords(body: RequestBody, op: ObfuscateWordsOp): void {
+function applyObfuscateWords(
+  body: RequestBody,
+  op: ObfuscateWordsOp,
+  options?: { systemOriginatedFromMessages?: boolean }
+): void {
   const words = op.words || [];
   if (words.length === 0) return;
   const targets =
     op.targets && op.targets.length > 0 ? op.targets : ["system", "messages", "tools"];
 
-  if (targets.includes("system")) {
+  if (
+    targets.includes("system") ||
+    (options?.systemOriginatedFromMessages && targets.includes("messages"))
+  ) {
     if (typeof body.system === "string") {
       body.system = obfuscateWithList(body.system, words);
     } else if (Array.isArray(body.system)) {
@@ -507,7 +514,7 @@ export function applyTransformPipeline(
   for (const op of pipeline) {
     if (isObfuscateWordsOp(op)) {
       flushBaseRun();
-      applyObfuscateWords(body, op);
+      applyObfuscateWords(body, op, { systemOriginatedFromMessages: isMessagesOnly });
       appliedOpKinds.push(op.kind);
     } else {
       baseRun.push(op);

@@ -431,6 +431,36 @@ test("applyTransformPipeline: preserves system block boundaries across base-op -
   assert.ok(ccMsgs[0].content.includes("KEEP_PROJECT_INSTRUCTION"));
 });
 
+test("applyTransformPipeline: obfuscate_words with targets=['messages'] obfuscates messages-only role='system' content without double-obfuscating when targets=['system','messages']", () => {
+  const messagesOnlyTargetBody: Record<string, unknown> = {
+    messages: [
+      { role: "system", content: "opencode system instruction" },
+      { role: "user", content: "opencode user text" },
+    ],
+  };
+  applyTransformPipeline(messagesOnlyTargetBody, [
+    { kind: "obfuscate_words", words: ["opencode"], targets: ["messages"] },
+  ]);
+  assert.equal(messagesOnlyTargetBody.system, undefined);
+  const msgs1 = messagesOnlyTargetBody.messages as Array<{ role: string; content: string }>;
+  assert.equal(msgs1[0].content, `o${ZWJ}pencode system instruction`);
+  assert.equal(msgs1[1].content, `o${ZWJ}pencode user text`);
+
+  const bothTargetsBody: Record<string, unknown> = {
+    messages: [
+      { role: "system", content: "opencode system instruction" },
+      { role: "user", content: "opencode user text" },
+    ],
+  };
+  applyTransformPipeline(bothTargetsBody, [
+    { kind: "obfuscate_words", words: ["opencode"], targets: ["system", "messages"] },
+  ]);
+  assert.equal(bothTargetsBody.system, undefined);
+  const msgs2 = bothTargetsBody.messages as Array<{ role: string; content: string }>;
+  assert.equal(msgs2[0].content, `o${ZWJ}pencode system instruction`);
+  assert.equal(msgs2[1].content, `o${ZWJ}pencode user text`);
+});
+
 test("updateSettingsSchema preserves skipIfContains on prepend_system_block round-trip", () => {
   const parsed = updateSettingsSchema.parse({
     systemTransforms: DEFAULT_SYSTEM_TRANSFORMS_CONFIG,
