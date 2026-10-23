@@ -1,6 +1,32 @@
 import type { RegistryEntry, RegistryModel } from "../../shared.ts";
 import { resolvePublicCred } from "../../shared.ts";
 
+export const GEMINI_CLI_ENDPOINT_FALLBACKS = [
+  "https://cloudcode-pa.googleapis.com/v1internal",
+];
+
+// gemini-3.8-flash is only entitled for GeminiCLI >= 0.61.0 (upstream 62364cb20).
+export const GEMINI_CLI_UA_VERSION = "0.66.0";
+export const GEMINI_CLI_NODE_CLIENT_VERSION = "10.9.0";
+export const GEMINI_CLI_GL_NODE_VERSION = "22.17.1";
+export const GEMINI_CLI_PLATFORM_ARCH = `${process.platform}; ${process.arch}`;
+export const GEMINI_CLI_SURFACE = "terminal";
+
+/**
+ * Appends the surface tag to a "platform; arch" string, matching upstream's
+ * `(${platform}; ${arch}; ${surface})`. Values that already carry a surface are kept.
+ */
+export function withGeminiCliSurface(platformArch: string, surface = GEMINI_CLI_SURFACE): string {
+  const parts = platformArch
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (surface && parts.length < 3 && !parts.includes(surface)) {
+    parts.push(surface);
+  }
+  return parts.join("; ");
+}
+
 export const GEMINI_CLI_MODELS: readonly RegistryModel[] = Object.freeze([
   {
     id: "gemini-2.5-pro",
@@ -119,19 +145,14 @@ export const geminiCliProvider: RegistryEntry = {
   alias: "gemini_cli",
   format: "gemini-cli",
   executor: "gemini-cli",
-  baseUrls: [
-    "https://cloudcode-pa.googleapis.com/v1internal",
-    "https://daily-cloudcode-pa.googleapis.com/v1internal",
-    "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal",
-  ],
+  baseUrls: [...GEMINI_CLI_ENDPOINT_FALLBACKS],
   authType: "oauth",
   authHeader: "bearer",
   headers: {
-    "User-Agent": "GeminiCLI/0.31.0 (win32; x64) google-api-nodejs-client/10.6.1",
-    "X-Goog-Api-Client": "gl-node/22.17.1",
+    "User-Agent": `GeminiCLI/${GEMINI_CLI_UA_VERSION} (${withGeminiCliSurface(GEMINI_CLI_PLATFORM_ARCH)}) google-api-nodejs-client/${GEMINI_CLI_NODE_CLIENT_VERSION}`,
+    "X-Goog-Api-Client": `gl-node/${GEMINI_CLI_GL_NODE_VERSION}`,
     Accept: "*/*",
     "Accept-Encoding": "gzip, deflate, br",
-    Connection: "close",
   },
   oauth: {
     clientIdEnv: "GEMINI_CLI_OAUTH_CLIENT_ID",

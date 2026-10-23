@@ -18,50 +18,20 @@ export type GeminiCliDiscoveryResult = {
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 export const LOAD_CODE_ASSIST_ENDPOINTS = [
-  "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:loadCodeAssist",
   "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
 ] as const;
 
 export const ONBOARD_USER_ENDPOINTS = [
-  "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:onboardUser",
   "https://cloudcode-pa.googleapis.com/v1internal:onboardUser",
 ] as const;
 
-import { withGeminiCliSurface } from "../executors/geminiCli.ts";
-import { getActiveClientVersion } from "@/lib/client-versions/registry";
+import { buildGeminiCliHeaders } from "../executors/geminiCli.ts";
 
 const SERVICE_USAGE_API = "https://serviceusage.googleapis.com/v1";
 const CRM_PROJECTS_URL = "https://cloudresourcemanager.googleapis.com/v1/projects";
 
-const DEFAULT_UA_VERSION = "0.61.0";
-const DEFAULT_NODE_CLIENT_VERSION = "10.6.1";
-const DEFAULT_GL_NODE_VERSION = "22.17.1";
-const DEFAULT_PLATFORM_ARCH = "win32; x64; terminal";
-const DEFAULT_ACCEPT_ENCODING = "gzip, deflate, br";
-
 export function getGeminiCliAuthHeaders(accessToken: string): Record<string, string> {
-  const uaVersion =
-    getActiveClientVersion("gemini-cli") ||
-    process.env.GEMINI_CLI_UA_VERSION ||
-    process.env.GEMINI_CLI_CLIENT_VERSION ||
-    DEFAULT_UA_VERSION;
-  const nodeClientVersion =
-    process.env.GEMINI_CLI_NODE_CLIENT_VERSION || DEFAULT_NODE_CLIENT_VERSION;
-  const glNodeVersion = process.env.GEMINI_CLI_GL_NODE_VERSION || DEFAULT_GL_NODE_VERSION;
-  const platformArch = withGeminiCliSurface(
-    process.env.GEMINI_CLI_PLATFORM_ARCH || DEFAULT_PLATFORM_ARCH
-  );
-  const acceptEncoding = process.env.GEMINI_CLI_ACCEPT_ENCODING || DEFAULT_ACCEPT_ENCODING;
-
-  return {
-    Authorization: `Bearer ${accessToken}`,
-    "Content-Type": "application/json",
-    "User-Agent": `GeminiCLI/${uaVersion} (${platformArch}) google-api-nodejs-client/${nodeClientVersion}`,
-    "X-Goog-Api-Client": `gl-node/${glNodeVersion}`,
-    Accept: "*/*",
-    "Accept-Encoding": acceptEncoding,
-    Connection: "close",
-  };
+  return buildGeminiCliHeaders(accessToken);
 }
 
 /**

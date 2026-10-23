@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   GeminiCliExecutor,
   buildGeminiCliHeaders,
+  scrubGeminiCliHeaders,
   parseGeminiCliResetDuration,
   sanitizeGeminiCliError,
   GEMINI_CLI_ENDPOINT_FALLBACKS,
@@ -13,6 +14,11 @@ import {
   isGeminiCliCapacityExhausted,
   withGeminiCliSurface,
 } from "../../open-sse/executors/geminiCli.ts";
+import {
+  LOAD_CODE_ASSIST_ENDPOINTS,
+  ONBOARD_USER_ENDPOINTS,
+  getGeminiCliAuthHeaders,
+} from "../../open-sse/services/geminiCliDiscovery.ts";
 import { handleReasoningParameters } from "../../open-sse/translator/request/geminiCli.ts";
 import {
   translateGeminiCliChunkToOpenAI,
@@ -44,7 +50,8 @@ test("Tier 1: buildGeminiCliHeaders constructs standard emulation headers", () =
   assert.equal(headers["X-Goog-Api-Client"], "gl-node/22.17.1");
   assert.equal(headers.Accept, "*/*");
   assert.equal(headers["Accept-Encoding"], "gzip, deflate, br");
-  assert.equal(headers.Connection, "close");
+  assert.equal(headers.Connection, undefined, "Must NOT emit Connection: close header");
+  assert.equal(headers["connection"], undefined);
 });
 
 function withEnv(vars: Record<string, string | undefined>, fn: () => void) {
@@ -64,8 +71,10 @@ function withEnv(vars: Record<string, string | undefined>, fn: () => void) {
   }
 }
 
-test("Tier 1: GEMINI_CLI_UA_VERSION defaults to 0.61.0 with win32/x64/terminal UA", () => {
-  assert.equal(GEMINI_CLI_UA_VERSION, "0.61.0");
+test("Tier 1: GEMINI_CLI_UA_VERSION defaults to 0.66.0 with dynamic host platform/arch/terminal UA and gal 10.9.0", () => {
+  assert.equal(GEMINI_CLI_UA_VERSION, "0.66.0");
+  assert.equal(GEMINI_CLI_NODE_CLIENT_VERSION, "10.9.0");
+  assert.equal(GEMINI_CLI_PLATFORM_ARCH, `${process.platform}; ${process.arch}`);
   withEnv(
     {
       GEMINI_CLI_UA_VERSION: undefined,
@@ -75,10 +84,9 @@ test("Tier 1: GEMINI_CLI_UA_VERSION defaults to 0.61.0 with win32/x64/terminal U
     },
     () => {
       const headers = buildGeminiCliHeaders("tok", "gemini-3.8-flash");
-      assert.ok(
-        headers["User-Agent"].startsWith(
-          "GeminiCLI/0.61.0/gemini-3.8-flash (win32; x64; terminal) "
-        )
+      assert.equal(
+        headers["User-Agent"],
+        `GeminiCLI/0.66.0/gemini-3.8-flash (${process.platform}; ${process.arch}; terminal) google-api-nodejs-client/10.9.0`
       );
     }
   );
@@ -198,12 +206,17 @@ test("Tier 1: GeminiCliExecutor buildUrl and buildHeaders methods", () => {
   const url1 = executor.buildUrl("gemini-3-flash", true, 1, creds);
   assert.equal(
     url1,
-    "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse"
+    "https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse"
   );
+  assert.deepEqual(GEMINI_CLI_ENDPOINT_FALLBACKS, [
+    "https://cloudcode-pa.googleapis.com/v1internal",
+  ]);
+  assert.ok(!GEMINI_CLI_ENDPOINT_FALLBACKS.some((u) => u.includes("sandbox")));
 
   const headers = executor.buildHeaders(creds, true, null, "gemini-3.5-flash");
   assert.equal(headers.Authorization, "Bearer test-key-123");
   assert.ok(headers["User-Agent"].includes("gemini-3-flash"));
+  assert.equal(headers.Connection, undefined);
 });
 
 // ============================================================================
@@ -397,6 +410,10 @@ test("Tier 2: Upstream Endpoint Fallback - Fails over from Primary to Secondary 
   });
 
   const executor = new GeminiCliExecutor();
+  (executor as unknown as { config: { baseUrls: string[] } }).config.baseUrls = [
+    "https://cloudcode-pa.googleapis.com/v1internal",
+    "https://daily-cloudcode-pa.googleapis.com/v1internal",
+  ];
   const attemptedUrls: string[] = [];
 
   globalThis.fetch = (async (input: string | URL | Request) => {
@@ -444,6 +461,10 @@ test("Tier 2: 429 Rate Limit halts endpoint cycling immediately and extracts Ret
   });
 
   const executor = new GeminiCliExecutor();
+  (executor as unknown as { config: { baseUrls: string[] } }).config.baseUrls = [
+    "https://cloudcode-pa.googleapis.com/v1internal",
+    "https://daily-cloudcode-pa.googleapis.com/v1internal",
+  ];
   const attemptedUrls: string[] = [];
 
   globalThis.fetch = (async (input: string | URL | Request) => {
@@ -813,4 +834,147 @@ test("Tier 3: Executor registry resolves gemini_cli and gcli aliases to GeminiCl
 
   const exDash = await getExecutor("gemini-cli");
   assert.ok(exDash instanceof GeminiCliExecutor);
+});
+
+test("Tier 1: Discovery endpoints target cloudcode-pa.googleapis.com first and omit sandbox", () => {
+  assert.equal(
+    LOAD_CODE_ASSIST_ENDPOINTS[0],
+    "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
+  );
+  assert.ok(!LOAD_CODE_ASSIST_ENDPOINTS.some((url) => url.includes("sandbox")));
+  assert.equal(
+    ONBOARD_USER_ENDPOINTS[0],
+    "https://cloudcode-pa.googleapis.com/v1internal:onboardUser"
+  );
+  assert.ok(!ONBOARD_USER_ENDPOINTS.some((url) => url.includes("sandbox")));
+
+  const authHeaders = getGeminiCliAuthHeaders("tok-disc");
+  assert.equal(authHeaders.Connection, undefined);
+  assert.equal(authHeaders["connection"], undefined);
+});
+
+test("Tier 1: scrubGeminiCliHeaders strips proxy, Stainless, Chromium, and non-ADC x-goog-user-project headers", () => {
+  const dirtyHeaders = {
+    ...buildGeminiCliHeaders("token", "gemini-3-flash"),
+    "x-forwarded-for": "1.2.3.4",
+    "cf-ray": "89abcdef",
+    "cf-connecting-ip": "1.2.3.4",
+    "x-real-ip": "1.2.3.4",
+    "x-stainless-lang": "js",
+    "x-stainless-os": "Linux",
+    "x-goog-user-project": "unintended-quota-project",
+    "sec-ch-ua": '"Chromium";v="124"',
+    "sec-fetch-mode": "cors",
+    "x-omniroute-trace": "internal",
+    Connection: "close",
+  };
+  const cleaned = scrubGeminiCliHeaders(dirtyHeaders, { isAdc: false });
+  assert.equal(cleaned["x-forwarded-for"], undefined);
+  assert.equal(cleaned["cf-ray"], undefined);
+  assert.equal(cleaned["cf-connecting-ip"], undefined);
+  assert.equal(cleaned["x-real-ip"], undefined);
+  assert.equal(cleaned["x-stainless-lang"], undefined);
+  assert.equal(cleaned["x-stainless-os"], undefined);
+  assert.equal(cleaned["x-goog-user-project"], undefined);
+  assert.equal(cleaned["sec-ch-ua"], undefined);
+  assert.equal(cleaned["sec-fetch-mode"], undefined);
+  assert.equal(cleaned["x-omniroute-trace"], undefined);
+  assert.equal(cleaned.Connection, undefined);
+
+  // ADC path preserves x-goog-user-project
+  const adcCleaned = scrubGeminiCliHeaders(dirtyHeaders, { isAdc: true });
+  assert.equal(adcCleaned["x-goog-user-project"], "unintended-quota-project");
+});
+
+test("Tier 2: GeminiCliExecutor.execute scrubs extra headers, supports customUserAgent, and applies fingerprint ordering", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const executor = new GeminiCliExecutor();
+  let capturedHeaders: Record<string, string> = {};
+  let capturedBodyRaw = "";
+
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    capturedHeaders = (init?.headers as Record<string, string>) || {};
+    capturedBodyRaw = String(init?.body || "");
+    return new Response("data: [DONE]\n\n", {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  }) as typeof fetch;
+
+  await executor.execute({
+    model: "gemini-3-flash",
+    body: {
+      _omnirouteInternalMarker: true,
+      request: {
+        session_id: "sess-123",
+        generationConfig: { temperature: 1 },
+        contents: [{ role: "user", parts: [{ text: "hello" }] }],
+        systemInstruction: { role: "user", parts: [{ text: "sys" }] },
+      },
+      user_prompt_id: "sess-123",
+      project: "my-proj",
+      model: "gemini-3-flash",
+    },
+    stream: false,
+    credentials: {
+      accessToken: "ya29.test",
+      providerSpecificData: {
+        projectId: "my-proj",
+        customUserAgent: "GeminiCLI/0.67.0-custom/gemini-3-flash (linux; x64; terminal) google-api-nodejs-client/10.9.0",
+      },
+    },
+    upstreamExtraHeaders: {
+      "x-forwarded-for": "10.0.0.1",
+      "cf-ray": "ray-123",
+      "x-stainless-arch": "x64",
+      "sec-ch-ua": '"Not A;Brand";v="99"',
+      "x-goog-user-project": "leaked-project",
+      Connection: "close",
+    },
+    signal: null,
+    log: null,
+  });
+
+  // Verify scrubbed headers and customUserAgent
+  assert.equal(capturedHeaders["x-forwarded-for"], undefined);
+  assert.equal(capturedHeaders["cf-ray"], undefined);
+  assert.equal(capturedHeaders["x-stainless-arch"], undefined);
+  assert.equal(capturedHeaders["sec-ch-ua"], undefined);
+  assert.equal(capturedHeaders["x-goog-user-project"], undefined);
+  assert.equal(capturedHeaders.Connection, undefined);
+  assert.equal(
+    capturedHeaders["User-Agent"],
+    "GeminiCLI/0.67.0-custom/gemini-3-flash (linux; x64; terminal) google-api-nodejs-client/10.9.0"
+  );
+
+  // Verify header key ordering (Authorization last)
+  const headerKeys = Object.keys(capturedHeaders);
+  assert.deepEqual(headerKeys, [
+    "Content-Type",
+    "User-Agent",
+    "X-Goog-Api-Client",
+    "Accept",
+    "Accept-Encoding",
+    "Authorization",
+  ]);
+
+  // Verify body key ordering and _omniroute* strip
+  const parsedBody = JSON.parse(capturedBodyRaw);
+  assert.equal(parsedBody._omnirouteInternalMarker, undefined);
+  assert.deepEqual(Object.keys(parsedBody), [
+    "model",
+    "project",
+    "user_prompt_id",
+    "request",
+  ]);
+  assert.deepEqual(Object.keys(parsedBody.request), [
+    "contents",
+    "systemInstruction",
+    "generationConfig",
+    "session_id",
+  ]);
 });
