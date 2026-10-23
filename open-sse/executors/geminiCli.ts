@@ -19,7 +19,11 @@ import {
   reassembleGeminiCliChunks,
   type GeminiCliResponseAccumulator,
 } from "../translator/response/geminiCli.ts";
-import { applyFingerprint } from "../config/cliFingerprints.ts";
+import {
+  applyFingerprint,
+  isCliCompatEnabled,
+  stripInternalBodyFields,
+} from "../config/cliFingerprints.ts";
 import { scrubProxyAndFingerprintHeaders } from "../services/antigravityHeaderScrub.ts";
 import { getActiveClientVersion } from "@/lib/client-versions/registry";
 
@@ -60,12 +64,17 @@ export function isGeminiCliCapacityExhausted(errText: string | null | undefined)
  */
 export function scrubGeminiCliHeaders(
   headers: Record<string, string>,
-  options: { isAdc?: boolean } = {}
+  options: { isAdc?: boolean; quotaProjectId?: string } = {}
 ): Record<string, string> {
   const acceptEncodingOverride = process.env.GEMINI_CLI_ACCEPT_ENCODING;
   const baseScrubbed = scrubProxyAndFingerprintHeaders(headers);
   const cleaned: Record<string, string> = {};
   let authorizationValue: string | undefined;
+  const hasExplicitQuotaProjectOption = "quotaProjectId" in options;
+  const trustedQuotaProjectId =
+    options.isAdc && typeof options.quotaProjectId === "string" && options.quotaProjectId.trim()
+      ? options.quotaProjectId.trim()
+      : undefined;
 
   for (const [key, value] of Object.entries(baseScrubbed)) {
     const lowerKey = key.toLowerCase();
@@ -76,7 +85,8 @@ export function scrubGeminiCliHeaders(
       lowerKey.startsWith("sec-ch-ua") ||
       lowerKey.startsWith("sec-fetch-") ||
       lowerKey === "connection" ||
-      (!options.isAdc && lowerKey === "x-goog-user-project")
+      (!options.isAdc && lowerKey === "x-goog-user-project") ||
+      (hasExplicitQuotaProjectOption && lowerKey === "x-goog-user-project")
     ) {
       continue;
     }
@@ -90,6 +100,9 @@ export function scrubGeminiCliHeaders(
   if (acceptEncodingOverride) {
     cleaned["Accept-Encoding"] = acceptEncodingOverride;
   }
+  if (trustedQuotaProjectId) {
+    cleaned["x-goog-user-project"] = trustedQuotaProjectId;
+  }
   if (authorizationValue !== undefined) {
     cleaned["Authorization"] = authorizationValue;
   }
@@ -98,14 +111,24 @@ export function scrubGeminiCliHeaders(
 
 function getGeminiCliCredentialHeaderOptions(credentials?: ProviderCredentials | null): {
   isAdc: boolean;
+  quotaProjectId?: string;
   customUserAgent?: string;
   platformArch?: string;
 } {
+  const credRecord = credentials as Record<string, unknown> | null | undefined;
   const psd = credentials?.providerSpecificData;
+  const rawQuotaProjectId =
+    typeof psd?.quotaProjectId === "string" && psd.quotaProjectId.trim()
+      ? psd.quotaProjectId.trim()
+      : typeof credRecord?.quotaProjectId === "string" && credRecord.quotaProjectId.trim()
+        ? credRecord.quotaProjectId.trim()
+        : undefined;
   const isAdc = Boolean(
     psd?.isAdc === true ||
+      credRecord?.isAdc === true ||
       psd?.authType === "adc" ||
-      (typeof psd?.quotaProjectId === "string" && psd.quotaProjectId.trim().length > 0)
+      credRecord?.authType === "adc" ||
+      rawQuotaProjectId
   );
   const customUserAgent =
     typeof psd?.customUserAgent === "string" && psd.customUserAgent.trim()
@@ -115,7 +138,32 @@ function getGeminiCliCredentialHeaderOptions(credentials?: ProviderCredentials |
     typeof psd?.platformArch === "string" && psd.platformArch.trim()
       ? psd.platformArch.trim()
       : undefined;
-  return { isAdc, customUserAgent, platformArch };
+  return {
+    isAdc,
+    quotaProjectId: isAdc ? rawQuotaProjectId : undefined,
+    customUserAgent,
+    platformArch,
+  };
+}
+
+function finalizeGeminiCliWirePayload(
+  headers: Record<string, string>,
+  body: Record<string, unknown>
+): { headers: Record<string, string>; bodyString: string } {
+  if (isCliCompatEnabled("gemini-cli")) {
+    return applyFingerprint("gemini-cli", headers, body);
+  }
+  const cloned: Record<string, unknown> = { ...body };
+  stripInternalBodyFields(cloned);
+  if (cloned.request && typeof cloned.request === "object" && !Array.isArray(cloned.request)) {
+    const inner = { ...(cloned.request as Record<string, unknown>) };
+    stripInternalBodyFields(inner);
+    cloned.request = inner;
+  }
+  return {
+    headers,
+    bodyString: JSON.stringify(cloned),
+  };
 }
 
 /**
@@ -421,25 +469,21 @@ export class GeminiCliExecutor extends BaseExecutor {
   override buildHeaders(
     credentials: ProviderCredentials,
     _stream = true,
-    clientHeaders?: Record<string, string> | null,
+    _clientHeaders?: Record<string, string> | null,
     model?: string
   ): Record<string, string> {
     const accessToken = credentials.accessToken || credentials.apiKey || "";
     const wireModel = model ? mapModelToGeminiCliWire(model) : "gemini-3-flash";
-    const { isAdc, customUserAgent, platformArch } =
+    const { isAdc, quotaProjectId, customUserAgent, platformArch } =
       getGeminiCliCredentialHeaderOptions(credentials);
     const built = buildGeminiCliHeaders(accessToken, wireModel, {
       customUserAgent,
       platformArch,
     });
-    if (clientHeaders) {
-      const merged = { ...clientHeaders, ...built };
-      if (customUserAgent) {
-        merged["User-Agent"] = customUserAgent;
-      }
-      return scrubGeminiCliHeaders(merged, { isAdc });
-    }
-    return scrubGeminiCliHeaders(built, { isAdc });
+    const scrubbed = scrubGeminiCliHeaders(built, { isAdc, quotaProjectId });
+    return isCliCompatEnabled("gemini-cli")
+      ? applyFingerprint("gemini-cli", scrubbed, {}).headers
+      : scrubbed;
   }
 
   override async transformRequest(
@@ -479,16 +523,26 @@ export class GeminiCliExecutor extends BaseExecutor {
   } | null> {
     const accessToken = credentials.accessToken || credentials.apiKey || "";
     const wireModel = mapModelToGeminiCliWire(model);
-    const { isAdc, customUserAgent, platformArch } =
+    const { isAdc, quotaProjectId, customUserAgent, platformArch } =
       getGeminiCliCredentialHeaderOptions(credentials);
     const rawHeaders = scrubGeminiCliHeaders(
       buildGeminiCliHeaders(accessToken, wireModel, { customUserAgent, platformArch }),
-      { isAdc }
+      { isAdc, quotaProjectId }
     );
 
     let requestBody: Record<string, unknown>;
     if (body && typeof body === "object" && "request" in body) {
-      requestBody = body as Record<string, unknown>;
+      const existingReq = (body as Record<string, unknown>).request;
+      requestBody = {
+        ...(body as Record<string, unknown>),
+        request:
+          existingReq && typeof existingReq === "object" && !Array.isArray(existingReq)
+            ? {
+                model: `models/${wireModel}`,
+                ...(existingReq as Record<string, unknown>),
+              }
+            : existingReq,
+      };
     } else {
       const contents = Array.isArray((body as Record<string, unknown>)?.contents)
         ? (body as Record<string, unknown>).contents
@@ -497,12 +551,13 @@ export class GeminiCliExecutor extends BaseExecutor {
           : [{ role: "user", parts: [{ text: typeof body === "string" ? body : "" }] }];
       requestBody = {
         request: {
+          model: `models/${wireModel}`,
           contents,
         },
       };
     }
 
-    const { headers, bodyString } = applyFingerprint("gemini-cli", rawHeaders, requestBody);
+    const { headers, bodyString } = finalizeGeminiCliWirePayload(rawHeaders, requestBody);
 
     const fallbackCount = this.getFallbackCount();
     const baseUrls = this.getBaseUrls();
@@ -620,20 +675,18 @@ export class GeminiCliExecutor extends BaseExecutor {
       wireModel = translated.wireModel;
     }
 
-    const { isAdc, customUserAgent, platformArch } =
+    const { isAdc, quotaProjectId, customUserAgent, platformArch } =
       getGeminiCliCredentialHeaderOptions(activeCredentials);
     const buildHeaders = (forModel: string) => {
       const built = buildGeminiCliHeaders(accessToken, forModel, {
         customUserAgent,
         platformArch,
       });
-      if (upstreamExtraHeaders) {
-        Object.assign(built, upstreamExtraHeaders);
-      }
+      const merged = upstreamExtraHeaders ? { ...upstreamExtraHeaders, ...built } : built;
       if (customUserAgent) {
-        built["User-Agent"] = customUserAgent;
+        merged["User-Agent"] = customUserAgent;
       }
-      return scrubGeminiCliHeaders(built, { isAdc });
+      return scrubGeminiCliHeaders(merged, { isAdc, quotaProjectId });
     };
     let headers = buildHeaders(wireModel);
 
@@ -643,9 +696,9 @@ export class GeminiCliExecutor extends BaseExecutor {
     let capacityFallbackUsed = false;
 
     for (let urlIndex = 0; urlIndex < fallbackCount; urlIndex++) {
-      const fingerprinted = applyFingerprint("gemini-cli", headers, requestPayload);
-      headers = fingerprinted.headers;
-      const bodyString = fingerprinted.bodyString;
+      const finalized = finalizeGeminiCliWirePayload(headers, requestPayload);
+      headers = finalized.headers;
+      const bodyString = finalized.bodyString;
       requestPayload = JSON.parse(bodyString) as Record<string, unknown>;
 
       const rawBaseUrl =

@@ -204,6 +204,7 @@ export const CLI_FINGERPRINTS: Record<string, CliFingerprint> = {
       "x-goog-api-client",
       "Accept",
       "Accept-Encoding",
+      "x-goog-user-project",
       "Authorization",
     ],
     bodyFieldOrder: [
@@ -226,6 +227,11 @@ export const GEMINI_CLI_INNER_REQUEST_FIELD_ORDER: readonly string[] = [
   "safetySettings",
   "generationConfig",
   "session_id",
+];
+
+export const GEMINI_CLI_COUNT_TOKENS_INNER_REQUEST_FIELD_ORDER: readonly string[] = [
+  "model",
+  "contents",
 ];
 
 /**
@@ -339,7 +345,11 @@ export function applyFingerprint(
   headers: Record<string, string>,
   body: unknown
 ): { headers: Record<string, string>; bodyString: string } {
-  body = stripInternalBodyFields(body);
+  const clonedBody =
+    body && typeof body === "object" && !Array.isArray(body)
+      ? { ...(body as Record<string, unknown>) }
+      : body;
+  body = stripInternalBodyFields(clonedBody);
   const normalizedProvider = normalizeCliCompatProviderId(provider || "");
   const fingerprintKey = isClaudeCodeCompatible(provider)
     ? "claude-code-compatible"
@@ -378,11 +388,13 @@ export function applyFingerprint(
   ) {
     const record = orderedBody as Record<string, unknown>;
     if (record.request && typeof record.request === "object" && !Array.isArray(record.request)) {
-      stripInternalBodyFields(record.request);
-      record.request = orderFields(
-        record.request as Record<string, unknown>,
-        GEMINI_CLI_INNER_REQUEST_FIELD_ORDER as string[]
-      );
+      const innerRequest = { ...(record.request as Record<string, unknown>) };
+      stripInternalBodyFields(innerRequest);
+      const isCountTokensRequest = "model" in innerRequest && !("model" in record);
+      const innerOrder = isCountTokensRequest
+        ? (GEMINI_CLI_COUNT_TOKENS_INNER_REQUEST_FIELD_ORDER as string[])
+        : (GEMINI_CLI_INNER_REQUEST_FIELD_ORDER as string[]);
+      record.request = orderFields(innerRequest, innerOrder);
     }
   }
 

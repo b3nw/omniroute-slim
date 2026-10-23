@@ -5,6 +5,9 @@ const { applyFingerprint, isCliCompatEnabled } = await import(
   "../../open-sse/config/cliFingerprints.ts"
 );
 const { normalizeCliCompatProviderId } = await import("../../src/shared/utils/cliCompat.ts");
+const { IMPLEMENTED_CLI_FINGERPRINT_PROVIDER_IDS } = await import(
+  "../../src/shared/constants/cliCompatProviders.ts"
+);
 
 test("Codex CLI fingerprint orders prompt_cache_key before include", () => {
   const body = {
@@ -111,4 +114,45 @@ test("Gemini CLI fingerprint normalizes gemini_cli alias, enables compat by defa
       "session_id",
     ]);
   }
+
+  assert.equal(IMPLEMENTED_CLI_FINGERPRINT_PROVIDER_IDS.includes("gemini-cli"), true);
+
+  // Verify applyFingerprint does not mutate caller-owned body or body.request in place
+  const callerBody = {
+    model: "gemini-3-flash",
+    _omnirouteTopMarker: "preserve-on-caller",
+    request: {
+      contents: [],
+      _omnirouteInnerMarker: "preserve-on-caller",
+    },
+  };
+  applyFingerprint("gemini-cli", { ...unorderedHeaders }, callerBody);
+  assert.equal(callerBody._omnirouteTopMarker, "preserve-on-caller");
+  assert.equal(callerBody.request._omnirouteInnerMarker, "preserve-on-caller");
+
+  // Verify countTokens inner request orders ["model", "contents"] and x-goog-user-project precedes Authorization
+  const countTokensResult = applyFingerprint(
+    "gemini-cli",
+    {
+      ...unorderedHeaders,
+      "x-goog-user-project": "adc-quota-proj",
+    },
+    {
+      request: {
+        contents: [{ role: "user", parts: [{ text: "hello" }] }],
+        model: "models/gemini-3-flash",
+      },
+    }
+  );
+  assert.deepEqual(Object.keys(countTokensResult.headers), [
+    "Content-Type",
+    "User-Agent",
+    "X-Goog-Api-Client",
+    "Accept",
+    "Accept-Encoding",
+    "x-goog-user-project",
+    "Authorization",
+  ]);
+  const parsedCountTokens = JSON.parse(countTokensResult.bodyString);
+  assert.deepEqual(Object.keys(parsedCountTokens.request), ["model", "contents"]);
 });

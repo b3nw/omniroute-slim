@@ -978,3 +978,104 @@ test("Tier 2: GeminiCliExecutor.execute scrubs extra headers, supports customUse
     "session_id",
   ]);
 });
+
+test("Tier 2: GeminiCliExecutor.countTokens includes request.model Ordered Before contents, buildHeaders ignores clientHeaders, and ADC sets trusted x-goog-user-project", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const origCompat = process.env.CLI_COMPAT_GEMINI_CLI;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    if (origCompat === undefined) delete process.env.CLI_COMPAT_GEMINI_CLI;
+    else process.env.CLI_COMPAT_GEMINI_CLI = origCompat;
+  });
+
+  const executor = new GeminiCliExecutor();
+
+  // 1. buildHeaders ignores raw clientHeaders and honours top-level authType="adc" + quotaProjectId
+  const adcHeaders = executor.buildHeaders(
+    {
+      accessToken: "ya29.adc",
+      authType: "adc",
+      quotaProjectId: "trusted-adc-quota",
+    } as unknown as Parameters<typeof executor.buildHeaders>[0],
+    true,
+    {
+      Cookie: "session=secret",
+      Origin: "https://evil.example",
+      "X-Api-Key": "leaked-key",
+      "x-goog-user-project": "untrusted-client-project",
+    },
+    "gemini-3-flash"
+  );
+  assert.equal(adcHeaders.Cookie, undefined);
+  assert.equal(adcHeaders.Origin, undefined);
+  assert.equal(adcHeaders["X-Api-Key"], undefined);
+  assert.equal(adcHeaders["x-goog-user-project"], "trusted-adc-quota");
+  assert.deepEqual(Object.keys(adcHeaders), [
+    "Content-Type",
+    "User-Agent",
+    "X-Goog-Api-Client",
+    "Accept",
+    "Accept-Encoding",
+    "x-goog-user-project",
+    "Authorization",
+  ]);
+
+  // 2. countTokens sends { request: { model: "models/gemini-3-flash", contents: [...] } }
+  let countTokensBodyRaw = "";
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    countTokensBodyRaw = String(init?.body || "");
+    return new Response(JSON.stringify({ totalTokens: 42 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  const tokenResult = await executor.countTokens({
+    model: "gemini-3-flash",
+    body: {
+      contents: [{ role: "user", parts: [{ text: "count me" }] }],
+    },
+    credentials: { accessToken: "ya29.test" },
+    signal: null,
+    log: null,
+  });
+  assert.equal(tokenResult?.input_tokens, 42);
+  const parsedCountTokens = JSON.parse(countTokensBodyRaw);
+  assert.equal(parsedCountTokens.request.model, "models/gemini-3-flash");
+  assert.deepEqual(Object.keys(parsedCountTokens.request), ["model", "contents"]);
+
+  // 3. CLI_COMPAT_GEMINI_CLI=0 skips key reordering while still stripping _omniroute* markers
+  process.env.CLI_COMPAT_GEMINI_CLI = "0";
+  let optOutBodyRaw = "";
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    optOutBodyRaw = String(init?.body || "");
+    return new Response("data: [DONE]\n\n", {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  }) as typeof fetch;
+
+  await executor.execute({
+    model: "gemini-3-flash",
+    body: {
+      _omnirouteInternalMarker: true,
+      user_prompt_id: "sess-optout",
+      request: {
+        _omnirouteInnerMarker: true,
+        session_id: "sess-optout",
+        contents: [{ role: "user", parts: [{ text: "hi" }] }],
+      },
+      model: "gemini-3-flash",
+    },
+    stream: false,
+    credentials: { accessToken: "ya29.test" },
+    signal: null,
+    log: null,
+  });
+  const parsedOptOut = JSON.parse(optOutBodyRaw);
+  assert.equal(parsedOptOut._omnirouteInternalMarker, undefined);
+  assert.equal(parsedOptOut.request._omnirouteInnerMarker, undefined);
+  // Key order preserved as passed (`user_prompt_id` before `model`, `session_id` before `contents`)
+  assert.deepEqual(Object.keys(parsedOptOut), ["user_prompt_id", "request", "model"]);
+  assert.deepEqual(Object.keys(parsedOptOut.request), ["session_id", "contents"]);
+});
