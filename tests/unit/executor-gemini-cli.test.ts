@@ -1044,6 +1044,61 @@ test("Tier 2: GeminiCliExecutor.countTokens includes request.model Ordered Befor
   assert.equal(parsedCountTokens.request.model, "models/gemini-3-flash");
   assert.deepEqual(Object.keys(parsedCountTokens.request), ["model", "contents"]);
 
+  // Verify countTokens when caller passes { model, request: { model: "", contents } }
+  await executor.countTokens({
+    model: "gemini-3-flash",
+    body: {
+      model: "gemini-3-flash",
+      request: {
+        contents: [{ role: "user", parts: [{ text: "count me too" }] }],
+        model: "   ",
+      },
+    },
+    credentials: { accessToken: "ya29.test" },
+    signal: null,
+    log: null,
+  });
+  const parsedExistingReq = JSON.parse(countTokensBodyRaw);
+  assert.equal(parsedExistingReq.request.model, "models/gemini-3-flash");
+  assert.deepEqual(Object.keys(parsedExistingReq.request), ["model", "contents"]);
+
+  // Verify upstreamExtraHeaders overrides default User-Agent & Accept (case-insensitively) without overwriting Authorization
+  let extraOverrideHeaders: Record<string, string> = {};
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    extraOverrideHeaders = (init?.headers as Record<string, string>) || {};
+    return new Response("data: [DONE]\n\n", {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  }) as typeof fetch;
+
+  await executor.execute({
+    model: "gemini-3-flash",
+    body: {
+      model: "gemini-3-flash",
+      user_prompt_id: "sess-extra",
+      request: {
+        contents: [{ role: "user", parts: [{ text: "hi" }] }],
+      },
+    },
+    stream: false,
+    credentials: { accessToken: "ya29.real-token" },
+    upstreamExtraHeaders: {
+      "user-agent": "ConfiguredModelUA/1.0",
+      accept: "application/custom",
+      authorization: "Bearer attacker-token",
+      "cf-ray": "strip-me",
+    },
+    signal: null,
+    log: null,
+  });
+  assert.equal(extraOverrideHeaders["User-Agent"], "ConfiguredModelUA/1.0");
+  assert.equal(extraOverrideHeaders["user-agent"], undefined);
+  assert.equal(extraOverrideHeaders.Accept, "application/custom");
+  assert.equal(extraOverrideHeaders.accept, undefined);
+  assert.equal(extraOverrideHeaders.Authorization, "Bearer ya29.real-token");
+  assert.equal(extraOverrideHeaders["cf-ray"], undefined);
+
   // 3. CLI_COMPAT_GEMINI_CLI=0 skips key reordering while still stripping _omniroute* markers
   process.env.CLI_COMPAT_GEMINI_CLI = "0";
   let optOutBodyRaw = "";

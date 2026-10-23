@@ -533,16 +533,22 @@ export class GeminiCliExecutor extends BaseExecutor {
     let requestBody: Record<string, unknown>;
     if (body && typeof body === "object" && "request" in body) {
       const existingReq = (body as Record<string, unknown>).request;
-      requestBody = {
-        ...(body as Record<string, unknown>),
-        request:
-          existingReq && typeof existingReq === "object" && !Array.isArray(existingReq)
-            ? {
-                model: `models/${wireModel}`,
-                ...(existingReq as Record<string, unknown>),
-              }
-            : existingReq,
-      };
+      if (existingReq && typeof existingReq === "object" && !Array.isArray(existingReq)) {
+        const existingReqRecord = existingReq as Record<string, unknown>;
+        const existingModel =
+          typeof existingReqRecord.model === "string" && existingReqRecord.model.trim().length > 0
+            ? existingReqRecord.model.trim()
+            : `models/${wireModel}`;
+        requestBody = {
+          ...(body as Record<string, unknown>),
+          request: {
+            ...existingReqRecord,
+            model: existingModel,
+          },
+        };
+      } else {
+        requestBody = { ...(body as Record<string, unknown>) };
+      }
     } else {
       const contents = Array.isArray((body as Record<string, unknown>)?.contents)
         ? (body as Record<string, unknown>).contents
@@ -682,7 +688,29 @@ export class GeminiCliExecutor extends BaseExecutor {
         customUserAgent,
         platformArch,
       });
-      const merged = upstreamExtraHeaders ? { ...upstreamExtraHeaders, ...built } : built;
+      const merged: Record<string, string> = { ...built };
+      if (upstreamExtraHeaders) {
+        const scrubbedExtra = scrubGeminiCliHeaders(upstreamExtraHeaders, {
+          isAdc,
+          quotaProjectId,
+        });
+        const canonicalKeys = new Map<string, string>();
+        for (const key of Object.keys(merged)) {
+          canonicalKeys.set(key.toLowerCase(), key);
+        }
+        for (const [key, value] of Object.entries(scrubbedExtra)) {
+          const lowerKey = key.toLowerCase();
+          if (lowerKey === "authorization" || lowerKey === "x-goog-user-project") {
+            continue;
+          }
+          if (lowerKey === "user-agent" && customUserAgent) {
+            continue;
+          }
+          const targetKey = canonicalKeys.get(lowerKey) ?? key;
+          merged[targetKey] = value;
+          canonicalKeys.set(lowerKey, targetKey);
+        }
+      }
       if (customUserAgent) {
         merged["User-Agent"] = customUserAgent;
       }

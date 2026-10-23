@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { applyFingerprint, isCliCompatEnabled } = await import(
+const { applyFingerprint, isCliCompatEnabled, setCliCompatProviders } = await import(
   "../../open-sse/config/cliFingerprints.ts"
 );
 const { normalizeCliCompatProviderId } = await import("../../src/shared/utils/cliCompat.ts");
@@ -155,4 +155,35 @@ test("Gemini CLI fingerprint normalizes gemini_cli alias, enables compat by defa
   ]);
   const parsedCountTokens = JSON.parse(countTokensResult.bodyString);
   assert.deepEqual(Object.keys(parsedCountTokens.request), ["model", "contents"]);
+
+  // Also orders ["model", "contents"] when top-level model is present alongside request.model
+  const countTokensWithTopModel = applyFingerprint(
+    "gemini-cli",
+    { ...unorderedHeaders },
+    {
+      model: "gemini-3-flash",
+      request: {
+        contents: [{ role: "user", parts: [{ text: "hello" }] }],
+        model: "models/gemini-3-flash",
+      },
+    }
+  );
+  assert.deepEqual(Object.keys(JSON.parse(countTokensWithTopModel.bodyString).request), [
+    "model",
+    "contents",
+  ]);
+
+  // Verify setCliCompatProviders runtime toggles for gemini-cli / gemini_cli
+  try {
+    setCliCompatProviders([]);
+    assert.equal(isCliCompatEnabled("gemini-cli"), false);
+    assert.equal(isCliCompatEnabled("gemini_cli"), false);
+
+    setCliCompatProviders(["gemini_cli"]);
+    assert.equal(isCliCompatEnabled("gemini-cli"), true);
+    assert.equal(isCliCompatEnabled("gemini_cli"), true);
+  } finally {
+    setCliCompatProviders(null);
+  }
+  assert.equal(isCliCompatEnabled("gemini-cli"), true);
 });

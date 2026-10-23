@@ -390,7 +390,7 @@ export function applyFingerprint(
     if (record.request && typeof record.request === "object" && !Array.isArray(record.request)) {
       const innerRequest = { ...(record.request as Record<string, unknown>) };
       stripInternalBodyFields(innerRequest);
-      const isCountTokensRequest = "model" in innerRequest && !("model" in record);
+      const isCountTokensRequest = "model" in innerRequest;
       const innerOrder = isCountTokensRequest
         ? (GEMINI_CLI_COUNT_TOKENS_INNER_REQUEST_FIELD_ORDER as string[])
         : (GEMINI_CLI_INNER_REQUEST_FIELD_ORDER as string[]);
@@ -408,15 +408,23 @@ export function applyFingerprint(
  * Runtime cache for CLI compat providers set via Settings UI.
  * Updated by the settings API when users toggle providers.
  */
-let _cliCompatProviders: Set<string> = new Set();
+const DEFAULT_ENABLED_CLI_COMPAT_PROVIDERS = ["gemini-cli"] as const;
+let _cliCompatProviders: Set<string> = new Set(DEFAULT_ENABLED_CLI_COMPAT_PROVIDERS);
+let _cliCompatExplicitlySet = false;
 
 /**
  * Update the runtime cache of CLI-compat-enabled providers.
  * Called from the settings API when cliCompatProviders is updated.
  */
-export function setCliCompatProviders(providers: string[]): void {
+export function setCliCompatProviders(providers?: string[] | null): void {
+  if (providers === null || providers === undefined) {
+    _cliCompatExplicitlySet = false;
+    _cliCompatProviders = new Set(DEFAULT_ENABLED_CLI_COMPAT_PROVIDERS);
+    return;
+  }
+  _cliCompatExplicitlySet = true;
   _cliCompatProviders = new Set(
-    (providers || [])
+    providers
       .map((p) => normalizeCliCompatProviderId(p))
       .filter((provider) => provider in CLI_FINGERPRINTS)
   );
@@ -441,9 +449,11 @@ export function isCliCompatEnabled(provider: string): boolean {
   // 1. Check runtime cache (set via Settings UI)
   const normalizedProvider = normalizeCliCompatProviderId(provider || "");
   if (normalizedProvider === "gemini-cli") {
-    const envVal = process.env.CLI_COMPAT_GEMINI_CLI;
+    const envVal = process.env.CLI_COMPAT_GEMINI_CLI?.toLowerCase();
     if (envVal === "0" || envVal === "false") return false;
-    return true;
+    if (envVal === "1" || envVal === "true") return true;
+    if (process.env.CLI_COMPAT_ALL === "1" || process.env.CLI_COMPAT_ALL === "true") return true;
+    return _cliCompatExplicitlySet ? _cliCompatProviders.has("gemini-cli") : true;
   }
   if (_cliCompatProviders.has(normalizedProvider)) return true;
 
