@@ -544,6 +544,7 @@ detection above).
 | `OMNIROUTE_ALLOW_BODY_PROJECT_OVERRIDE`         | `0`                                                 | `open-sse/executors/antigravity.ts`                         | Escape hatch: allow request body to override the Antigravity project field.                                                                                             |
 | `ANTIGRAVITY_CREDITS`                           | `off`                                               | `open-sse/services/antigravityCredits.ts`                   | Google One AI credits policy: `off` never injects credits, `retry` injects once after an eligible quota 429, and `always` injects on the first request.                    |
 | `ANTIGRAVITY_ALLOW_SIGNATURE_BYPASS`            | `0`                                                 | `open-sse/translator/request/openai-to-gemini.ts`           | Allow the Antigravity request translator to skip its strict CLI request-signature validation when the upstream refuses real signatures (debug/antiquated-CLI mode). Non-zero enables the bypass.                                                   |
+| `GEMINI_CLI_LEGACY_TOOL_PREFIX`                 | `0`                                                 | `open-sse/translator/request/geminiCli.ts`                  | Enable legacy tool name prefixing (`gemini3_`) for Gemini CLI requests. Non-zero enables prefixing.                                                                     |
 | `AGY_TOKEN_FILE`                                | `~/.gemini/antigravity-cli/antigravity-oauth-token` | `src/app/api/providers/agy-auth/apply-local/route.ts`       | Override the Antigravity CLI (agy) token-file path for the auto-detect local login import.                                                                              |
 
 ### OAuth CLI Bridge (Internal)
@@ -655,8 +656,7 @@ When enabled, OmniRoute reorders HTTP headers and JSON body fields to match the 
 | `CLI_COMPAT_KIMI_CODING` | `=1`       | Mimics Kimi Coding request signature    |
 | `CLI_COMPAT_KILOCODE`    | `=1`       | Mimics Kilo Code request signature      |
 | `CLI_COMPAT_CLINE`       | `=1`       | Mimics Cline request signature          |
-| `CLI_COMPAT_GEMINI_CLI`  | `=1`       | Mimics Gemini CLI request signature (enabled by default; set `=0` or `=false` to disable) |
-| `GEMINI_CLI_LEGACY_TOOL_PREFIX` | `=1` | Opt-in legacy `gemini3_` tool name prefixing and synthetic tool instructions on Gemini 3 models (default: disabled) |
+| `CLI_COMPAT_GEMINI_CLI`  | `=1`       | Mimics Gemini CLI request signature     |
 
 ### Global
 
