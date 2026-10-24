@@ -1430,3 +1430,67 @@ test("Phase 3: ensureTerminalUserTurn replaces empty or metadata-only terminal u
     parts: [{ text: CONTINUE_PROMPT_TEXT }],
   });
 });
+
+test("Phase 3: authentic @google/gemini-cli functionResponse contract with { id, name, response: { output } }", () => {
+  const request = {
+    model: "gemini-3.8-flash",
+    messages: [
+      { role: "user", content: "Check node status" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_check_1",
+            type: "function",
+            function: { name: "get_cluster_status", arguments: '{"node":"dfw-01"}' },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_check_1",
+        name: "get_cluster_status",
+        content: JSON.stringify({ output: "Node dfw-01 is HEALTHY" }),
+      },
+    ],
+    tools: [
+      {
+        type: "function",
+        function: {
+          name: "get_cluster_status",
+          parameters: { type: "object", properties: { node: { type: "string" } } },
+        },
+      },
+    ],
+  };
+
+  const translated = translateChatRequestToGeminiCli(request, { projectId: "proj-tool-val" });
+  const contents = translated.body.request.contents as Array<{
+    role: string;
+    parts: Array<Record<string, unknown>>;
+  }>;
+
+  assert.equal(contents.length, 3);
+  assert.equal(contents[0].role, "user");
+  assert.equal(contents[1].role, "model");
+  assert.equal(contents[2].role, "user");
+
+  const frPart = contents[2].parts[0].functionResponse as {
+    id: string;
+    name: string;
+    response: { output: string };
+  };
+  assert.ok(frPart, "expected functionResponse part");
+  assert.equal(frPart.id, "call_check_1");
+  assert.equal(frPart.name, "get_cluster_status");
+  assert.deepEqual(frPart.response, { output: "Node dfw-01 is HEALTHY" });
+
+  // Verify key order: id first, name second, response third
+  assert.deepEqual(Object.keys(frPart), ["id", "name", "response"]);
+
+  // Verify user_prompt_id matches session_id on tool response turn
+  const sessionId = translated.body.request.session_id as string;
+  const userPromptId = translated.body.user_prompt_id as string;
+  assert.equal(userPromptId, sessionId, "user_prompt_id on tool-response turn must stay identical to sessionId");
+});

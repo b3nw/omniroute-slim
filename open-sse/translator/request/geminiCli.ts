@@ -896,15 +896,12 @@ export function fixToolResponseGrouping(
       } else {
         groupResponses.push({
           functionResponse: {
+            id: expectedId,
             name: expectedName || "unknown_function",
             response: {
-              result: {
-                error:
-                  "Tool response was lost during context processing. This is a recovered placeholder.",
-                recovered: true,
-              },
+              output:
+                "Tool response was lost during context processing. This is a recovered placeholder.",
             },
-            id: expectedId,
           },
         });
       }
@@ -1347,13 +1344,27 @@ export function transformMessages(
         }
       }
 
+      let outputStr: string;
+      if (
+        parsedContent !== null &&
+        typeof parsedContent === "object" &&
+        "output" in (parsedContent as Record<string, unknown>)
+      ) {
+        const rawOutput = (parsedContent as Record<string, unknown>).output;
+        outputStr = typeof rawOutput === "string" ? rawOutput : JSON.stringify(rawOutput);
+      } else if (typeof content === "string") {
+        outputStr = content;
+      } else {
+        outputStr = JSON.stringify(content ?? "");
+      }
+
       pendingToolParts.push({
         functionResponse: {
+          id: toolCallId,
           name: funcName,
           response: {
-            result: parsedContent,
+            output: outputStr,
           },
-          id: toolCallId,
         },
       });
     }
