@@ -109,14 +109,16 @@ function getProxyDispatcherOptions(env: Record<string, string | undefined> = pro
   // by the retry-once-with-fresh-socket path in proxyFetch.ts (mirrors the
   // direct-path #4252 fix) instead of by killing all idle sockets after 1ms.
   //
-  // Pipelining 4 lets concurrent SSE streams multiplex over the pooled
-  // connection instead of each opening its own socket (#4163 regression).
+  // Pipelining 0 (matching #4580 on the direct path): HTTP/1.1 pipelining let a
+  // long-lived SSE stream head-of-line block requests queued behind it on the
+  // same pooled socket, stalling first byte. Concurrency comes from the
+  // per-origin connection limit instead.
   return {
     ...options,
     connections: getProxyDispatcherConnectionLimit(env),
     keepAliveTimeout: Math.max(options.keepAliveTimeout, 30_000),
     keepAliveMaxTimeout: Math.max(options.keepAliveMaxTimeout, 60_000),
-    pipelining: 4,
+    pipelining: 0,
   };
 }
 
@@ -438,7 +440,7 @@ export function __createRoundRobinDispatcherForTest(dispatchers: Dispatcher[]): 
 
 /**
  * Build a ProxyAgent / socks dispatcher for a normalized proxy URL using the
- * given options. Shared by the pooled dispatcher (keep-alive, pipelining 4)
+ * given options. Shared by the pooled dispatcher (keep-alive, no pipelining)
  * and the retry dispatcher (fresh no-keep-alive socket, mirrors #4252).
  */
 function buildProxyDispatcher(

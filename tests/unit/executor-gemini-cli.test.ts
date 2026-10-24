@@ -701,7 +701,7 @@ test("Tier 3: handleReasoningParameters default behavior for Gemini 2.5 and Gemi
   // Gemini 3 Flash default when no reasoning parameter is sent
   const gem3FlashDefault = handleReasoningParameters({}, "gemini-3-flash");
   assert.deepEqual(gem3FlashDefault, {
-    thinkingLevel: "high",
+    thinkingLevel: "low",
     include_thoughts: true,
   });
 

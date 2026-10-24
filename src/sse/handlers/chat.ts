@@ -2337,27 +2337,27 @@ async function handleSingleModelChat(
         result.status,
         errorStr
       );
+      // #6219: evict the sticky session pin whenever the pinned account fails over —
+      // including forced (#5903 pin-overridden) combo targets that return to the combo
+      // runner below — else the next request re-pins the throttled account. Connection-
+      // matched, so a pin for a different (healthy) account is left intact.
+      if (shouldFallback && runtimeOptions.sessionAffinityKey) {
+        try {
+          evictSessionAccountAffinityForConnection(
+            runtimeOptions.sessionAffinityKey,
+            provider,
+            credentials.connectionId
+          );
+        } catch {
+          // best-effort: selection also excludes this connection for the current retry.
+        }
+      }
       if (shouldFallback && (!hasForcedConnection || isClaude55EntitlementDenial)) {
         if (Number.isFinite(cooldownMs) && cooldownMs > 0) {
           lastCooldownMs = cooldownMs;
           requestRetryLastCooldownMs = cooldownMs;
         }
         log.warn("AUTH", `Account ${accountId}... unavailable (${result.status}), trying fallback`);
-        // #6219: evict the sticky session pin when the pinned account fails over,
-        // otherwise the next request re-pins the same throttled account until
-        // restart. Guarded by connection match so a pin for a different (healthy)
-        // account is left intact.
-        if (runtimeOptions.sessionAffinityKey) {
-          try {
-            evictSessionAccountAffinityForConnection(
-              runtimeOptions.sessionAffinityKey,
-              provider,
-              credentials.connectionId
-            );
-          } catch {
-            // best-effort: selection also excludes this connection for the current retry.
-          }
-        }
         excludedConnectionIds.add(credentials.connectionId);
         lastError = result.error;
         lastStatus = result.status;

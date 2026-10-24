@@ -785,6 +785,28 @@ test("Tier 3: Reasoning Parameter Mapping for Gemini 2.5 vs Gemini 3", () => {
     include_thoughts: true,
   });
 
+  // Gemini 3 Flash with unspecified effort defaults to "low" (first-byte latency);
+  // the `:thinking` suffix opts back into "high"; the env var overrides the default.
+  assert.deepEqual(handleReasoningParameters({}, "gemini-3.8-flash"), {
+    thinkingLevel: "low",
+    include_thoughts: true,
+  });
+  assert.deepEqual(handleReasoningParameters({}, "gemini-3.8-flash:thinking"), {
+    thinkingLevel: "high",
+    include_thoughts: true,
+  });
+  const savedFlashLevel = process.env.GEMINI_CLI_DEFAULT_FLASH_THINKING_LEVEL;
+  try {
+    process.env.GEMINI_CLI_DEFAULT_FLASH_THINKING_LEVEL = "medium";
+    assert.deepEqual(handleReasoningParameters({}, "gemini-3.8-flash"), {
+      thinkingLevel: "medium",
+      include_thoughts: true,
+    });
+  } finally {
+    if (savedFlashLevel === undefined) delete process.env.GEMINI_CLI_DEFAULT_FLASH_THINKING_LEVEL;
+    else process.env.GEMINI_CLI_DEFAULT_FLASH_THINKING_LEVEL = savedFlashLevel;
+  }
+
   // Gemini 3.8 Flash & Gemini 3.1/3.5 Flash-Lite recognized as isGem3Flash
   for (const flashModel of ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]) {
     assert.deepEqual(

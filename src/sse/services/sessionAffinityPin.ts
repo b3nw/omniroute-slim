@@ -370,6 +370,49 @@ export interface ComboTimeoutAffinityEvictionParams {
   connectionId?: string | null;
   /** Per-target abort signal handed down by the combo timeout runner. */
   modelAbortSignal?: AbortSignal | null;
+  /** Failed dispatch result, when the executor surfaced the timeout itself. */
+  result?: {
+    status?: number;
+    errorCode?: string | null;
+    errorType?: string | null;
+    error?: unknown;
+    rawMessage?: string | null;
+  } | null;
+}
+
+const TIMEOUT_EVICTION_ERROR_CODES = [
+  "gemini_cli_first_byte_timeout",
+  "antigravity_pre_response_timeout",
+  "combo_target_timeout",
+];
+
+/**
+ * True when a failed dispatch result reports an upstream stall/timeout on the
+ * selected account (e.g. a Gemini CLI first-byte 504) rather than a client
+ * disconnect. Such a result evicts the pin even if the combo abort signal never
+ * fired, because the executor bounded the attempt itself.
+ */
+export function isTimeoutEvictionResult(
+  result: ComboTimeoutAffinityEvictionParams["result"]
+): boolean {
+  if (!result) return false;
+  if (
+    result.status === 499 ||
+    result.errorCode === "client_disconnected" ||
+    result.errorType === "client_disconnected"
+  ) {
+    return false;
+  }
+  if (result.status === 504 || result.status === 524) return true;
+  if (
+    typeof result.errorCode === "string" &&
+    TIMEOUT_EVICTION_ERROR_CODES.includes(result.errorCode.toLowerCase())
+  ) {
+    return true;
+  }
+  return /Gemini CLI upstream produced no first data event/i.test(
+    String(result.rawMessage ?? result.error ?? "")
+  );
 }
 
 /**
@@ -385,7 +428,8 @@ export interface ComboTimeoutAffinityEvictionParams {
  * TTL and every following request in that session was handed straight back to the
  * stalled account.
  *
- * Only a genuine per-model timeout evicts. A client disconnect or a hedge
+ * Only a genuine per-model timeout (or a failed result reporting an upstream
+ * first-byte/target timeout) evicts. A client disconnect or a hedge
  * cancellation says nothing about the account's health and must leave the pin
  * intact. The eviction is connection-matched, so a pin pointing at a different
  * (healthy) account is never touched. Best-effort: never throws into the dispatch
@@ -398,7 +442,9 @@ export function evictSessionAffinityOnComboTimeout(
 ): boolean {
   const { sessionKey, provider, connectionId, modelAbortSignal } = params;
   if (!sessionKey || !provider || !connectionId) return false;
-  if (!isComboPerModelTimeoutAbort(modelAbortSignal)) return false;
+  if (!isComboPerModelTimeoutAbort(modelAbortSignal) && !isTimeoutEvictionResult(params.result)) {
+    return false;
+  }
 
   try {
     const evicted = evictSessionAccountAffinityForConnection(sessionKey, provider, connectionId);

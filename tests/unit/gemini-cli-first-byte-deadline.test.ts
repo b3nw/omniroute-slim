@@ -483,23 +483,23 @@ test("adaptive: small prompt keeps the base deadline", () => {
   );
 });
 
-test("adaptive: 180KB + thinkingLevel high scales to 22000ms", () => {
-  // ceil(140_000 / 40_000) = 4 steps * 1500 = +6000, high thinking +4000.
+test("adaptive: 180KB + thinkingLevel high scales to 26000ms", () => {
+  // ceil(140_000 / 40_000) = 4 steps * 1500 = +6000, high thinking +8000.
   assert.equal(
     computeAdaptiveGeminiCliFirstByteTimeoutMs({
       baseTimeoutMs: 12_000,
       bodyByteLength: 180_000,
       thinkingLevel: "HIGH",
     }),
-    22_000
+    26_000
   );
   assert.equal(
     computeAdaptiveGeminiCliFirstByteTimeoutMs({ baseTimeoutMs: 12_000, thinkingBudget: -1 }),
-    16_000
+    20_000
   );
   assert.equal(
     computeAdaptiveGeminiCliFirstByteTimeoutMs({ baseTimeoutMs: 12_000, thinkingBudget: 16_384 }),
-    16_000
+    20_000
   );
 });
 
@@ -628,7 +628,7 @@ test("executor: large effort=high payload gets the adaptive first-byte deadline"
     bodyByteLength: Buffer.byteLength(bodies[0], "utf8"),
     thinkingLevel: "high",
   });
-  assert.equal(expected, 22_000);
+  assert.equal(expected, 26_000);
   const timing = JSON.parse(
     logs.find(([tag]) => tag === "GEMINI_CLI_UPSTREAM_TIMING")?.[1] ?? "{}"
   );

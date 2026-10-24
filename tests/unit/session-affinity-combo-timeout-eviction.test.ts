@@ -27,6 +27,8 @@ const core = await import("../../src/lib/db/core.ts");
 const affinityDb = await import("../../src/lib/db/sessionAccountAffinity.ts");
 const pin = await import("../../src/sse/services/sessionAffinityPin.ts");
 const abortReasons = await import("../../open-sse/services/combo/comboAbortReasons.ts");
+const { applyComboTargetExhaustion } =
+  await import("../../open-sse/services/combo/targetExhaustion.ts");
 
 const PROVIDER = "codex";
 const SESSION = "session-combo-timeout";
@@ -204,4 +206,68 @@ test("the dispatch seam evicts when a dispatch is abandoned", () => {
     /evictSessionAffinityOnComboTimeout\(/,
     "chatDispatch.ts must call the eviction"
   );
+});
+
+test("evicts the pin on a 504 GEMINI_CLI_FIRST_BYTE_TIMEOUT result without a combo abort", () => {
+  affinityDb.upsertSessionAccountAffinity(SESSION, "gemini-cli", STALLED, Date.now(), TTL);
+
+  const evicted = pin.evictSessionAffinityOnComboTimeout({
+    sessionKey: SESSION,
+    provider: "gemini-cli",
+    connectionId: STALLED,
+    modelAbortSignal: new AbortController().signal,
+    result: { status: 504, errorCode: "GEMINI_CLI_FIRST_BYTE_TIMEOUT" },
+  });
+
+  assert.equal(evicted, true, "an executor-bounded first-byte stall must drop the pin");
+  assert.equal(affinityDb.getSessionAccountAffinity(SESSION, "gemini-cli", TTL), null);
+});
+
+test("leaves the pin intact when the failed result is a client disconnect", () => {
+  affinityDb.upsertSessionAccountAffinity(SESSION, PROVIDER, STALLED, Date.now(), TTL);
+
+  const evicted = pin.evictSessionAffinityOnComboTimeout({
+    sessionKey: SESSION,
+    provider: PROVIDER,
+    connectionId: STALLED,
+    modelAbortSignal: new AbortController().signal,
+    result: { status: 499, errorCode: "client_disconnected" },
+  });
+
+  assert.equal(evicted, false);
+  assert.equal(affinityDb.getSessionAccountAffinity(SESSION, PROVIDER, TTL)?.connectionId, STALLED);
+});
+
+test("a first-byte timeout exhausts the stalled connection for the rest of the combo request", () => {
+  const sets = {
+    exhaustedProviders: new Set<string>(),
+    exhaustedConnections: new Set<string>(),
+    transientRateLimitedProviders: new Set<string>(),
+  };
+  const target = {
+    kind: "model",
+    executionKey: "ek",
+    modelStr: "gemini-cli/gemini-3.8-flash",
+    provider: "gemini-cli",
+    providerId: null,
+    connectionId: STALLED,
+  } as Parameters<typeof applyComboTargetExhaustion>[0];
+
+  applyComboTargetExhaustion(target, {
+    result: { status: 504 },
+    fallbackResult: {} as Parameters<typeof applyComboTargetExhaustion>[1]["fallbackResult"],
+    errorText: "Gemini CLI upstream produced no first data event within 12000ms",
+    rawModel: "gemini-3.8-flash",
+    isTokenLimitBreach: false,
+    allAccountsRateLimited: false,
+    requestScopedFailure: true,
+    sets,
+    log: { info() {}, warn() {}, error() {}, debug() {} },
+    tag: "COMBO",
+    exhaustedLogLevel: "info",
+    structuredError: { code: "GEMINI_CLI_FIRST_BYTE_TIMEOUT" },
+  });
+
+  assert.ok(sets.exhaustedConnections.has(`gemini-cli:${STALLED}`));
+  assert.equal(sets.exhaustedProviders.has("gemini-cli"), false);
 });

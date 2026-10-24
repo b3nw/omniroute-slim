@@ -371,13 +371,23 @@ function markConnectionLevelExhaustion(
   const { result, errorText, sets, log, tag, rawModel, requestScopedFailure, structuredError } =
     opts;
   const provider = target.provider;
+  const connId = target.connectionId ?? undefined;
+  const errorCodeLower =
+    typeof structuredError?.code === "string" ? structuredError.code.toLowerCase() : "";
+  // A first-byte / target timeout on a specific connection means THAT connection is stalled:
+  // skip it for the rest of this combo request even when the failure is flagged request-scoped.
+  const isConnectionScopedTimeout =
+    Boolean(connId) &&
+    (errorCodeLower === "gemini_cli_first_byte_timeout" ||
+      errorCodeLower === "combo_target_timeout" ||
+      /Gemini CLI upstream produced no first data event/i.test(errorText));
   if (
     !provider ||
     provider === "unknown" ||
     !CONNECTION_LEVEL_ERROR_STATUSES.includes(result.status) ||
     isProviderCircuitOpenResult(result, errorText) ||
-    requestScopedFailure ||
-    isRequestScopedUpstreamFailure(structuredError) ||
+    (!isConnectionScopedTimeout &&
+      (requestScopedFailure || isRequestScopedUpstreamFailure(structuredError))) ||
     // #5085: empty-content 502 is a healthy connection returning no body — model-level, not
     // connection-level. Don't exhaust the provider; let the remaining legs (incl. same-provider)
     // be tried in-request.
@@ -391,7 +401,6 @@ function markConnectionLevelExhaustion(
   ) {
     return;
   }
-  const connId = target.connectionId ?? undefined;
   if (connId) {
     sets.exhaustedConnections.add(`${provider}:${connId}`);
     log.info(

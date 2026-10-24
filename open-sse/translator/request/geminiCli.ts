@@ -998,6 +998,14 @@ export function ensureTerminalUserTurn(
 
 export const _fix_tool_response_grouping = fixToolResponseGrouping;
 
+function getDefaultGemini3FlashThinkingLevel(): "minimal" | "low" | "medium" | "high" {
+  const raw = process.env.GEMINI_CLI_DEFAULT_FLASH_THINKING_LEVEL?.trim().toLowerCase();
+  if (raw === "minimal" || raw === "low" || raw === "medium" || raw === "high") {
+    return raw;
+  }
+  return "low";
+}
+
 export function handleReasoningParameters(
   payload: Record<string, unknown>,
   model: string
@@ -1088,7 +1096,11 @@ export function handleReasoningParameters(
   // If Gemini 3 Flash / 3.5 Flash
   if (isGem3Flash) {
     let thinkingLevel = "high";
-    if (effort === "minimal" || effort === "low") {
+    if (effort === "auto") {
+      // Unspecified effort: `:thinking` opts into high; otherwise a cheaper default
+      // keeps first-byte latency inside the Gemini CLI first-byte deadline.
+      thinkingLevel = hasThinkingSuffix ? "high" : getDefaultGemini3FlashThinkingLevel();
+    } else if (effort === "minimal" || effort === "low") {
       thinkingLevel = "low";
     } else if (effort === "low_medium" || effort === "medium") {
       thinkingLevel = "medium";
