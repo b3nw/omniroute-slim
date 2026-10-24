@@ -7,11 +7,28 @@ import {
   GEMINI_CLI_FIRST_BYTE_TIMEOUT_CODE,
   GeminiCliFirstByteTimeoutError,
   type GeminiCliAttemptTiming,
+  computeAdaptiveGeminiCliFirstByteTimeoutMs,
+  MAX_ADAPTIVE_GEMINI_CLI_FIRST_BYTE_TIMEOUT_MS,
 } from "../../open-sse/executors/geminiCliFirstByte.ts";
 import { GeminiCliExecutor } from "../../open-sse/executors/geminiCli.ts";
 import { isRequestScopedUpstreamFailure } from "../../open-sse/services/combo/comboPredicates.ts";
 import { isSelfInflictedUpstreamTimeout } from "../../open-sse/handlers/chatCore/cooldownClassification.ts";
 import { getGeminiCliFirstByteConfig } from "../../src/shared/utils/runtimeTimeouts.ts";
+import net from "node:net";
+import {
+  getFreshDirectRetryDispatcher,
+  resolveProxyForRequest,
+  runWithProxyContext,
+} from "../../open-sse/utils/proxyFetch.ts";
+import { getProxyRetryDispatcher } from "../../open-sse/utils/proxyDispatcher.ts";
+import { buildTargetTimeoutRunner } from "../../open-sse/services/combo/targetTimeoutRunner.ts";
+import {
+  disarmComboTargetTimeout,
+  propagateComboTargetTimeoutDisarm,
+  registerComboTargetTimeoutDisarm,
+} from "../../open-sse/services/combo/comboAbortReasons.ts";
+import { mergeAbortSignals } from "../../open-sse/executors/base.ts";
+import { executeWithUpstreamStartTimeout } from "../../open-sse/handlers/chatCore/upstreamTimeouts.ts";
 
 const URL_ = "https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse";
 const FRESH = { kind: "fresh-dispatcher-sentinel" };
@@ -445,4 +462,337 @@ test("config defaults: 12000ms / 3 attempts / 45000ms budget", () => {
     }),
     { timeoutMs: 5000, maxAttempts: 2, totalBudgetMs: 20_000 }
   );
+});
+
+// ── Adaptive deadline / combo single attempt / proxy-aware retry / disarm ──────
+
+test("adaptive: small prompt keeps the base deadline", () => {
+  assert.equal(computeAdaptiveGeminiCliFirstByteTimeoutMs({ baseTimeoutMs: 12_000 }), 12_000);
+  assert.equal(
+    computeAdaptiveGeminiCliFirstByteTimeoutMs({ baseTimeoutMs: 12_000, bodyByteLength: 30_000 }),
+    12_000
+  );
+  assert.equal(
+    computeAdaptiveGeminiCliFirstByteTimeoutMs({
+      baseTimeoutMs: 12_000,
+      bodyByteLength: 30_000,
+      thinkingLevel: "medium",
+      thinkingBudget: 8_192,
+    }),
+    12_000
+  );
+});
+
+test("adaptive: 180KB + thinkingLevel high scales to 22000ms", () => {
+  // ceil(140_000 / 40_000) = 4 steps * 1500 = +6000, high thinking +4000.
+  assert.equal(
+    computeAdaptiveGeminiCliFirstByteTimeoutMs({
+      baseTimeoutMs: 12_000,
+      bodyByteLength: 180_000,
+      thinkingLevel: "HIGH",
+    }),
+    22_000
+  );
+  assert.equal(
+    computeAdaptiveGeminiCliFirstByteTimeoutMs({ baseTimeoutMs: 12_000, thinkingBudget: -1 }),
+    16_000
+  );
+  assert.equal(
+    computeAdaptiveGeminiCliFirstByteTimeoutMs({ baseTimeoutMs: 12_000, thinkingBudget: 16_384 }),
+    16_000
+  );
+});
+
+test("adaptive: 500KB + thinkingLevel high caps at 26000ms; base 0 stays disabled", () => {
+  assert.equal(
+    computeAdaptiveGeminiCliFirstByteTimeoutMs({
+      baseTimeoutMs: 12_000,
+      bodyByteLength: 500_000,
+      thinkingLevel: "high",
+    }),
+    MAX_ADAPTIVE_GEMINI_CLI_FIRST_BYTE_TIMEOUT_MS
+  );
+  assert.equal(MAX_ADAPTIVE_GEMINI_CLI_FIRST_BYTE_TIMEOUT_MS, 26_000);
+  assert.equal(
+    computeAdaptiveGeminiCliFirstByteTimeoutMs({
+      baseTimeoutMs: 0,
+      bodyByteLength: 500_000,
+      thinkingLevel: "high",
+    }),
+    0
+  );
+  // An operator base above the cap is never lowered.
+  assert.equal(
+    computeAdaptiveGeminiCliFirstByteTimeoutMs({
+      baseTimeoutMs: 40_000,
+      bodyByteLength: 500_000,
+      thinkingLevel: "high",
+    }),
+    40_000
+  );
+});
+
+function withFirstByteEnv(
+  t: { after: (fn: () => void) => void },
+  vars: Record<string, string | undefined>
+) {
+  const originalFetch = globalThis.fetch;
+  const saved: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(vars)) {
+    saved[key] = process.env[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+}
+
+test("executor: skipUpstreamRetry (combo) runs a single attempt on first-byte timeout", async (t) => {
+  withFirstByteEnv(t, {
+    GEMINI_CLI_FIRST_BYTE_TIMEOUT_MS: "30",
+    GEMINI_CLI_FIRST_BYTE_MAX_ATTEMPTS: "3",
+  });
+  let calls = 0;
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    calls++;
+    return hangingFetch(init ?? {});
+  }) as typeof fetch;
+
+  const logs: Array<[string, string]> = [];
+  const executor = new GeminiCliExecutor();
+  await assert.rejects(
+    executor.execute({
+      model: "gemini-3.5-flash",
+      body: { messages: [{ role: "user", content: "combo target" }] },
+      stream: true,
+      credentials: { apiKey: "k", projectId: "test-proj" },
+      signal: null,
+      skipUpstreamRetry: true,
+      log: {
+        info: (tag, msg) => logs.push([tag, msg]),
+        warn: (tag, msg) => logs.push([tag, msg]),
+      },
+    }),
+    (err: unknown) => isGeminiCliFirstByteTimeout(err)
+  );
+  assert.equal(calls, 1, "no same-account retry inside a combo target");
+  const timingLogs = logs.filter(([tag]) => tag === "GEMINI_CLI_UPSTREAM_TIMING");
+  assert.equal(timingLogs.length, 1);
+  assert.equal(JSON.parse(timingLogs[0][1]).outcome, "first_byte_timeout");
+});
+
+test("executor: large effort=high payload gets the adaptive first-byte deadline", async (t) => {
+  withFirstByteEnv(t, {
+    GEMINI_CLI_FIRST_BYTE_TIMEOUT_MS: "12000",
+    GEMINI_CLI_FIRST_BYTE_MAX_ATTEMPTS: undefined,
+  });
+  const bodies: string[] = [];
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    bodies.push(String(init?.body));
+    return sseResponse(
+      `data: ${JSON.stringify({
+        response: { candidates: [{ content: { parts: [{ text: "ok" }] }, finishReason: "STOP" }] },
+      })}\n\n`
+    );
+  }) as typeof fetch;
+
+  const logs: Array<[string, string]> = [];
+  const executor = new GeminiCliExecutor();
+  const result = await executor.execute({
+    model: "gemini-3.5-flash",
+    body: {
+      messages: [{ role: "user", content: "x".repeat(180_000) }],
+      reasoning_effort: "high",
+    },
+    stream: true,
+    credentials: { apiKey: "k", projectId: "test-proj" },
+    signal: null,
+    skipUpstreamRetry: true,
+    log: {
+      info: (tag, msg) => logs.push([tag, msg]),
+      warn: (tag, msg) => logs.push([tag, msg]),
+    },
+  });
+  assert.ok((await readAll((result as { response: Response }).response)).includes("ok"));
+
+  assert.equal(bodies.length, 1);
+  const sent = JSON.parse(bodies[0]);
+  assert.equal(sent.request?.generationConfig?.thinkingConfig?.thinkingLevel, "high");
+  const expected = computeAdaptiveGeminiCliFirstByteTimeoutMs({
+    baseTimeoutMs: 12_000,
+    bodyByteLength: Buffer.byteLength(bodies[0], "utf8"),
+    thinkingLevel: "high",
+  });
+  assert.equal(expected, 22_000);
+  const timing = JSON.parse(
+    logs.find(([tag]) => tag === "GEMINI_CLI_UPSTREAM_TIMING")?.[1] ?? "{}"
+  );
+  assert.equal(timing.deadlineMs, expected);
+  assert.equal(timing.outcome, "ok");
+});
+
+test("getFreshDirectRetryDispatcher returns the proxy retry dispatcher under an HTTP proxy context", async () => {
+  const server = net.createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  try {
+    const { dispatcher, proxyUrl } = await runWithProxyContext(
+      { type: "http", host: "127.0.0.1", port: String(address.port) },
+      async () => ({
+        dispatcher: getFreshDirectRetryDispatcher(URL_),
+        proxyUrl: resolveProxyForRequest(URL_).proxyUrl,
+      })
+    );
+    assert.ok(proxyUrl, "proxy context resolves to a proxy URL");
+    assert.notEqual(dispatcher, null, "proxied retries get a fresh dispatcher, not pooled");
+    assert.equal(dispatcher, getProxyRetryDispatcher(proxyUrl!));
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("combo target timeout: disarm on first byte lets a stream:false body finish buffering", async () => {
+  const runner = buildTargetTimeoutRunner({
+    comboTargetTimeoutMs: 30,
+    log: { warn() {}, info() {}, error() {}, debug() {} },
+    handleSingleModel: async (_b, _m, target) => {
+      const targetSignal = (target as { modelAbortSignal: AbortSignal }).modelAbortSignal;
+      // chat.ts merges the target signal into clientRawRequest.signal before dispatch.
+      const clientSignal = mergeAbortSignals(new AbortController().signal, targetSignal);
+      await new Promise((r) => setTimeout(r, 10)); // first byte at ~10ms
+      disarmComboTargetTimeout(clientSignal);
+      await new Promise((r) => setTimeout(r, 80)); // buffering until ~90ms
+      if (targetSignal.aborted) throw new Error("aborted mid-buffer");
+      return new Response('{"ok":true}', { status: 200 });
+    },
+  });
+  const res = await runner({}, "gemini-cli/gemini-3.8-flash");
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), '{"ok":true}');
+});
+
+test("combo target timeout: without disarm the startup timeout still fires", async () => {
+  const runner = buildTargetTimeoutRunner({
+    comboTargetTimeoutMs: 30,
+    log: { warn() {}, info() {}, error() {}, debug() {} },
+    handleSingleModel: async () => {
+      await new Promise((r) => setTimeout(r, 80));
+      return new Response("late", { status: 200 });
+    },
+  });
+  const res = await runner({}, "gemini-cli/gemini-3.8-flash");
+  assert.equal(res.status, 504);
+});
+
+test("disarm propagation through derived signals is one-shot and ignores unrelated signals", () => {
+  let disarms = 0;
+  const source = new AbortController().signal;
+  registerComboTargetTimeoutDisarm(source, () => disarms++);
+
+  const derived = mergeAbortSignals(source, new AbortController().signal);
+  const twiceDerived = new AbortController().signal;
+  propagateComboTargetTimeoutDisarm(twiceDerived, derived, null);
+  disarmComboTargetTimeout(twiceDerived);
+  assert.equal(disarms, 1);
+  disarmComboTargetTimeout(twiceDerived);
+  assert.equal(disarms, 1, "one-shot per signal");
+
+  const unrelated = new AbortController().signal;
+  const derivedUnregistered = new AbortController().signal;
+  propagateComboTargetTimeoutDisarm(derivedUnregistered, unrelated);
+  disarmComboTargetTimeout(derivedUnregistered);
+  disarmComboTargetTimeout(null);
+  assert.equal(disarms, 1);
+});
+
+test("fetchWithFirstByteDeadline disarms the caller's combo target timeout on first data", async () => {
+  let disarmed = false;
+  const runner = buildTargetTimeoutRunner({
+    comboTargetTimeoutMs: 40,
+    log: { warn() {}, info() {}, error() {}, debug() {} },
+    handleSingleModel: async (_b, _m, target) => {
+      const signal = (target as { modelAbortSignal: AbortSignal }).modelAbortSignal;
+      const { fetchImpl } = scriptedFetch([() => sseResponse('data: {"a":1}\n\n')]);
+      const { response } = await fetchWithFirstByteDeadline({
+        ...baseOptions,
+        fetchImpl,
+        signal,
+        timeoutMs: 1000,
+        maxAttempts: 1,
+        totalBudgetMs: 1000,
+      });
+      await readAll(response);
+      await new Promise((r) => setTimeout(r, 70)); // past the 40ms target timeout
+      disarmed = !signal.aborted;
+      return new Response("done", { status: 200 });
+    },
+  });
+  const res = await runner({}, "gemini-cli/gemini-3.8-flash");
+  assert.equal(res.status, 200);
+  assert.equal(disarmed, true);
+});
+
+test("combo + upstream-start timeouts: stream:false gemini-cli disarms both on first SSE data", async (t) => {
+  withFirstByteEnv(t, {
+    GEMINI_CLI_FIRST_BYTE_TIMEOUT_MS: "1000",
+    GEMINI_CLI_FIRST_BYTE_MAX_ATTEMPTS: "1",
+  });
+  const sseChunk = (text: string, finishReason?: string) =>
+    `data: ${JSON.stringify({
+      response: {
+        candidates: [{ content: { parts: [{ text }] }, ...(finishReason ? { finishReason } : {}) }],
+      },
+    })}\n\n`;
+  globalThis.fetch = (async () => {
+    const s = controlledStream();
+    setTimeout(() => s.push(sseChunk("hello ")), 5); // first data well inside both timers
+    setTimeout(() => {
+      s.push(sseChunk("world", "STOP")); // past both 40ms timers
+      s.close();
+    }, 90);
+    return sseResponse(s.stream);
+  }) as typeof fetch;
+
+  const executor = new GeminiCliExecutor();
+  const runner = buildTargetTimeoutRunner({
+    comboTargetTimeoutMs: 40,
+    log: { warn() {}, info() {}, error() {}, debug() {} },
+    handleSingleModel: async (_b, _m, target) => {
+      const targetSignal = (target as { modelAbortSignal: AbortSignal }).modelAbortSignal;
+      // chat.ts merges the target signal into clientRawRequest.signal before dispatch.
+      const clientSignal = mergeAbortSignals(new AbortController().signal, targetSignal);
+      const result = await executeWithUpstreamStartTimeout({
+        executor,
+        provider: "gemini-cli",
+        model: "gemini-3.5-flash",
+        connectionTimeoutMs: 40,
+        signal: clientSignal,
+        execute: (signal) =>
+          executor.execute({
+            model: "gemini-3.5-flash",
+            body: { messages: [{ role: "user", content: "slow second chunk" }] },
+            stream: false,
+            credentials: { apiKey: "k", projectId: "test-proj" },
+            signal,
+            skipUpstreamRetry: true,
+            log: { info() {}, warn() {} },
+          }),
+      });
+      return (result as { response: Response }).response;
+    },
+  });
+
+  const res = await runner({}, "gemini-cli/gemini-3.5-flash");
+  assert.equal(res.status, 200);
+  const json = await res.json();
+  assert.equal(json.choices?.[0]?.message?.content, "hello world");
 });

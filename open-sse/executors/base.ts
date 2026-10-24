@@ -100,6 +100,7 @@ import {
   stripProxyToolPrefix,
 } from "./claudeIdentity.ts";
 import { withForcedResponsesUpstream } from "./forceResponsesUpstream.ts";
+import { propagateComboTargetTimeoutDisarm } from "../services/combo/comboAbortReasons.ts";
 import {
   mergeUpstreamExtraHeaders,
   setUserAgentHeader,
@@ -246,6 +247,7 @@ export function mergeAbortSignals(primary: AbortSignal, secondary: AbortSignal):
 
   primary.addEventListener("abort", () => abortFrom(primary), { once: true });
   secondary.addEventListener("abort", () => abortFrom(secondary), { once: true });
+  propagateComboTargetTimeoutDisarm(controller.signal, primary, secondary);
   return controller.signal;
 }
 

@@ -462,6 +462,7 @@ import {
   isRpmExhausted,
 } from "../services/geminiRateLimitTracker.ts";
 import { isSmallEnoughForSemanticCache } from "../utils/estimateSize.ts";
+import { disarmComboTargetTimeout } from "../services/combo/comboAbortReasons.ts";
 
 type ChatCoreExecutorResult = ReturnType<typeof normalizeExecutorResult> & {
   _executionCredentials?: Record<string, unknown>;
@@ -4752,6 +4753,10 @@ export async function handleChatCore({
 
   // Non-streaming response
   if (!stream) {
+    // The upstream response has started: the combo per-target timeout is a startup
+    // deadline, so it must not abort the body buffering of a long generation.
+    disarmComboTargetTimeout(clientRawRequest?.signal);
+    disarmComboTargetTimeout(streamController.signal);
     const parsed = await parseNonStreamingResponseBody({
       providerResponse,
       upstreamStream,

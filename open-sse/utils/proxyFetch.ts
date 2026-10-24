@@ -1235,23 +1235,46 @@ export async function runWithTlsTracking<T>(
 }
 
 /**
- * Fresh no-keep-alive dispatcher for a caller-driven retry that would otherwise
- * take the plain undici direct path. Returns null whenever passing an explicit
- * dispatcher would change the egress route (configured/context/env proxy, edge
- * relay, explicit direct context, TLS fingerprint transport, Bun, cloud), so the
- * caller must retry through the normal fetch path instead.
+ * Fresh no-keep-alive dispatcher for a caller-driven retry, preserving the
+ * egress route: returns `getProxyRetryDispatcher(proxyUrl)` when an HTTP/SOCKS
+ * proxy (configured/context/env) is active, and `getRetryDispatcher()` when the
+ * request goes plain direct. Returns null whenever an explicit dispatcher would
+ * change the route (edge relay, explicit direct context, TLS fingerprint
+ * transport, Bun, cloud), so the caller must retry through the normal fetch path.
+ * The name is kept for backward compatibility.
  */
 export function getFreshDirectRetryDispatcher(targetUrl: string): unknown | null {
   if (isCloud || process.versions.bun) return null;
-  if (proxyContext.getStore() === DIRECT_PROXY_CONTEXT) return null;
+  const contextProxy = proxyContext.getStore();
+  if (contextProxy === DIRECT_PROXY_CONTEXT) return null;
+  if (
+    contextProxy &&
+    typeof contextProxy === "object" &&
+    isRelayType((contextProxy as { type?: string }).type)
+  ) {
+    return null;
+  }
   let resolved;
   try {
     resolved = resolveProxyForRequest(targetUrl);
   } catch {
     return null;
   }
-  if (resolved.proxyUrl) return null;
   const tlsStore = tlsFingerprintContext.getStore();
+  if (resolved.proxyUrl) {
+    // Proxied TLS fingerprint transport (wreq) owns the socket; a dispatcher would bypass it.
+    if (
+      isTlsFingerprintEnabled() &&
+      typeof tlsStore?.sessionScope === "string" &&
+      tlsStore.sessionScope.trim().length > 0 &&
+      activeTlsClient.available &&
+      tlsFingerprintProviderAllowed(tlsStore?.provider, true) &&
+      isWreqProxySupported(resolved.proxyUrl)
+    ) {
+      return null;
+    }
+    return getProxyRetryDispatcher(resolved.proxyUrl);
+  }
   if (
     isTlsFingerprintEnabled() &&
     activeTlsClient.available &&

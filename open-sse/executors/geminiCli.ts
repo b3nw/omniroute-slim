@@ -27,10 +27,12 @@ import {
 import { scrubProxyAndFingerprintHeaders } from "../services/antigravityHeaderScrub.ts";
 import { getActiveClientVersion } from "@/lib/client-versions/registry";
 import {
+  computeAdaptiveGeminiCliFirstByteTimeoutMs,
   fetchWithFirstByteDeadline,
   isGeminiCliFirstByteTimeout,
   type GeminiCliAttemptTiming,
 } from "./geminiCliFirstByte.ts";
+import { getGeminiCliFirstByteConfig } from "@/shared/utils/runtimeTimeouts";
 
 import {
   GEMINI_CLI_ENDPOINT_FALLBACKS,
@@ -454,6 +456,50 @@ async function collectUpstreamSseToCompletion(
   };
 }
 
+const LARGE_PROMPT_BODY_BYTES = 80_000;
+
+function readGeminiCliThinkingConfig(requestPayload: Record<string, unknown>): {
+  thinkingLevel: string | null;
+  thinkingBudget: number | null;
+} {
+  const request = requestPayload?.request as Record<string, unknown> | undefined;
+  const generationConfig = request?.generationConfig as Record<string, unknown> | undefined;
+  const thinkingConfig = (generationConfig?.thinkingConfig ?? generationConfig?.thinking_config) as
+    | Record<string, unknown>
+    | undefined;
+  const level = thinkingConfig?.thinkingLevel ?? thinkingConfig?.thinking_level;
+  const budget = thinkingConfig?.thinkingBudget ?? thinkingConfig?.thinking_budget;
+  return {
+    thinkingLevel: typeof level === "string" ? level : null,
+    thinkingBudget: typeof budget === "number" && Number.isFinite(budget) ? budget : null,
+  };
+}
+
+/**
+ * Per-request first-byte budget. The deadline scales with prefill cost (prompt
+ * size + reasoning level). Inside a combo (skipUpstreamRetry) the combo already
+ * fans out across accounts, so a same-account retry only burns the target's time
+ * budget and invites 429s from overlapping prefills: one attempt only. Standalone
+ * large prompts retry at most once.
+ */
+function resolveGeminiCliFirstByteBudget(
+  requestPayload: Record<string, unknown>,
+  bodyString: string,
+  skipUpstreamRetry: boolean
+): { timeoutMs: number; maxAttempts: number } {
+  const config = getGeminiCliFirstByteConfig();
+  const bodyByteLength = Buffer.byteLength(bodyString, "utf8");
+  const timeoutMs = computeAdaptiveGeminiCliFirstByteTimeoutMs({
+    baseTimeoutMs: config.timeoutMs,
+    bodyByteLength,
+    ...readGeminiCliThinkingConfig(requestPayload),
+  });
+  let maxAttempts = config.maxAttempts;
+  if (skipUpstreamRetry) maxAttempts = 1;
+  else if (bodyByteLength > LARGE_PROMPT_BODY_BYTES) maxAttempts = Math.min(maxAttempts, 2);
+  return { timeoutMs, maxAttempts };
+}
+
 export class GeminiCliExecutor extends BaseExecutor {
   constructor() {
     super("gemini-cli", {
@@ -645,6 +691,7 @@ export class GeminiCliExecutor extends BaseExecutor {
       log,
       upstreamExtraHeaders,
       onCredentialsRefreshed,
+      skipUpstreamRetry = false,
     } = input;
 
     let activeCredentials = credentials;
@@ -780,6 +827,7 @@ export class GeminiCliExecutor extends BaseExecutor {
           url,
           init: { method: "POST", headers, body: bodyString },
           signal,
+          ...resolveGeminiCliFirstByteBudget(requestPayload, bodyString, skipUpstreamRetry),
           onAttempt: (timing) => logGeminiCliAttemptTiming(log, timing),
         });
 

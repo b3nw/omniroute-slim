@@ -13,6 +13,10 @@
  * bytes read ahead are replayed in front of the remaining stream.
  */
 import { HTTP_STATUS } from "../config/constants.ts";
+import {
+  disarmComboTargetTimeout,
+  propagateComboTargetTimeoutDisarm,
+} from "../services/combo/comboAbortReasons.ts";
 import { getFreshDirectRetryDispatcher } from "../utils/proxyFetch.ts";
 import { prependBufferedChunks } from "../utils/streamReadiness.ts";
 import { getGeminiCliFirstByteConfig } from "@/shared/utils/runtimeTimeouts";
@@ -21,6 +25,64 @@ export const GEMINI_CLI_FIRST_BYTE_TIMEOUT_CODE = "GEMINI_CLI_FIRST_BYTE_TIMEOUT
 const ATTEMPT_DEADLINE_CODE = "GEMINI_CLI_FIRST_BYTE_ATTEMPT_DEADLINE";
 // Retries get a slightly longer window: a fresh connection pays a TLS handshake.
 const RETRY_DEADLINE_MULTIPLIER = 1.5;
+
+/**
+ * Ceiling for the adaptive first-byte deadline: safely below the 30s combo
+ * per-target timeout, so a genuine stall surfaces as a request-scoped
+ * GeminiCliFirstByteTimeoutError before combo-per-model-timeout fires and evicts
+ * the session-affinity pin (and with it the warm prompt cache).
+ */
+export const MAX_ADAPTIVE_GEMINI_CLI_FIRST_BYTE_TIMEOUT_MS = 26_000;
+const ADAPTIVE_BODY_BYTES_FREE = 40_000; // ~10k tokens
+const ADAPTIVE_BODY_BYTES_STEP = 40_000;
+const ADAPTIVE_MS_PER_BODY_STEP = 1_500;
+const ADAPTIVE_MAX_BODY_BONUS_MS = 12_000;
+const ADAPTIVE_HIGH_THINKING_BONUS_MS = 4_000;
+const HIGH_THINKING_BUDGET_TOKENS = 16_384;
+
+export type AdaptiveFirstByteInput = {
+  baseTimeoutMs: number;
+  bodyByteLength?: number;
+  thinkingLevel?: string | null;
+  thinkingBudget?: number | null;
+};
+
+/**
+ * Scale the first-byte deadline with prefill cost: large prompts and high
+ * reasoning legitimately take longer than the flat base deadline to emit their
+ * first data event (126k tokens + effort=high ≈ 11s, 200k ≈ 20s in prod).
+ */
+export function computeAdaptiveGeminiCliFirstByteTimeoutMs(input: AdaptiveFirstByteInput): number {
+  if (!(input.baseTimeoutMs > 0)) return 0;
+  let timeoutMs = input.baseTimeoutMs;
+
+  const { bodyByteLength, thinkingLevel, thinkingBudget } = input;
+  if (
+    typeof bodyByteLength === "number" &&
+    Number.isFinite(bodyByteLength) &&
+    bodyByteLength > ADAPTIVE_BODY_BYTES_FREE
+  ) {
+    timeoutMs += Math.min(
+      ADAPTIVE_MAX_BODY_BONUS_MS,
+      Math.ceil((bodyByteLength - ADAPTIVE_BODY_BYTES_FREE) / ADAPTIVE_BODY_BYTES_STEP) *
+        ADAPTIVE_MS_PER_BODY_STEP
+    );
+  }
+
+  const highThinking =
+    (typeof thinkingLevel === "string" && thinkingLevel.toLowerCase() === "high") ||
+    (typeof thinkingBudget === "number" &&
+      (thinkingBudget < 0 || thinkingBudget >= HIGH_THINKING_BUDGET_TOKENS));
+  if (highThinking) timeoutMs += ADAPTIVE_HIGH_THINKING_BONUS_MS;
+
+  if (timeoutMs > input.baseTimeoutMs) {
+    timeoutMs = Math.min(
+      timeoutMs,
+      Math.max(input.baseTimeoutMs, MAX_ADAPTIVE_GEMINI_CLI_FIRST_BYTE_TIMEOUT_MS)
+    );
+  }
+  return timeoutMs;
+}
 
 export type GeminiCliDispatcherKind = "pooled" | "fresh";
 export type GeminiCliAttemptOutcome = "ok" | "first_byte_timeout" | "error";
@@ -135,6 +197,7 @@ function mergeAbortSignals(
   primary.addEventListener("abort", onPrimaryAbort, { once: true });
   secondary.addEventListener("abort", onSecondaryAbort, { once: true });
   controller.signal.addEventListener("abort", cleanup, { once: true });
+  propagateComboTargetTimeoutDisarm(controller.signal, primary, secondary);
   return controller.signal;
 }
 
@@ -310,6 +373,8 @@ export async function fetchWithFirstByteDeadline(
         chunks.push(value);
         if (sawFirstData(value)) {
           timing.upstreamFirstDataMs = now() - t0;
+          // Upstream is producing: the combo per-target startup timeout has done its job.
+          disarmComboTargetTimeout(callerSignal);
           break;
         }
       }

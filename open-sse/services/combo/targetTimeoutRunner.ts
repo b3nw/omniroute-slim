@@ -13,6 +13,7 @@ import { buildErrorBody, errorResponse, sanitizeErrorMessage } from "../../utils
 import {
   COMBO_HEDGE_CANCELLED_REASON,
   COMBO_PER_MODEL_TIMEOUT_REASON,
+  registerComboTargetTimeoutDisarm,
 } from "./comboAbortReasons.ts";
 import type { HandleSingleModel, SingleModelTarget, ComboLogger } from "./types.ts";
 
@@ -163,6 +164,15 @@ export function buildTargetTimeoutRunner(deps: {
           )
         );
       }, effectiveTimeoutMs);
+    });
+    // Once the upstream response has started (disarmComboTargetTimeout on a signal
+    // derived from timeoutController.signal), this is a startup timeout no longer:
+    // a stream:false target buffering a long generation must not be killed here.
+    registerComboTargetTimeoutDisarm(timeoutController.signal, () => {
+      if (!timedOut && timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+        timeoutId = undefined;
+      }
     });
     const targetWithSignal = {
       ...(target ?? {}),

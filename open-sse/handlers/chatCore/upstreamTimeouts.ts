@@ -10,6 +10,10 @@ import {
   getReasoningTokens,
 } from "@/lib/usage/tokenAccounting";
 import { MAX_PROVIDER_SPECIFIC_TIMEOUT_MS } from "@/shared/validation/providerSpecificData";
+import {
+  propagateComboTargetTimeoutDisarm,
+  registerComboTargetTimeoutDisarm,
+} from "../../services/combo/comboAbortReasons.ts";
 
 export function createBodyTimeoutError(timeoutMs: number): Error {
   const err = new Error(`Response body read timeout after ${timeoutMs}ms`);
@@ -275,6 +279,17 @@ export async function executeWithUpstreamStartTimeout<T>({
   const abortPromise = new Promise<never>((_, reject) => {
     signal.addEventListener("abort", () => reject(createAbortError(signal)), { once: true });
   });
+
+  // Executors that buffer the whole upstream body inside execute() (gemini-cli
+  // stream:false) disarm on first data; that must clear this startup timer and,
+  // via the caller's signal, the combo per-target timer too.
+  registerComboTargetTimeoutDisarm(timeoutController.signal, () => {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+  });
+  propagateComboTargetTimeoutDisarm(combinedController.signal, signal, timeoutController.signal);
 
   try {
     return await Promise.race([execute(combinedController.signal), timeoutPromise, abortPromise]);

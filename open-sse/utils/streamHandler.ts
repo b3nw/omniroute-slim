@@ -4,6 +4,7 @@ import { FORMATS } from "../translator/formats.ts";
 import { PENDING_REQUEST_CLEARED_MARKER } from "./stream.ts";
 import { createCompletedResponsesToolHandoffWatcher } from "./responsesToolHandoff.ts";
 import { createStreamContentWatcher, type StreamContentWatcher } from "./streamReadiness.ts";
+import { propagateComboTargetTimeoutDisarm } from "../services/combo/comboAbortReasons.ts";
 
 // Stream handler with disconnect detection - shared for all providers
 
@@ -300,6 +301,9 @@ export function createStreamController({
     }
     return "request_signal_aborted";
   };
+
+  // Let holders of the stream signal disarm the combo per-target startup timeout.
+  propagateComboTargetTimeoutDisarm(abortController.signal, clientAbortSignal);
 
   const controller = {
     signal: abortController.signal,

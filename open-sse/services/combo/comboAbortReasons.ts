@@ -35,3 +35,50 @@ export function isComboPerModelTimeoutAbort(signal: AbortSignal | null | undefin
   if (!signal?.aborted) return false;
   return abortReasonMessage(signal) === COMBO_PER_MODEL_TIMEOUT_REASON;
 }
+
+/**
+ * Per-target startup-timeout disarmers, keyed by the abort signal handed to the
+ * target. `buildTargetTimeoutRunner` registers one on its timeout signal; every
+ * place that wraps/merges that signal propagates it, so downstream code holding
+ * only a derived signal can disarm the startup timer once the upstream response
+ * has started (first byte for streaming, headers for non-streaming buffering).
+ * Without this, a stream:false target is killed mid-generation because the
+ * runner's timer wraps the whole buffered body read.
+ */
+const targetTimeoutDisarmers = new WeakMap<AbortSignal, () => void>();
+
+export function registerComboTargetTimeoutDisarm(
+  signal: AbortSignal | null | undefined,
+  disarm: () => void
+): void {
+  if (!signal) return;
+  targetTimeoutDisarmers.set(signal, disarm);
+}
+
+/** Make `targetSignal` able to disarm whatever any of `sourceSignals` could disarm. */
+export function propagateComboTargetTimeoutDisarm(
+  targetSignal: AbortSignal | null | undefined,
+  ...sourceSignals: Array<AbortSignal | null | undefined>
+): void {
+  if (!targetSignal) return;
+  const disarmFns: Array<() => void> = [];
+  for (const src of sourceSignals) {
+    const fn = src ? targetTimeoutDisarmers.get(src) : undefined;
+    if (fn) disarmFns.push(fn);
+  }
+  if (disarmFns.length > 0) {
+    targetTimeoutDisarmers.set(targetSignal, () => {
+      for (const fn of disarmFns) fn();
+    });
+  }
+}
+
+/** Disarm the combo per-target startup timeout reachable from `signal` (one-shot, idempotent). */
+export function disarmComboTargetTimeout(signal: AbortSignal | null | undefined): void {
+  if (!signal) return;
+  const disarm = targetTimeoutDisarmers.get(signal);
+  if (disarm) {
+    targetTimeoutDisarmers.delete(signal);
+    disarm();
+  }
+}
