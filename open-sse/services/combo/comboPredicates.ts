@@ -249,6 +249,9 @@ const REQUEST_SCOPED_UPSTREAM_ERROR_CODES: Record<string, true> = {
   upstream_response_failed: true,
   // Local combo per-target timer (targetTimeoutRunner) — not a connection health signal.
   combo_target_timeout: true,
+  // gemini-cli first-byte deadline (our own timer, after fresh-socket retries) —
+  // the upstream held the request; not a credential/connection health signal.
+  gemini_cli_first_byte_timeout: true,
   // Local limiter queue-capacity codes — not a provider/connection health signal.
   rate_limit_queue_timeout: true,
   rate_limit_queue_full: true,

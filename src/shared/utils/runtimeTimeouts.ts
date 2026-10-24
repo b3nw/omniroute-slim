@@ -43,6 +43,13 @@ export const DEFAULT_STREAM_DISCONNECT_GRACE_PERIOD_MS = 10_000;
 // wreq body falls back fast instead of riding the 10-minute ceiling. Set to
 // 0 to disable the watchdog entirely.
 export const DEFAULT_TLS_FIRST_BYTE_WATCHDOG_MS = 10_000;
+// Google Cloud Code Assist (gemini-cli) occasionally holds a request before the
+// first byte for 100s+, while a fresh-connection retry answers in ~2s. Bound
+// headers + first SSE data event per attempt and retry on a fresh socket.
+// Set GEMINI_CLI_FIRST_BYTE_TIMEOUT_MS=0 to disable.
+export const DEFAULT_GEMINI_CLI_FIRST_BYTE_TIMEOUT_MS = 12_000;
+export const DEFAULT_GEMINI_CLI_FIRST_BYTE_MAX_ATTEMPTS = 3;
+export const DEFAULT_GEMINI_CLI_FIRST_BYTE_TOTAL_BUDGET_MS = 45_000;
 
 function hasEnvValue(env: EnvSource, name: string): boolean {
   const raw = env[name];
@@ -217,6 +224,40 @@ export function getTlsClientTimeoutConfig(
       allowZero: true,
       logger,
     }),
+  };
+}
+
+export type GeminiCliFirstByteConfig = {
+  /** Per-attempt deadline covering headers + first SSE data event. 0 disables. */
+  timeoutMs: number;
+  maxAttempts: number;
+  totalBudgetMs: number;
+};
+
+export function getGeminiCliFirstByteConfig(
+  env: EnvSource = process.env,
+  logger?: TimeoutLogger
+): GeminiCliFirstByteConfig {
+  const rawAttempts = env.GEMINI_CLI_FIRST_BYTE_MAX_ATTEMPTS;
+  const parsedAttempts = Number(rawAttempts);
+  const maxAttempts =
+    rawAttempts != null && rawAttempts.trim() !== "" && Number.isFinite(parsedAttempts)
+      ? Math.max(1, Math.floor(parsedAttempts))
+      : DEFAULT_GEMINI_CLI_FIRST_BYTE_MAX_ATTEMPTS;
+  return {
+    timeoutMs: readTimeoutMs(
+      env,
+      "GEMINI_CLI_FIRST_BYTE_TIMEOUT_MS",
+      DEFAULT_GEMINI_CLI_FIRST_BYTE_TIMEOUT_MS,
+      { allowZero: true, logger }
+    ),
+    maxAttempts,
+    totalBudgetMs: readTimeoutMs(
+      env,
+      "GEMINI_CLI_FIRST_BYTE_TOTAL_BUDGET_MS",
+      DEFAULT_GEMINI_CLI_FIRST_BYTE_TOTAL_BUDGET_MS,
+      { logger }
+    ),
   };
 }
 

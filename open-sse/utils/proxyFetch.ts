@@ -1234,6 +1234,34 @@ export async function runWithTlsTracking<T>(
   return { result, tlsFingerprintUsed: store.used };
 }
 
+/**
+ * Fresh no-keep-alive dispatcher for a caller-driven retry that would otherwise
+ * take the plain undici direct path. Returns null whenever passing an explicit
+ * dispatcher would change the egress route (configured/context/env proxy, edge
+ * relay, explicit direct context, TLS fingerprint transport, Bun, cloud), so the
+ * caller must retry through the normal fetch path instead.
+ */
+export function getFreshDirectRetryDispatcher(targetUrl: string): unknown | null {
+  if (isCloud || process.versions.bun) return null;
+  if (proxyContext.getStore() === DIRECT_PROXY_CONTEXT) return null;
+  let resolved;
+  try {
+    resolved = resolveProxyForRequest(targetUrl);
+  } catch {
+    return null;
+  }
+  if (resolved.proxyUrl) return null;
+  const tlsStore = tlsFingerprintContext.getStore();
+  if (
+    isTlsFingerprintEnabled() &&
+    activeTlsClient.available &&
+    tlsFingerprintProviderAllowed(tlsStore?.provider, false)
+  ) {
+    return null;
+  }
+  return getRetryDispatcher();
+}
+
 /** Check whether TLS fingerprint transport is enabled for this route identity. */
 export function isTlsFingerprintActive(provider?: string | null, proxied = false): boolean {
   return (

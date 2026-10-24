@@ -563,10 +563,12 @@ test("Tier 2: 429 MODEL_CAPACITY_EXHAUSTED on gemini-3.8-flash falls back to gem
     choices: Array<{ message: { content: string } }>;
   };
   assert.equal(completion.choices[0].message.content, "from fallback");
-  assert.deepEqual(logged, [
-    "warn:GEMINI_CLI_CAPACITY_FALLBACK",
-    "info:GEMINI_CLI_CAPACITY_FALLBACK",
-  ]);
+  // Per-attempt GEMINI_CLI_UPSTREAM_TIMING lines are covered by
+  // gemini-cli-first-byte-deadline.test.ts; this test asserts the fallback tags.
+  assert.deepEqual(
+    logged.filter((entry) => !entry.endsWith(":GEMINI_CLI_UPSTREAM_TIMING")),
+    ["warn:GEMINI_CLI_CAPACITY_FALLBACK", "info:GEMINI_CLI_CAPACITY_FALLBACK"]
+  );
 });
 
 test("Tier 2: capacity fallback is attempted only once and quota 429s never fall back", async (t) => {

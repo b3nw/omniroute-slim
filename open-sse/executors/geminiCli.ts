@@ -26,6 +26,11 @@ import {
 } from "../config/cliFingerprints.ts";
 import { scrubProxyAndFingerprintHeaders } from "../services/antigravityHeaderScrub.ts";
 import { getActiveClientVersion } from "@/lib/client-versions/registry";
+import {
+  fetchWithFirstByteDeadline,
+  isGeminiCliFirstByteTimeout,
+  type GeminiCliAttemptTiming,
+} from "./geminiCliFirstByte.ts";
 
 import {
   GEMINI_CLI_ENDPOINT_FALLBACKS,
@@ -281,6 +286,15 @@ export function sanitizeGeminiCliError(errMessage: string): string {
   cleaned = cleaned.replace(/GOCSPX-[a-zA-Z0-9_-]+/gi, "[REDACTED_SECRET]");
 
   return cleaned;
+}
+
+function logGeminiCliAttemptTiming(
+  log: ExecutorLog | null | undefined,
+  timing: GeminiCliAttemptTiming
+): void {
+  const line = JSON.stringify({ provider: "gemini-cli", ...timing });
+  if (timing.outcome === "ok") log?.info?.("GEMINI_CLI_UPSTREAM_TIMING", line);
+  else log?.warn?.("GEMINI_CLI_UPSTREAM_TIMING", line);
 }
 
 /**
@@ -759,11 +773,14 @@ export class GeminiCliExecutor extends BaseExecutor {
       this.assertOutboundUrlAllowed(url);
 
       try {
-        const response = await fetch(url, {
-          method: "POST",
-          headers,
-          body: bodyString,
-          signal: signal || undefined,
+        // Upstream is always streamGenerateContent (SSE), for both client stream
+        // modes, so the first-byte deadline applies to both. bodyString is built
+        // once above and reused verbatim by every retry attempt.
+        const { response } = await fetchWithFirstByteDeadline({
+          url,
+          init: { method: "POST", headers, body: bodyString },
+          signal,
+          onAttempt: (timing) => logGeminiCliAttemptTiming(log, timing),
         });
 
         // 429: Halt endpoint cycling immediately
@@ -897,6 +914,8 @@ export class GeminiCliExecutor extends BaseExecutor {
           };
         }
       } catch (err) {
+        // The first-byte budget is already spent; surface it for combo failover.
+        if (isGeminiCliFirstByteTimeout(err)) throw err;
         const error = err instanceof Error ? err : new Error(String(err));
         lastError = error;
         if (urlIndex + 1 < fallbackCount) {
