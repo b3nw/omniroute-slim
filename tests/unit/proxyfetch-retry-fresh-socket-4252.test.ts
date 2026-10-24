@@ -77,3 +77,29 @@ test("#4252 a transient socket failure retries on a FRESH (no-keep-alive) dispat
     "retry must NOT reuse the same pooled dispatcher (would grab another stale socket)"
   );
 });
+
+test("proxyFetch uses fresh getRetryDispatcher on attempt 0 when Connection: close header is present", async () => {
+  const dispatchersUsed: unknown[] = [];
+  let undiciCalls = 0;
+
+  const mockUndici = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    undiciCalls++;
+    dispatchersUsed.push((init as { dispatcher?: unknown } | undefined)?.dispatcher);
+    return new Response("ok", { status: 200 });
+  };
+
+  const res = await proxyFetch(
+    "https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent",
+    { method: "POST", headers: { Connection: "close" } },
+    { undiciFetch: mockUndici }
+  );
+
+  assert.equal(undiciCalls, 1, "must succeed on first attempt without retrying");
+  assert.equal(await res.text(), "ok");
+  assert.equal(
+    dispatchersUsed[0],
+    getRetryDispatcher(),
+    "attempt 0 must use getRetryDispatcher when Connection: close is specified"
+  );
+});
+

@@ -825,13 +825,34 @@ async function patchedFetch(
     } catch {
       // ignore — logging is best-effort
     }
+    const hasConnectionCloseHeader = (() => {
+      const h = options?.headers;
+      if (!h) return false;
+      if (typeof (h as Headers).get === "function") {
+        return (h as Headers).get("connection")?.toLowerCase() === "close";
+      }
+      if (Array.isArray(h)) {
+        return h.some(
+          ([k, v]) => k.toLowerCase() === "connection" && String(v).toLowerCase() === "close"
+        );
+      }
+      if (typeof h === "object") {
+        return Object.entries(h).some(
+          ([k, v]) => k.toLowerCase() === "connection" && String(v).toLowerCase() === "close"
+        );
+      }
+      return false;
+    })();
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         return await directFetchWithBoundedResponseStart(
           input,
           {
             ...options,
-            dispatcher: attempt === 0 ? getDefaultDispatcher() : getRetryDispatcher(),
+            dispatcher:
+              attempt === 0 && !hasConnectionCloseHeader
+                ? getDefaultDispatcher()
+                : getRetryDispatcher(),
           },
           _undiciDirect,
           directHeadersTimeoutMs
