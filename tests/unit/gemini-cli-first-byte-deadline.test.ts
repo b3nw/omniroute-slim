@@ -483,8 +483,32 @@ test("adaptive: small prompt keeps the base deadline", () => {
   );
 });
 
+test("adaptive: 120KB + thinkingLevel low scales by 2500ms per 40KB step", () => {
+  // ceil(80_000 / 40_000) = 2 steps * 2500 = +5000.
+  assert.equal(
+    computeAdaptiveGeminiCliFirstByteTimeoutMs({
+      baseTimeoutMs: 12_000,
+      bodyByteLength: 120_000,
+      thinkingLevel: "low",
+    }),
+    17_000
+  );
+});
+
+test("adaptive: 1MB + thinkingLevel low restores the full 26000ms ceiling", () => {
+  // Body bonus caps at 14_000 (12_000 + 14_000 = 26_000); low thinking adds no bonus.
+  assert.equal(
+    computeAdaptiveGeminiCliFirstByteTimeoutMs({
+      baseTimeoutMs: 12_000,
+      bodyByteLength: 1_000_000,
+      thinkingLevel: "low",
+    }),
+    MAX_ADAPTIVE_GEMINI_CLI_FIRST_BYTE_TIMEOUT_MS
+  );
+});
+
 test("adaptive: 180KB + thinkingLevel high scales to 26000ms", () => {
-  // ceil(140_000 / 40_000) = 4 steps * 1500 = +6000, high thinking +8000.
+  // ceil(140_000 / 40_000) = 4 steps * 2500 = +10000, high thinking +8000 (capped at 26000).
   assert.equal(
     computeAdaptiveGeminiCliFirstByteTimeoutMs({
       baseTimeoutMs: 12_000,

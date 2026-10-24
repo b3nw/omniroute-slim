@@ -231,8 +231,14 @@ export function extractSessionAffinityKey(
 /** Minimal structural view of a provider connection this module reads. */
 export interface AffinityPinConnection {
   id: string;
+  isActive?: boolean | null;
   testStatus?: string | null;
   rateLimitedUntil?: string | null;
+  lastError?: string | null;
+  backoffLevel?: number | null;
+  lastUsedAt?: string | null;
+  consecutiveUseCount?: number | null;
+  priority?: number | null;
   providerSpecificData?: unknown;
 }
 
@@ -593,12 +599,39 @@ function isConnectionEligibleForAffinityPin(
 }
 
 /**
+ * A brand-new session (no pin yet) must not all land on a `forcedConnectionId`
+ * that is already serving other sessions. When the forced connection has been
+ * used before, the least-recently-used eligible connection takes the new pin
+ * instead, spreading new sessions across idle accounts. A forced connection that
+ * has never been used is kept, so first-time routing is unchanged.
+ */
+function pickLruOverBusyForcedConnection(params: ApplySessionAffinityPinParams): string | null {
+  const { forcedConnectionId, connections, provider } = params;
+  if (!forcedConnectionId) return null;
+
+  const forcedConnection = connections.find((conn) => conn.id === forcedConnectionId);
+  if (!forcedConnection || !forcedConnection.lastUsedAt) return null;
+
+  const eligible = connections.filter((conn) => isConnectionEligibleForAffinityPin(conn, params));
+  const lruCandidate = [...eligible].sort(compareLruConnections)[0] ?? null;
+  if (!lruCandidate?.id || lruCandidate.id === forcedConnectionId) return null;
+
+  log.info(
+    "SESSION_AFFINITY",
+    `[${provider}] session affinity LRU candidate ${lruCandidate.id.slice(0, 8)}... overrides busy forcedConnectionId ${forcedConnectionId.slice(0, 8)}... for new session`
+  );
+  return lruCandidate.id;
+}
+
+/**
  * If an active, non-expired affinity pin exists for (sessionKey, provider) and
  * the pinned connection is present-and-eligible in the current pool, returns
  * that pinned connectionId (which should override `forcedConnectionId`) and
- * logs the override. Returns null when the caller should keep its
- * `forcedConnectionId` — no session, TTL disabled, no pin, pin already equals
- * the forced id, pin absent from pool, or pin ineligible.
+ * logs the override. With no pin yet, a previously-used `forcedConnectionId`
+ * yields to the LRU eligible connection (see pickLruOverBusyForcedConnection).
+ * Returns null when the caller should keep its `forcedConnectionId` — no
+ * session, TTL disabled, pin already equals the forced id, pin absent from
+ * pool, or pin ineligible.
  */
 export function applySessionAffinityPin(params: ApplySessionAffinityPinParams): string | null {
   const { forcedConnectionId, options, sessionAffinityTtlMs, connections, provider } = params;
@@ -606,7 +639,8 @@ export function applySessionAffinityPin(params: ApplySessionAffinityPinParams): 
   if (!forcedConnectionId || !sessionKey || sessionAffinityTtlMs <= 0) return null;
 
   const pinned = getSessionAccountAffinity(sessionKey, provider, sessionAffinityTtlMs);
-  if (!pinned || pinned.connectionId === forcedConnectionId) return null;
+  if (!pinned) return pickLruOverBusyForcedConnection(params);
+  if (pinned.connectionId === forcedConnectionId) return null;
 
   const pinnedConnection = connections.find((conn) => conn.id === pinned.connectionId);
   if (!pinnedConnection || !isConnectionEligibleForAffinityPin(pinnedConnection, params)) {

@@ -319,3 +319,51 @@ test("a first-byte timeout exhausts the stalled connection for the rest of the c
   assert.ok(sets.exhaustedConnections.has(`gemini-cli:${STALLED}`));
   assert.equal(sets.exhaustedProviders.has("gemini-cli"), false);
 });
+
+test("a brand-new session overrides a busy forcedConnectionId with the LRU connection", async () => {
+  const EXISTING_SESSION = "session-existing-lru";
+  const NEW_SESSION = "session-new-lru";
+  const BUSY = "conn-a";
+  const IDLE = "conn-b";
+  const OLDER = "conn-c";
+  affinityDb.upsertSessionAccountAffinity(EXISTING_SESSION, PROVIDER, BUSY, Date.now(), TTL);
+
+  const connections = [
+    { id: BUSY, lastUsedAt: "2026-10-20T00:00:00.000Z", consecutiveUseCount: 3, priority: 1 },
+    { id: IDLE, lastUsedAt: null, consecutiveUseCount: 0, priority: 2 },
+    { id: OLDER, lastUsedAt: "2026-10-01T00:00:00.000Z", consecutiveUseCount: 1, priority: 3 },
+  ];
+
+  const overridden = pin.applySessionAffinityPin({
+    forcedConnectionId: BUSY,
+    options: { sessionKey: NEW_SESSION },
+    sessionAffinityTtlMs: TTL,
+    connections,
+    provider: PROVIDER,
+    requestedModel: null,
+    excludedConnectionIds: new Set<string>(),
+    isTerminalConnectionStatus: () => false,
+    isCodexScopeUnavailable: () => false,
+    isQuotaPolicyBlocked: () => false,
+  });
+
+  assert.equal(overridden, IDLE, "the never-used connection takes the new session");
+
+  const selected = await pin.selectSessionAffinityConnection(
+    PROVIDER,
+    NEW_SESSION,
+    connections.filter((conn) => conn.id === overridden),
+    TTL
+  );
+  assert.equal(selected?.id, IDLE);
+  assert.equal(
+    affinityDb.getSessionAccountAffinity(NEW_SESSION, PROVIDER, TTL)?.connectionId,
+    IDLE,
+    "the new session is pinned to the LRU connection"
+  );
+  assert.equal(
+    affinityDb.getSessionAccountAffinity(EXISTING_SESSION, PROVIDER, TTL)?.connectionId,
+    BUSY,
+    "the existing session keeps its pin"
+  );
+});
