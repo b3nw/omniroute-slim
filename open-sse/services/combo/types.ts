@@ -197,6 +197,8 @@ export type ResolvedComboTarget = {
   providerId: string | null;
   connectionId: string | null;
   allowedConnectionIds?: string[] | null;
+  /** Connections that failed earlier in this request; skipped without unpinning the session. */
+  excludedConnectionIds?: string[] | null;
   weight: number;
   label: string | null;
   prompt?: string | null;

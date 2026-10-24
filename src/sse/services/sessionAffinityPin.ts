@@ -280,11 +280,13 @@ export async function selectSessionAffinityConnection<T extends SessionAffinityC
   provider: string,
   sessionKey: string | null | undefined,
   connections: T[],
-  ttlMs = 0
+  ttlMs = 0,
+  excludedConnectionIds?: ReadonlySet<string>
 ): Promise<T | null> {
   if (!sessionKey || connections.length === 0 || ttlMs <= 0) return null;
 
   const existing = getSessionAccountAffinity(sessionKey, provider, ttlMs);
+  let preservedForRequestExclusion = false;
   if (existing) {
     const connection = connections.find((candidate) => candidate.id === existing.connectionId);
     if (connection) {
@@ -303,25 +305,33 @@ export async function selectSessionAffinityConnection<T extends SessionAffinityC
       return connection;
     }
 
-    deleteSessionAccountAffinity(sessionKey, provider);
-    log.info(
-      "AUTH",
-      `affinity cleared for session_key=${formatSessionKeyForLog(sessionKey)} provider=${provider}`
-    );
+    // A pin whose account is only excluded for THIS request (e.g. a 504 first-byte
+    // stall) is kept: the persistent pin protects the cross-turn prompt cache.
+    preservedForRequestExclusion = Boolean(excludedConnectionIds?.has(existing.connectionId));
+    if (!preservedForRequestExclusion) {
+      deleteSessionAccountAffinity(sessionKey, provider);
+      log.info(
+        "AUTH",
+        `affinity cleared for session_key=${formatSessionKeyForLog(sessionKey)} provider=${provider}`
+      );
+    }
   }
 
   const connection = [...connections].sort(compareLruConnections)[0] ?? null;
   if (!connection) return null;
 
-  upsertSessionAccountAffinity(sessionKey, provider, connection.id, Date.now(), ttlMs);
+  if (!preservedForRequestExclusion) {
+    upsertSessionAccountAffinity(sessionKey, provider, connection.id, Date.now(), ttlMs);
+  }
   await touchConnectionLastUsed(connection.id, 1);
   connection.lastUsedAt = new Date().toISOString();
   connection.consecutiveUseCount = 1;
+  const logPrefix = preservedForRequestExclusion
+    ? "request fallback (pin kept)"
+    : "new affinity created";
   log.info(
     "AUTH",
-    `new affinity created for session_key=${formatSessionKeyForLog(
-      sessionKey
-    )} -> connection ${connection.id.slice(0, 8)}`
+    `${logPrefix} for session_key=${formatSessionKeyForLog(sessionKey)} -> connection ${connection.id.slice(0, 8)}`
   );
   return connection;
 }
@@ -334,12 +344,17 @@ export function planSessionAffinityConnection<T extends SessionAffinityConnectio
   provider: string,
   sessionKey: string | null | undefined,
   connections: T[],
-  ttlMs = 0
+  ttlMs = 0,
+  excludedConnectionIds?: ReadonlySet<string>
 ) {
   if (!sessionKey || connections.length === 0 || ttlMs <= 0) return null;
   const existing = getSessionAccountAffinity(sessionKey, provider, ttlMs);
   const existingConnection =
     existing && connections.find((candidate) => candidate.id === existing.connectionId);
+  // Same request-exclusion rule as selectSessionAffinityConnection: keep the persistent pin.
+  const preservedForRequestExclusion = Boolean(
+    existing && !existingConnection && excludedConnectionIds?.has(existing.connectionId)
+  );
   const connection = existingConnection ?? [...connections].sort(compareLruConnections)[0] ?? null;
   if (!connection) return null;
 
@@ -354,8 +369,10 @@ export function planSessionAffinityConnection<T extends SessionAffinityConnectio
         connection.consecutiveUseCount = nextCount;
         return;
       }
-      if (existing) deleteSessionAccountAffinity(sessionKey, provider);
-      upsertSessionAccountAffinity(sessionKey, provider, connection.id, Date.now(), ttlMs);
+      if (!preservedForRequestExclusion) {
+        if (existing) deleteSessionAccountAffinity(sessionKey, provider);
+        upsertSessionAccountAffinity(sessionKey, provider, connection.id, Date.now(), ttlMs);
+      }
       await touchConnectionLastUsed(connection.id, 1);
       connection.lastUsedAt = new Date().toISOString();
       connection.consecutiveUseCount = 1;
@@ -370,15 +387,16 @@ export interface ComboTimeoutAffinityEvictionParams {
   connectionId?: string | null;
   /** Per-target abort signal handed down by the combo timeout runner. */
   modelAbortSignal?: AbortSignal | null;
-  /** Failed dispatch result, when the executor surfaced the timeout itself. */
-  result?: {
-    status?: number;
-    errorCode?: string | null;
-    errorType?: string | null;
-    error?: unknown;
-    rawMessage?: string | null;
-  } | null;
 }
+
+/** Failed dispatch result shape inspected by {@link isTimeoutEvictionResult}. */
+export type FailedDispatchResult = {
+  status?: number;
+  errorCode?: string | null;
+  errorType?: string | null;
+  error?: unknown;
+  rawMessage?: string | null;
+} | null;
 
 const TIMEOUT_EVICTION_ERROR_CODES = [
   "gemini_cli_first_byte_timeout",
@@ -389,12 +407,10 @@ const TIMEOUT_EVICTION_ERROR_CODES = [
 /**
  * True when a failed dispatch result reports an upstream stall/timeout on the
  * selected account (e.g. a Gemini CLI first-byte 504) rather than a client
- * disconnect. Such a result evicts the pin even if the combo abort signal never
- * fired, because the executor bounded the attempt itself.
+ * disconnect. chat.ts uses this to keep the persistent session pin on such
+ * transient timeouts; the per-request exclusion handles the retry instead.
  */
-export function isTimeoutEvictionResult(
-  result: ComboTimeoutAffinityEvictionParams["result"]
-): boolean {
+export function isTimeoutEvictionResult(result: FailedDispatchResult | undefined): boolean {
   if (!result) return false;
   if (
     result.status === 499 ||
@@ -428,12 +444,12 @@ export function isTimeoutEvictionResult(
  * TTL and every following request in that session was handed straight back to the
  * stalled account.
  *
- * Only a genuine per-model timeout (or a failed result reporting an upstream
- * first-byte/target timeout) evicts. A client disconnect or a hedge
+ * Only a genuine per-model timeout evicts. A client disconnect or a hedge
  * cancellation says nothing about the account's health and must leave the pin
- * intact. The eviction is connection-matched, so a pin pointing at a different
- * (healthy) account is never touched. Best-effort: never throws into the dispatch
- * path.
+ * intact. A transient first-byte 504 never evicts either: that is a per-request
+ * exclusion, not an account failure. The eviction is connection-matched, so a pin
+ * pointing at a different (healthy) account is never touched. Best-effort: never
+ * throws into the dispatch path.
  *
  * @returns true when a pin was actually evicted.
  */
@@ -442,9 +458,7 @@ export function evictSessionAffinityOnComboTimeout(
 ): boolean {
   const { sessionKey, provider, connectionId, modelAbortSignal } = params;
   if (!sessionKey || !provider || !connectionId) return false;
-  if (!isComboPerModelTimeoutAbort(modelAbortSignal) && !isTimeoutEvictionResult(params.result)) {
-    return false;
-  }
+  if (!isComboPerModelTimeoutAbort(modelAbortSignal)) return false;
 
   try {
     const evicted = evictSessionAccountAffinityForConnection(sessionKey, provider, connectionId);

@@ -10,10 +10,7 @@
 
 import { executeChatWithBreaker } from "./chatHelpers";
 import { resolveDispatchClientRawRequest } from "./chat/clientRawRequest.ts";
-import {
-  evictSessionAffinityOnComboTimeout,
-  type ComboTimeoutAffinityEvictionParams,
-} from "../services/sessionAffinityPin";
+import { evictSessionAffinityOnComboTimeout } from "../services/sessionAffinityPin";
 
 /** The dispatch arguments chat.ts already assembles, plus what the eviction reads. */
 type DispatchArgs = {
@@ -38,20 +35,18 @@ type DispatchRuntimeOptions = {
  * (the common case — `buildTargetTimeoutRunner` then swallows it behind its
  * synthetic 524), or as a failed result when an executor catches the abort
  * itself. Both are covered. The eviction is a no-op unless this dispatch was
- * aborted by the per-model timeout, or its failed result reports an upstream
- * timeout (e.g. 504 GEMINI_CLI_FIRST_BYTE_TIMEOUT).
+ * aborted by the per-model timeout specifically.
  */
 export async function dispatchChatWithAffinityEviction(
   args: DispatchArgs,
   runtimeOptions: DispatchRuntimeOptions
 ): Promise<Awaited<ReturnType<typeof executeChatWithBreaker>>> {
-  const evict = (result?: ComboTimeoutAffinityEvictionParams["result"]) =>
+  const evict = () =>
     evictSessionAffinityOnComboTimeout({
       sessionKey: runtimeOptions.sessionAffinityKey,
       provider: args.provider,
       connectionId: args.credentials?.connectionId,
       modelAbortSignal: runtimeOptions.modelAbortSignal,
-      result,
     });
 
   let dispatched: Awaited<ReturnType<typeof executeChatWithBreaker>>;
@@ -72,6 +67,6 @@ export async function dispatchChatWithAffinityEviction(
   // combo per-model timeout — never treat it as one.
   if ("localResourcePressureResult" in dispatched) return dispatched;
 
-  if (!dispatched.result?.success) evict(dispatched.result);
+  if (!dispatched.result?.success) evict();
   return dispatched;
 }

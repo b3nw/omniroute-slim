@@ -2006,7 +2006,8 @@ export async function getProviderCredentials(
             provider,
             options.sessionKey,
             orderedConnections,
-            sessionAffinityTtlMs
+            sessionAffinityTtlMs,
+            excludedConnectionIds
           )
         : null;
     const affinityConnection = connection
@@ -2017,7 +2018,8 @@ export async function getProviderCredentials(
             provider,
             options.sessionKey,
             orderedConnections,
-            sessionAffinityTtlMs
+            sessionAffinityTtlMs,
+            excludedConnectionIds
           );
     if (affinityConnection) {
       connection = affinityConnection;

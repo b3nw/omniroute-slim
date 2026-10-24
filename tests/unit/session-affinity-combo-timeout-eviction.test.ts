@@ -208,19 +208,67 @@ test("the dispatch seam evicts when a dispatch is abandoned", () => {
   );
 });
 
-test("evicts the pin on a 504 GEMINI_CLI_FIRST_BYTE_TIMEOUT result without a combo abort", () => {
+test("a 504 GEMINI_CLI_FIRST_BYTE_TIMEOUT never evicts the persistent pin", () => {
   affinityDb.upsertSessionAccountAffinity(SESSION, "gemini-cli", STALLED, Date.now(), TTL);
+  const firstByteTimeout = { status: 504, errorCode: "GEMINI_CLI_FIRST_BYTE_TIMEOUT" };
+
+  assert.equal(
+    pin.isTimeoutEvictionResult(firstByteTimeout),
+    true,
+    "chat.ts must recognise the transient first-byte 504 and skip pin eviction"
+  );
 
   const evicted = pin.evictSessionAffinityOnComboTimeout({
     sessionKey: SESSION,
     provider: "gemini-cli",
     connectionId: STALLED,
     modelAbortSignal: new AbortController().signal,
-    result: { status: 504, errorCode: "GEMINI_CLI_FIRST_BYTE_TIMEOUT" },
   });
 
-  assert.equal(evicted, true, "an executor-bounded first-byte stall must drop the pin");
-  assert.equal(affinityDb.getSessionAccountAffinity(SESSION, "gemini-cli", TTL), null);
+  assert.equal(evicted, false, "a transient stall must not drop the cross-turn prompt-cache pin");
+  assert.equal(
+    affinityDb.getSessionAccountAffinity(SESSION, "gemini-cli", TTL)?.connectionId,
+    STALLED
+  );
+});
+
+test("selectSessionAffinityConnection serves a request-excluded pin's fallback without unpinning", async () => {
+  affinityDb.upsertSessionAccountAffinity(SESSION, "gemini-cli", STALLED, Date.now(), TTL);
+
+  const selected = await pin.selectSessionAffinityConnection(
+    "gemini-cli",
+    SESSION,
+    [{ id: HEALTHY }],
+    TTL,
+    new Set([STALLED])
+  );
+
+  assert.equal(selected?.id, HEALTHY, "this request must fall back to the healthy account");
+  assert.equal(
+    affinityDb.getSessionAccountAffinity(SESSION, "gemini-cli", TTL)?.connectionId,
+    STALLED,
+    "the persistent pin must survive a per-request exclusion"
+  );
+});
+
+test("planSessionAffinityConnection commit keeps a request-excluded pin intact", async () => {
+  affinityDb.upsertSessionAccountAffinity(SESSION, "gemini-cli", STALLED, Date.now(), TTL);
+
+  const plan = pin.planSessionAffinityConnection(
+    "gemini-cli",
+    SESSION,
+    [{ id: HEALTHY }],
+    TTL,
+    new Set([STALLED])
+  );
+  assert.equal(plan?.connection.id, HEALTHY);
+  await plan?.commit();
+
+  assert.equal(
+    affinityDb.getSessionAccountAffinity(SESSION, "gemini-cli", TTL)?.connectionId,
+    STALLED,
+    "planned commit must not overwrite the persistent pin"
+  );
 });
 
 test("leaves the pin intact when the failed result is a client disconnect", () => {

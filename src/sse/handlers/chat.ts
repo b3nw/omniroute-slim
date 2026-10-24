@@ -135,7 +135,10 @@ import { shouldIsolateProbeFailures } from "@/shared/utils/probeOrigin";
 import { getCircuitBreaker, isLocalStreamLifecycleError } from "../../shared/utils/circuitBreaker";
 import { markAccountExhaustedFrom429, markQuotaHealthy } from "../../domain/quotaCache";
 import { resolveQuotaHealthyScope } from "@omniroute/open-sse/services/quotaHealthyScope.ts";
-import { resolveForcedConnectionForCredentialPool } from "../services/sessionAffinityPin.ts";
+import {
+  isTimeoutEvictionResult,
+  resolveForcedConnectionForCredentialPool,
+} from "../services/sessionAffinityPin.ts";
 import { RequestTelemetry, recordTelemetry } from "../../shared/utils/requestTelemetry";
 import { generateRequestId } from "../../shared/utils/requestId";
 import { enforceApiKeyPolicy } from "../../shared/utils/apiKeyPolicy";
@@ -1000,6 +1003,9 @@ async function handleChatImplementation(
           sessionKey: sessionAffinityKey,
           ...(target?.allowRateLimitedConnection ? { allowRateLimitedConnections: true } : {}),
           ...(target?.connectionId ? { forcedConnectionId: target.connectionId } : {}),
+          ...(target?.excludedConnectionIds?.length
+            ? { excludeConnectionIds: target.excludedConnectionIds }
+            : {}),
           ...(bypassProviderQuotaPolicy ? { bypassQuotaPolicy: true } : {}),
           ...(managedLease ? { lease: credentialLease(managedLease) } : {}),
         }
@@ -1084,6 +1090,7 @@ async function handleChatImplementation(
             forceLiveComboTest: isComboLiveTest,
             forcedConnectionId: target?.connectionId ?? null,
             allowedConnectionIds: target?.allowedConnectionIds ?? null,
+            excludedConnectionIds: target?.excludedConnectionIds ?? null,
             comboStepId: target?.stepId || null,
             comboExecutionKey: target?.executionKey || target?.stepId || null,
             skipUpstreamRetry: target?.failoverBeforeRetry ?? false,
@@ -1299,6 +1306,7 @@ async function handleSingleModelChat(
     sessionAffinityKey?: string | null;
     forcedConnectionId?: string | null;
     allowedConnectionIds?: string[] | null;
+    excludedConnectionIds?: string[] | null;
     comboStepId?: string | null;
     comboExecutionKey?: string | null;
     skipUpstreamRetry?: boolean;
@@ -1554,9 +1562,8 @@ async function handleSingleModelChat(
   let requestRetryLastError = null;
   let requestRetryLastStatus = null;
   let requestRetryLastCooldownMs = 0;
-  // Bug #3758: per-request counter bounding the early-close (STREAM_EARLY_EOF)
-  // re-attempt to exactly one for the whole request. Declared outside both retry
-  // loops so it can never reset and loop.
+  // Bug #3758: per-request STREAM_EARLY_EOF re-attempt budget (one), declared outside
+  // both retry loops so it can never reset and loop.
   let streamEarlyEofRetries = 0;
   const sameAccountTransportRetries = new Map<string, number>();
   const occupancySessionKey =
@@ -1564,7 +1571,7 @@ async function handleSingleModelChat(
   let initialPreselectedCredentials = runtimeOptions.preselectedCredentials;
 
   requestAttemptLoop: while (true) {
-    const excludedConnectionIds = new Set<string>();
+    const excludedConnectionIds = new Set<string>(runtimeOptions.excludedConnectionIds ?? []);
     let lastError = requestRetryLastError;
     let lastStatus = requestRetryLastStatus;
     let lastCooldownMs = requestRetryLastCooldownMs;
@@ -2320,28 +2327,20 @@ async function handleSingleModelChat(
           );
 
       // An explicit pin (combo step `connectionId` / `x-omniroute-connection`) is an
-      // operator instruction, not a suggestion: the account cooldown above is still
-      // recorded, but selection must NOT silently rotate to a sibling account of the
-      // same provider. Pinned steps fall through to combo orchestration, which moves
-      // to the next target — with ITS own pin. Same rule the antigravity
-      // stream-readiness / pre-response-timeout and account-semaphore paths above
-      // already apply.
+      // operator instruction: never rotate to a sibling account of the same provider
+      // here. Pinned steps fall through to combo orchestration, which moves to the next
+      // target. Same rule as the antigravity stream-readiness and semaphore paths above.
       //
-      // Exception: a Claude 5.5 entitlement denial (404/403 on a Free/lite account) means
-      // the pinned account can never serve this model, so honoring the pin only surfaces a
-      // 404. Rotate in-flight instead (the excluded id drops the forced pin on the next
-      // selection, and the affinity pin is evicted below).
+      // Exception: a Claude 5.5 entitlement denial (404/403 on Free/lite) can never be
+      // served by the pinned account, so rotate in-flight (the excluded id drops the pin).
       const isClaude55EntitlementDenial = isAntigravityClaude55EntitlementFailure(
         provider,
         model,
         result.status,
         errorStr
       );
-      // #6219: evict the sticky session pin whenever the pinned account fails over —
-      // including forced (#5903 pin-overridden) combo targets that return to the combo
-      // runner below — else the next request re-pins the throttled account. Connection-
-      // matched, so a pin for a different (healthy) account is left intact.
-      if (shouldFallback && runtimeOptions.sessionAffinityKey) {
+      // #6219: transient 504/524 timeouts keep the sticky pin (per-request exclusion handles them).
+      if (shouldFallback && runtimeOptions.sessionAffinityKey && !isTimeoutEvictionResult(result)) {
         try {
           evictSessionAccountAffinityForConnection(
             runtimeOptions.sessionAffinityKey,

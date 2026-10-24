@@ -751,6 +751,46 @@ export async function resolveTargetTimeoutMsForTarget(
 }
 
 /**
+ * Connection ids that already failed this request for `provider`. These are
+ * per-request exclusions only: they never touch the persistent session pin.
+ */
+function getProviderExhaustedConnectionIds(
+  provider: string | null | undefined,
+  exhaustedConnections: ReadonlySet<string>
+): string[] {
+  if (!provider) return [];
+  const prefix = `${provider}:`;
+  return [...exhaustedConnections]
+    .filter((key) => key.startsWith(prefix))
+    .map((key) => key.slice(prefix.length));
+}
+
+/**
+ * #5903 session-pin override: when a target's connection was swapped for the
+ * session-pinned `selectedConnectionId` and that run failed, the displaced
+ * `target.connectionId` never got tried. Hand it to the first later same-model
+ * target that was pinned to the substitute, so the displaced account is still
+ * attempted instead of being skipped as exhausted.
+ */
+function restoreDisplacedConnectionOnLaterTarget(
+  targets: ResolvedComboTarget[],
+  laterIndexes: number[],
+  target: ResolvedComboTarget,
+  selectedConnectionId: string | undefined
+): void {
+  if (!target.connectionId || !selectedConnectionId) return;
+  if (selectedConnectionId === target.connectionId) return;
+  const laterIndex = laterIndexes.find(
+    (index) =>
+      targets[index].provider === target.provider &&
+      targets[index].modelStr === target.modelStr &&
+      targets[index].connectionId === selectedConnectionId
+  );
+  if (laterIndex === undefined) return;
+  targets[laterIndex] = { ...targets[laterIndex], connectionId: target.connectionId };
+}
+
+/**
  * #10681 egress: every combo response carries the opaque trace id in an
  * `X-OmniRoute-Combo-Trace` header so a post-incident lookup of the ordered
  * per-target decisions is possible; the finalized summary is also emitted as
@@ -1328,13 +1368,16 @@ async function handleComboChatInner({
         const allowRateLimitedConnection =
           Boolean(provider && provider !== "unknown") &&
           transientRateLimitedProviders.has(provider);
-        const targetForAttempt = allowRateLimitedConnection
-          ? {
-              ...target,
-              allowRateLimitedConnection: true,
-              modelAbortSignal: abortControllers.get(i)!.signal,
-            }
-          : { ...target, modelAbortSignal: abortControllers.get(i)!.signal };
+        const excludedConnectionIds = getProviderExhaustedConnectionIds(
+          provider,
+          exhaustedConnections
+        );
+        const targetForAttempt = {
+          ...target,
+          ...(allowRateLimitedConnection ? { allowRateLimitedConnection: true } : {}),
+          ...(excludedConnectionIds.length ? { excludedConnectionIds } : {}),
+          modelAbortSignal: abortControllers.get(i)!.signal,
+        };
 
         // Persist the connection cooldown before dispatch. AUTH only learns
         // unavailable during credential lookup, so a burst would otherwise
@@ -2255,6 +2298,12 @@ async function handleComboChatInner({
           const targetWithConnection = selectedConnectionId
             ? { ...target, connectionId: selectedConnectionId }
             : target;
+          restoreDisplacedConnectionOnLaterTarget(
+            orderedTargets,
+            orderedTargets.map((_, index) => index).slice(i + 1),
+            target,
+            selectedConnectionId
+          );
 
           // #1731 / #1731v2: classify the upstream error and update the exhaustion sets
           // (shared with handleRoundRobinCombo). Returns whether the provider is fully exhausted.
@@ -3352,9 +3401,18 @@ async function handleRoundRobinCombo({
       const semaphoreKey = `combo:${combo.name}:${target.executionKey}`;
       const allowRateLimitedConnection =
         Boolean(provider && provider !== "unknown") && transientRateLimitedProviders.has(provider);
-      const targetForAttempt = allowRateLimitedConnection
-        ? { ...target, allowRateLimitedConnection: true }
-        : target;
+      const excludedConnectionIds = getProviderExhaustedConnectionIds(
+        provider,
+        exhaustedConnections
+      );
+      const targetForAttempt =
+        allowRateLimitedConnection || excludedConnectionIds.length
+          ? {
+              ...target,
+              ...(allowRateLimitedConnection ? { allowRateLimitedConnection: true } : {}),
+              ...(excludedConnectionIds.length ? { excludedConnectionIds } : {}),
+            }
+          : target;
 
       // Pre-check availability
       if (isModelAvailable) {
@@ -3806,6 +3864,12 @@ async function handleRoundRobinCombo({
           const targetWithConnection = selectedConnectionId
             ? { ...target, connectionId: selectedConnectionId }
             : target;
+          restoreDisplacedConnectionOnLaterTarget(
+            filteredTargets,
+            Array.from({ length: modelCount - offset - 1 }, (_, k) => (modelIndex + k + 1) % modelCount),
+            target,
+            selectedConnectionId
+          );
 
           const isAllAccountsRateLimited = isAllAccountsRateLimitedResponse(
             result.status,
