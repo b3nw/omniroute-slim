@@ -63,8 +63,16 @@ jobs:
           username: ${{ gitea.actor }}
           password: ${{ secrets.REGISTRY_TOKEN }}
 
+      # driver: docker builds on the runner host's own BuildKit (via the mounted
+      # /var/run/docker.sock) instead of a throwaway docker-container builder that
+      # the Post step removes. Layer caches (base, apt, npm ci) and every
+      # RUN --mount=type=cache volume (apt/npm/next caches) then persist on the
+      # host across runs, so no registry cache import/export is needed — the
+      # mode=max registry export alone cost ~400s per run (run #1848).
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker
 
       - name: Resolve Image Tags & Build Flags
         run: |
@@ -79,7 +87,17 @@ jobs:
           echo "PLATFORMS=${{ gitea.event.inputs.platforms || 'linux/amd64' }}" >> "$GITHUB_ENV"
           echo "TAG_SUFFIX=${{ gitea.event.inputs.tag_suffix || '' }}" >> "$GITHUB_ENV"
           echo "DOCKER_TARGET=${{ gitea.event.inputs.docker_target || 'runner-base' }}" >> "$GITHUB_ENV"
-          echo "BUILD_WORKERS=${{ gitea.event.inputs.build_workers || '4' }}" >> "$GITHUB_ENV"
+          # API-dispatched runs without explicit inputs get gitea.event.inputs
+          # populated from main's workflow defaults (build_workers: "1"), so a
+          # bare `|| '4'` fallback never fires. Treat empty and "1" as unset.
+          BUILD_WORKERS="${{ gitea.event.inputs.build_workers }}"
+          if [ -z "$BUILD_WORKERS" ] || [ "$BUILD_WORKERS" = "1" ]; then
+            BUILD_WORKERS=4
+          fi
+          echo "BUILD_WORKERS=$BUILD_WORKERS" >> "$GITHUB_ENV"
+          # The lab runner has 47 GiB; the Dockerfile default (5120) is sized
+          # for 16 GB GitHub runners.
+          echo "BUILD_MEMORY_MB=8192" >> "$GITHUB_ENV"
           echo "USE_TURBOPACK=${{ gitea.event.inputs.use_turbopack || '0' }}" >> "$GITHUB_ENV"
 
       - name: Build and push image
@@ -93,12 +111,9 @@ jobs:
           provenance: false
           sbom: false
           platforms: ${{ env.PLATFORMS }}
-          cache-from: |
-            type=registry,ref=${{ env.IMAGE_PRIMARY }}:buildcache
-          cache-to: |
-            type=registry,ref=${{ env.IMAGE_PRIMARY }}:buildcache,mode=max
           build-args: |
             OMNIROUTE_BUILD_WORKERS=${{ env.BUILD_WORKERS }}
+            OMNIROUTE_BUILD_MEMORY_MB=${{ env.BUILD_MEMORY_MB }}
             OMNIROUTE_USE_TURBOPACK=${{ env.USE_TURBOPACK }}
           tags: |
             ${{ env.IMAGE_PRIMARY }}:lab-${{ env.SHORT_SHA }}${{ env.TAG_SUFFIX }}
