@@ -486,21 +486,9 @@ export const MODEL_SPECS: Record<string, ModelSpec> = {
     aliases: BEDROCK_CLAUDE_ALIASES("claude-fable-5"),
   },
 
-  // ── Claude Opus 5 ───────────────────────────────────────────────
-  "claude-opus-5": {
-    maxOutputTokens: 128000,
-    contextWindow: 1000000,
-    defaultThinkingBudget: 32000,
-    thinkingBudgetCap: 120000,
-    supportsThinking: true,
-    supportsTools: true,
-    supportsVision: true,
-    adaptiveThinkingOnly: true,
-    maxEffortWhenThinkingDisabled: "high",
-    aliases: BEDROCK_CLAUDE_ALIASES("claude-opus-5"),
-  },
-
   // ── Claude Opus 5.5 ─────────────────────────────────────────────
+  // Must precede claude-opus-5: prefix matching is first-match-wins, so dated
+  // ids like claude-opus-5-5-20261001 would otherwise resolve to Opus 5.
   "claude-opus-5-5": {
     maxOutputTokens: 128000,
     contextWindow: 1000000,
@@ -513,6 +501,20 @@ export const MODEL_SPECS: Record<string, ModelSpec> = {
     // Opus 5.5 rejects `thinking.type: "disabled"` at every effort level.
     rejectsThinkingDisabled: true,
     aliases: BEDROCK_CLAUDE_ALIASES("claude-opus-5-5"),
+  },
+
+  // ── Claude Opus 5 ───────────────────────────────────────────────
+  "claude-opus-5": {
+    maxOutputTokens: 128000,
+    contextWindow: 1000000,
+    defaultThinkingBudget: 32000,
+    thinkingBudgetCap: 120000,
+    supportsThinking: true,
+    supportsTools: true,
+    supportsVision: true,
+    adaptiveThinkingOnly: true,
+    maxEffortWhenThinkingDisabled: "high",
+    aliases: BEDROCK_CLAUDE_ALIASES("claude-opus-5"),
   },
 
   // ── Claude Opus 4.8 ─────────────────────────────────────────────
