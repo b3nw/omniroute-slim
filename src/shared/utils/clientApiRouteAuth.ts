@@ -27,6 +27,14 @@ import { isDashboardSessionAuthenticated } from "@/shared/utils/apiAuth";
 import { resolveSelfLoopBearer } from "@/shared/middleware/chatAdmissionIdentity";
 import { timingSafeCompare } from "@/shared/utils/timingSafeCompare";
 
+function extractUngatedClientApiKey(request: Request): string | null {
+  const xApiKey = request.headers.get("x-api-key") ?? request.headers.get("X-Api-Key");
+  if (xApiKey && xApiKey.trim()) return xApiKey.trim();
+  const xGoog = request.headers.get("x-goog-api-key") ?? request.headers.get("X-Goog-Api-Key");
+  if (xGoog && xGoog.trim()) return xGoog.trim();
+  return null;
+}
+
 /**
  * Authenticate a client-API request at the route level.
  *
@@ -35,7 +43,7 @@ import { timingSafeCompare } from "@/shared/utils/timingSafeCompare";
  *          request may proceed to policy enforcement.
  */
 export async function enforceClientApiRouteAuth(request: Request): Promise<Response | null> {
-  const apiKeyRaw = extractApiKey(request);
+  const apiKeyRaw = extractApiKey(request) || extractUngatedClientApiKey(request);
 
   if (apiKeyRaw) {
     if (timingSafeCompare(apiKeyRaw, resolveSelfLoopBearer())) return null;

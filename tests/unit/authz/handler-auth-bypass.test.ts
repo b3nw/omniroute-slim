@@ -85,6 +85,28 @@ test("handler guard accepts a valid API key", async () => {
   assert.equal(rejection, null);
 });
 
+test("handler guard accepts a valid x-api-key without anthropic headers", async () => {
+  const created = await apiKeysDb.createApiKey("handler-x-api-key", "machine-handler-x");
+  assert.ok(created?.key, "createApiKey must return a key");
+  const rejection = await enforceClientApiRouteAuth(
+    await routeRequest("/api/v1/chat/completions", {
+      "x-api-key": created.key,
+    })
+  );
+  assert.equal(rejection, null);
+});
+
+test("handler guard accepts a valid x-goog-api-key", async () => {
+  const created = await apiKeysDb.createApiKey("handler-x-goog-key", "machine-handler-goog");
+  assert.ok(created?.key, "createApiKey must return a key");
+  const rejection = await enforceClientApiRouteAuth(
+    await routeRequest("/api/v1/chat/completions", {
+      "x-goog-api-key": created.key,
+    })
+  );
+  assert.equal(rejection, null);
+});
+
 test("handler guard rejects an invalid API key", async () => {
   const rejection = await enforceClientApiRouteAuth(
     await routeRequest("/api/v1/chat/completions", {
