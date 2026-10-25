@@ -76,6 +76,9 @@ export function getRedisClient(): Promise<Redis> {
       const client = new RedisCtor(REDIS_URL, {
         maxRetriesPerRequest: 3,
         enableReadyCheck: false,
+        // Bound stalled commands/connects so callers reject instead of pending forever.
+        commandTimeout: 1000,
+        connectTimeout: 2000,
         keyPrefix: REDIS_KEY_PREFIX,
         retryStrategy(times) {
           return Math.min(times * 50, 2000); // Exponential backoff

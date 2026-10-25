@@ -4,6 +4,7 @@ import {
   PKCE_CHALLENGE_METHOD,
   generateCodeChallenge,
   generateCodeVerifier,
+  generateState,
 } from "@/lib/oauth/utils/pkce";
 
 function setOidcFlowCookies(res: NextResponse, cookies: Record<string, string>, secure: boolean) {
@@ -80,16 +81,10 @@ export async function GET(request: Request) {
   }
 
   const scope = scopes.join(" ");
-  const state =
-    typeof crypto !== "undefined" && crypto.randomUUID
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2);
+  const state = generateState();
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = generateCodeChallenge(codeVerifier);
-  const nonce =
-    typeof crypto !== "undefined" && crypto.randomUUID
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2);
+  const nonce = generateState();
 
   const url = new URL(authEndpoint);
   url.searchParams.set("response_type", "code");
