@@ -36,8 +36,9 @@ const {
 
 // The OmniRoute-Slim excision passes removed the flags belonging to excised
 // subsystems. The last of them were RADAR_ENABLED (Radar module) and
-// SKILLS_SANDBOX_NETWORK_ENABLED (skills sandbox), leaving 49.
-const EXPECTED_FEATURE_FLAG_COUNT = 49;
+// SKILLS_SANDBOX_NETWORK_ENABLED (skills sandbox), leaving 49. #16438 and #17049 add
+// EMPTY_STREAM_SIBLING_RECOVERY_ENABLED and PROVIDER_SAFETY_STOPS_TERMINAL, making 51.
+const EXPECTED_FEATURE_FLAG_COUNT = 51;
 
 // ──────────────────────────────────────────────────────
 // Test group 1 — Flag definitions registry

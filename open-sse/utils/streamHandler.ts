@@ -1,3 +1,4 @@
+import type { StreamControllerOptions } from "./streamControllerTypes.ts";
 import { trackPendingRequest } from "@/lib/usageDb";
 import { STREAM_IDLE_TIMEOUT_MS } from "../config/constants.ts";
 import { FORMATS } from "../translator/formats.ts";
@@ -17,29 +18,6 @@ import { createStreamContentWatcher, type StreamContentWatcher } from "./streamR
 // decolua/9router#1243.
 const DEFAULT_STREAM_STALL_TIMEOUT_MS = STREAM_IDLE_TIMEOUT_MS;
 
-type StreamDisconnectEvent = {
-  reason: string;
-  duration: number;
-};
-
-type StreamErrorEvent = {
-  error: unknown;
-  message: string;
-  statusCode: number;
-  duration: number;
-};
-
-type StreamControllerOptions = {
-  onDisconnect?: (event: StreamDisconnectEvent) => boolean | void;
-  onError?: (event: StreamErrorEvent) => boolean | void;
-  provider?: string;
-  model?: string;
-  connectionId?: string | null;
-  clientResponseFormat?: string | null;
-  clientAbortSignal?: AbortSignal | null;
-  allowCompletedToolHandoffGrace?: boolean;
-  clientDisconnectGracePeriodMs?: number;
-};
 
 type StreamController = ReturnType<typeof createStreamController>;
 
@@ -290,6 +268,13 @@ export function createStreamController({
     cleanupClientAbortSignal = null;
   };
 
+  const releaseRequestCallbacks = (preserveHandoffDrain = false) => {
+    // Completed Responses may outlive their request; don't retain the request body.
+    onDisconnect = undefined;
+    onError = undefined;
+    if (!preserveHandoffDrain) completedToolHandoffDrain = null;
+  };
+
   const getClientAbortReason = () => {
     const reason = clientAbortSignal?.reason;
     if (typeof reason === "string" && reason.trim().length > 0) {
@@ -334,11 +319,16 @@ export function createStreamController({
         abortController.abort(reason);
       }
 
-      onDisconnect?.({ reason, duration: Date.now() - startTime });
+      try {
+        onDisconnect?.({ reason, duration: Date.now() - startTime });
+      } finally {
+        releaseRequestCallbacks(deferUpstreamAbort);
+      }
     },
 
     // Call when stream completes normally
     handleComplete: () => {
+      releaseRequestCallbacks();
       if (disconnected) return;
       disconnected = true;
       cleanupClientAbortListener();
@@ -355,7 +345,7 @@ export function createStreamController({
     },
 
     registerCompletedToolHandoffDrain: (drain: () => void) => {
-      completedToolHandoffDrain = drain;
+      if (!disconnected && !abortController.signal.aborted) completedToolHandoffDrain = drain;
     },
 
     shouldDeferCompletedToolHandoff: () =>
@@ -374,6 +364,7 @@ export function createStreamController({
       // the upstream connection unavailable.
       if (disconnected || isClientDisconnectError(error)) {
         clearPendingRequest(error);
+        releaseRequestCallbacks();
         logStream(disconnected ? "client_disconnect (post-abort)" : "client_disconnect");
         return;
       }
@@ -399,6 +390,7 @@ export function createStreamController({
       } else {
         pendingRequestCleared = true;
       }
+      releaseRequestCallbacks();
 
       if (error instanceof Error && error.name === "AbortError") {
         logStream("aborted");
@@ -415,6 +407,7 @@ export function createStreamController({
     abort: () => {
       cleanupClientAbortListener();
       abortController.abort();
+      releaseRequestCallbacks();
     },
     clientResponseFormat,
     clientDisconnectGracePeriodMs,

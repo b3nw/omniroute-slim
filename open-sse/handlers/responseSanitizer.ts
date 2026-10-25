@@ -12,6 +12,7 @@ import {
   applyCacheHitTokensToUsage,
   applyCacheHitTokensToResponsesUsage,
 } from "./responseSanitizer/cacheHitTokens.ts";
+import { normalizeArrayContentChunk } from "../utils/arrayContentDelta.ts";
 export {
   extractThinkingFromContent,
   shouldParseTextualReasoningTags,
@@ -1086,6 +1087,9 @@ export function sanitizeStreamingChunk(parsed: unknown): unknown {
     }
     return parsedRecord;
   }
+
+  // Fold typed content-part arrays into the string fields required by chat chunks.
+  normalizeArrayContentChunk(parsedRecord);
 
   // Build sanitized chunk
   const sanitized: JsonRecord = {};

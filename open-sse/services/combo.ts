@@ -107,6 +107,10 @@ import { canAffordRequest } from "../../src/lib/quota/quotaScheduler.ts";
 import { resolveConnectionTimeoutMs } from "../handlers/chatCore/upstreamTimeouts.ts";
 import { getCachedProviderConnectionById } from "../../src/lib/db/readCache.ts";
 import { orderTargetsByEvalScores } from "./evalRouting.ts";
+import { isProviderSafetyStopsEnabled } from "../utils/providerSafety.ts";
+import { runComboWithSafetyLatch } from "./combo/safetyStopLatch.ts";
+import { createChaosHeaderBarrier } from "./combo/chaosHeaderBarrier.ts";
+import { isEmptyStreamSiblingRecoveryEnabled } from "./streamRecovery.ts";
 
 /**
  * Resolve the configured per-connection token budget (rateLimitOverrides.tpm)
@@ -714,6 +718,21 @@ export { pinIsDurablyUnhealthy };
 // is NOT body-specific — different combo targets have different context windows /
 // output limits, so the request should fall through to the next target instead of
 // being short-circuited. Exported as pure predicates so the guard is unit-testable.
+/**
+ * #16438: an upstream `empty_content` 502 (pre-output empty turn). Read only when
+ * EMPTY_STREAM_SIBLING_RECOVERY_ENABLED is on.
+ */
+function isEmptyContentResponse(
+  response: Response,
+  errorBody: { error?: { code?: string | null } | string } | null
+): boolean {
+  return (
+    response.status === 502 &&
+    typeof errorBody?.error === "object" &&
+    errorBody.error?.code === "empty_content"
+  );
+}
+
 /** @param {string} errorText */
 
 /** @param {object} options */
@@ -759,7 +778,9 @@ export async function resolveTargetTimeoutMsForTarget(
  */
 export async function handleComboChat(options: HandleComboChatOptions): Promise<Response> {
   const traceInvocationId = options.invocationId ?? createInvocationId();
-  const response = await handleComboChatInner({ ...options, invocationId: traceInvocationId });
+  const response = isProviderSafetyStopsEnabled()
+    ? await runComboWithSafetyLatch(options, traceInvocationId, handleComboChatInner)
+    : await handleComboChatInner({ ...options, invocationId: traceInvocationId });
   response.headers.set("X-OmniRoute-Combo-Trace", traceInvocationId);
   const trace = getComboTrace(traceInvocationId);
   options.log.info(
@@ -875,6 +896,12 @@ async function handleComboChatInner({
 
   // Chaos mode (parallel multi-model dispatch): detection + dispatch live in
   // chaosEngine.ts (dispatchChaosFromCombo), returning null when not chaos-enabled.
+  // Chaos otherwise commits a synthetic SSE 200 before its panel returns headers.
+  // Only with PROVIDER_SAFETY_STOPS_TERMINAL (#17049); off, chaos dispatch is unchanged.
+  const chaosHeaders =
+    body.stream === true && isProviderSafetyStopsEnabled()
+      ? createChaosHeaderBarrier(handleSingleModelWithTimeout, perTargetAdmission, signal)
+      : null;
   const chaosDispatch = dispatchChaosFromCombo({
     cfg,
     comboModels: resolveComboTargets(
@@ -885,11 +912,15 @@ async function handleComboChatInner({
     ).map((target) => target.modelStr),
     comboName: combo.name,
     body,
-    handleSingleModel: handleSingleModelWithTimeout,
+    handleSingleModel: chaosHeaders?.handleSingleModel ?? handleSingleModelWithTimeout,
     log,
-    perTargetAdmission,
+    perTargetAdmission: chaosHeaders?.perTargetAdmission ?? perTargetAdmission,
   });
-  if (chaosDispatch) return chaosDispatch;
+  if (chaosDispatch) {
+    const response = await chaosDispatch;
+    await chaosHeaders?.wait();
+    return response;
+  }
 
   const pipelineDispatch = await tryPipelineDispatch({
     body,
@@ -1553,6 +1584,10 @@ async function handleComboChatInner({
           return null;
         }
 
+        // #16438 opt-in (EMPTY_STREAM_SIBLING_RECOVERY_ENABLED): an empty_content turn spends
+        // this loop's existing retry on a sibling connection with no lockout. Off = release path.
+        const emptyStreamSiblingRecovery = isEmptyStreamSiblingRecoveryEnabled();
+        let emptyTurnConnectionId: string | null = null;
         // Retry loop for transient errors
         for (let retry = 0; retry <= maxRetries; retry++) {
           // Fix #1681: Bail out immediately if the client has disconnected
@@ -1766,6 +1801,7 @@ async function handleComboChatInner({
           }
           const result = await handleSingleModelWithTimeout(attemptBody, modelStr, {
             ...targetForAttempt,
+            emptyTurnConnectionId,
             effectiveComboStrategy: strategy,
             failoverBeforeRetry: config.failoverBeforeRetry,
           });
@@ -1829,7 +1865,12 @@ async function handleComboChatInner({
               if (qualityFailure.requestScoped) {
                 rejectedModelKeys.add(requestScopedReplayKey(modelStr));
               }
-              if (provider && rawModel && !qualityFailure.requestScoped) {
+              if (
+                provider &&
+                rawModel &&
+                !qualityFailure.requestScoped &&
+                !(emptyStreamSiblingRecovery && quality.upstreamFailure?.emptyContent)
+              ) {
                 const mlSettings = resolveModelLockoutSettings(settings);
                 if (mlSettings.enabled && mlSettings.errorCodes.includes(qualityFailure.status)) {
                   recordModelLockoutFailure(
@@ -1861,6 +1902,9 @@ async function handleComboChatInner({
               if (
                 handlePreContentStreamRetry(quality, retry, { maxRetries, signal, log }, modelStr)
               ) {
+                if (emptyStreamSiblingRecovery && quality.upstreamFailure?.emptyContent) {
+                  emptyTurnConnectionId = effectiveConnectionId || null;
+                }
                 continue;
               }
               return protectedPriorityTarget
@@ -2125,6 +2169,35 @@ async function handleComboChatInner({
             } catch {
               errorText = String(errorText);
             }
+          }
+
+          // #16438: an empty_content turn is a pre-output target failure. With the flag on it
+          // spends this loop's existing retry on a sibling connection, with no cooldown and no
+          // model lockout. Off, it falls through to the release classification below.
+          if (emptyStreamSiblingRecovery && isEmptyContentResponse(result, errorBody)) {
+            const emptyConnectionId =
+              result.headers?.get("X-OmniRoute-Selected-Connection-Id") || null;
+            releaseStickyPinOnFailure(_sticky.messageHash, emptyConnectionId);
+            lastError = errorText || String(result.status);
+            lastStatus = result.status;
+            comboErrors.push({
+              model: modelStr,
+              status: result.status,
+              error: errorText || String(result.status),
+              kind: classifyComboOutcome(result.status, errorText),
+            });
+            recordComboRequest(combo.name, modelStr, {
+              success: false,
+              latencyMs: Date.now() - startTime,
+              fallbackCount,
+              strategy,
+              target: toRecordedTarget(target),
+            });
+            recordedAttempts++;
+            observeFailure(false, target.executionKey);
+            emptyTurnConnectionId = emptyConnectionId;
+            if (retry < maxRetries && !signal?.aborted) continue;
+            return protectedPriorityTarget ? { ok: false, response: result } : null;
           }
 
           const isStreamReadinessFailure =
@@ -3310,6 +3383,9 @@ async function handleRoundRobinCombo({
   // terminal message lists each distinct reason separately (see the quality path
   // and the "Done with this model" path below), mirroring handleComboChat.
   const rrOutcomes: Array<ComboErrorEntry> = [];
+  // #16438 opt-in (EMPTY_STREAM_SIBLING_RECOVERY_ENABLED): empty_content sibling retry and
+  // the abort-aware retry delay. Off = release path.
+  const emptyStreamSiblingRecovery = isEmptyStreamSiblingRecoveryEnabled();
 
   // G4 (silent-stop fix): round-robin has NO global timeout — a hung model
   // (per-model timeout disabled via targetTimeoutMs: 0) would freeze the request
@@ -3447,8 +3523,12 @@ async function handleRoundRobinCombo({
       }
 
       // Retry loop within this model
+      let emptyTurnConnectionId: string | null = null;
       try {
         for (let retry = 0; retry <= maxRetries; retry++) {
+          if (emptyStreamSiblingRecovery && signal?.aborted) {
+            return errorResponse(499, "Client disconnected");
+          }
           globalAttempts++;
           if (globalAttempts > maxGlobalAttempts) {
             log.warn(
@@ -3475,7 +3555,21 @@ async function handleRoundRobinCombo({
               "COMBO-RR",
               `Retrying ${modelStr} in ${retryDelayMs}ms (attempt ${retry + 1}/${maxRetries + 1})`
             );
-            await new Promise((r) => setTimeout(r, retryDelayMs));
+            if (emptyStreamSiblingRecovery) {
+              await new Promise<void>((resolve) => {
+                const finish = () => {
+                  clearTimeout(timer);
+                  signal?.removeEventListener("abort", finish);
+                  resolve();
+                };
+                const timer = setTimeout(finish, retryDelayMs);
+                signal?.addEventListener("abort", finish, { once: true });
+                if (signal?.aborted) finish();
+              });
+              if (signal?.aborted) return errorResponse(499, "Client disconnected");
+            } else {
+              await new Promise((r) => setTimeout(r, retryDelayMs));
+            }
           }
 
           log.info(
@@ -3526,6 +3620,7 @@ async function handleRoundRobinCombo({
           const result = await Promise.race([
             handleSingleModel(attemptBody, modelStr, {
               ...targetForAttempt,
+              emptyTurnConnectionId,
               effectiveComboStrategy: "round-robin",
               failoverBeforeRetry: config.failoverBeforeRetry,
             }),
@@ -3608,6 +3703,15 @@ async function handleRoundRobinCombo({
                 error: quality.reason || "upstream response failed quality validation",
                 kind: qualityFailure.kind,
               });
+              if (emptyStreamSiblingRecovery && quality.upstreamFailure?.emptyContent) {
+                emptyTurnConnectionId =
+                  result.headers?.get("X-OmniRoute-Selected-Connection-Id") ||
+                  target.connectionId ||
+                  null;
+                if (retry < maxRetries && !signal?.aborted) continue;
+                if (offset > 0) fallbackCount++;
+                break; // move to next model
+              }
               if (
                 handlePreContentStreamRetry(quality, retry, { maxRetries, signal, log }, modelStr)
               ) {
@@ -3753,6 +3857,35 @@ async function handleRoundRobinCombo({
             }
           }
 
+          // #16438: empty_content is a pre-output target failure; with the flag on it spends the
+          // retry on a sibling connection with no cooldown and no model lockout.
+          if (emptyStreamSiblingRecovery && isEmptyContentResponse(result, errorBody)) {
+            const emptyConnectionId =
+              result.headers?.get("X-OmniRoute-Selected-Connection-Id") ||
+              target.connectionId ||
+              null;
+            releaseStickyPinOnFailure(_rrSessionSticky.messageHash, emptyConnectionId);
+            lastError = errorText || String(result.status);
+            lastStatus = result.status;
+            rrOutcomes.push({
+              model: modelStr,
+              status: result.status,
+              error: errorText || String(result.status),
+              kind: classifyComboOutcome(result.status, errorText),
+            });
+            recordComboRequest(combo.name, modelStr, {
+              success: false,
+              latencyMs: Date.now() - startTime,
+              fallbackCount,
+              strategy: "round-robin",
+              target: toRecordedTarget(target),
+            });
+            recordedAttempts++;
+            emptyTurnConnectionId = emptyConnectionId;
+            if (retry < maxRetries && !signal?.aborted) continue;
+            if (offset > 0) fallbackCount++;
+            break; // move to next model
+          }
           const isStreamReadinessFailure =
             (result.status === 502 || result.status === 504) &&
             isStreamReadinessFailureErrorBody(errorBody);

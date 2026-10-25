@@ -1,5 +1,6 @@
 import { FORMATS } from "../translator/formats.ts";
 import { buildErrorBody } from "./error.ts";
+import { classifyProviderSafetyError } from "./providerSafety.ts";
 
 /**
  * Upstream stream-failure normalization + client-format error framing.
@@ -53,7 +54,10 @@ export function normalizeStreamFailurePayload(payload: unknown): StreamFailurePa
     : Object.keys(asRecord(record.error)).length
       ? asRecord(record.error)
       : record;
-  const code = typeof error.code === "string" ? error.code : "upstream_error";
+  // Keep the raw code until safety classification runs: a code-less legacy safety stop
+  // must classify as provider_safety_rejection, not the generic upstream_error default.
+  const rawCode = typeof error.code === "string" ? error.code : undefined;
+  const code = rawCode ?? "upstream_error";
   const type = typeof error.type === "string" ? error.type : undefined;
   const message =
     typeof error.message === "string" && error.message.trim()
@@ -73,13 +77,24 @@ export function normalizeStreamFailurePayload(payload: unknown): StreamFailurePa
     code === "context_length_exceeded" ||
     type === "context_window_exceeded" ||
     code === "context_window_exceeded";
-  const status =
+  const explicitStatus =
     toStreamFailureStatus(error.status_code) ??
     toStreamFailureStatus(error.status) ??
     toStreamFailureStatus(response.status_code) ??
     toStreamFailureStatus(response.status) ??
     toStreamFailureStatus(record.status_code) ??
-    toStreamFailureStatus(record.status) ??
+    toStreamFailureStatus(record.status);
+  // #17049: an explicit provider safety stop keeps its code and is request-scoped (400/403).
+  // classifyProviderSafetyError returns null unless PROVIDER_SAFETY_STOPS_TERMINAL is on.
+  const safety = classifyProviderSafetyError({
+    status: explicitStatus,
+    code: rawCode,
+    type,
+    message,
+  });
+  const status =
+    explicitStatus ??
+    safety?.status ??
     (requestScopedInputFailure
       ? 400
       : type === "authentication_error" || code === "invalid_api_key"
@@ -93,8 +108,8 @@ export function normalizeStreamFailurePayload(payload: unknown): StreamFailurePa
   return {
     status,
     message,
-    code,
-    ...(type ? { type } : {}),
+    code: safety?.code ?? code,
+    ...(safety ? { type: "invalid_request_error" } : type ? { type } : {}),
   };
 }
 

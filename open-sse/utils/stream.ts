@@ -41,6 +41,7 @@ import {
   isResponsesCommentaryMessageItem,
   sanitizeStreamingChunk,
 } from "../handlers/responseSanitizer.ts";
+import { normalizeArrayContentChunk } from "./arrayContentDelta.ts";
 import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags";
 import {
   shouldDropResponsesCommentaryEvent,
@@ -1838,6 +1839,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                   const hadNonStringTopLevelId =
                     parsed?.id != null && typeof parsed.id !== "string";
                   const rawDelta = parsed.choices?.[0]?.delta;
+                  const hadArrayContent = Array.isArray(rawDelta?.content);
                   const hadReasoningAlias = hasUnsupportedReasoningSignal(rawDelta);
 
                   parsed = sanitizeStreamingChunk(parsed);
@@ -1900,6 +1902,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                   // Track whether we need to re-serialize (separate from injectedUsage
                   // to avoid blocking subsequent finish_reason / usage mutations)
                   const needsReserialization =
+                    hadArrayContent ||
                     splitMixedReasoningContent ||
                     thinkParsed ||
                     hadReasoningAlias ||
@@ -2294,6 +2297,9 @@ export function createSSEStream(options: StreamOptions = {}) {
               if (eu.reasoning_tokens > 0) su.reasoning_tokens = eu.reasoning_tokens;
             }
           }
+
+          // OpenAI-format upstreams may stream typed content-part arrays (Mistral thinking chunks).
+          if (targetFormat === FORMATS.OPENAI) normalizeArrayContentChunk(parsed);
 
           // Translate: targetFormat -> openai -> sourceFormat
           const translated = translateResponse(targetFormat, sourceFormat, parsed, state);
@@ -2738,6 +2744,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                 }
               }
 
+              if (targetFormat === FORMATS.OPENAI) normalizeArrayContentChunk(parsed);
               const translated = translateResponse(targetFormat, sourceFormat, parsed, state);
 
               // Log OpenAI intermediate chunks

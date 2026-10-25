@@ -11,6 +11,7 @@
  * without real sockets. The ReadableStream wiring lives in `createRecoverableStream`.
  */
 import { STREAM_RECOVERY } from "../config/constants.ts";
+import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags";
 import {
   createThroughputWatchdog,
   ThroughputWatchdogError,
@@ -18,6 +19,20 @@ import {
 } from "./throughputWatchdog.ts";
 
 export { ThroughputWatchdogError } from "./throughputWatchdog.ts";
+
+export const EMPTY_STREAM_SIBLING_RECOVERY_FLAG = "EMPTY_STREAM_SIBLING_RECOVERY_ENABLED";
+
+/**
+ * #16438 opt-in: empty_content turns spend the existing bounded retry on a sibling
+ * connection (no cooldown/lockout). Fail-closed: any resolution failure keeps release behavior.
+ */
+export function isEmptyStreamSiblingRecoveryEnabled(): boolean {
+  try {
+    return isFeatureFlagEnabled(EMPTY_STREAM_SIBLING_RECOVERY_FLAG);
+  } catch {
+    return false;
+  }
+}
 
 /** Raised internally when an upstream stream ends without a terminal SSE marker. */
 export class TruncatedStreamError extends Error {

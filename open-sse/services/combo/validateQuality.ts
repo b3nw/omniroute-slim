@@ -246,6 +246,12 @@ export interface StreamingUpstreamFailure {
   message?: string;
   requestScoped: boolean;
   retryable: boolean;
+  /**
+   * #16438: a pre-output empty turn (the disconnect guard's synthetic "Provider returned
+   * empty content" frame or an explicit `empty_content` code). Read only when
+   * EMPTY_STREAM_SIBLING_RECOVERY_ENABLED is on; `code` keeps the wire value.
+   */
+  emptyContent?: boolean;
 }
 
 export interface ResponseQualityResult {
@@ -265,6 +271,12 @@ function classifyStreamingUpstreamFailure(parsed: unknown): StreamingUpstreamFai
   if (!normalized) return null;
   const type = normalized.type?.trim().toLowerCase() || "";
   const code = normalized.code?.trim().toLowerCase() || "";
+  // The disconnect guard's synthetic empty-turn error uses the generic wire code;
+  // stream.ts reports a Claude lifecycle with no content block by message.
+  const emptyContent =
+    normalized.message === "Provider returned empty content" ||
+    normalized.message?.includes("Claude returned an empty response") ||
+    code === "empty_content";
   const requestScoped =
     ((type === "invalid_request_error" || code === "invalid_request_error") &&
       !ACCOUNT_SCOPED_STREAM_CODES.has(code) &&
@@ -279,6 +291,7 @@ function classifyStreamingUpstreamFailure(parsed: unknown): StreamingUpstreamFai
     ...(message ? { message } : {}),
     requestScoped,
     retryable: !requestScoped && normalized.status >= 500,
+    ...(emptyContent ? { emptyContent: true } : {}),
   };
 }
 

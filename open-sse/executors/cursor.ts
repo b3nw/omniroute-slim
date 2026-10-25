@@ -87,6 +87,7 @@ import { CursorServerConfigError, resolveCursorAgentUrl } from "./cursor/agentEn
 import {
   classifyCursorError,
   isCursorBenignCancelError,
+  isCursorStreamTimeoutError,
   resolveCursorEmptyTurnError,
   type ClassifiedCursorError,
 } from "./cursor/cursorErrors.ts";
@@ -305,6 +306,7 @@ export type StreamCtx = {
   receivedText: boolean;
   kvAfterTextSeen: boolean;
   endReason: "turn_ended" | "kv_after_text" | "tool_calls" | "server_end" | null;
+  truncatedByTimeout?: boolean;
   // Mid-stream JSON error (rare; emitted once with the error code).
   midStreamError: { message: string; status: number } | null;
   // Phase 5: tool-call indexing for parallel calls. Each McpArgs gets a
@@ -1125,7 +1127,9 @@ export class CursorExecutor extends BaseExecutor {
         if (ctx.endReason) return;
         debugLog("[cursor-agent] stream safety timeout fired");
         teardown();
-        reject(new Error("cursor-agent stream timed out"));
+        const timeoutError = new Error("cursor-agent stream timed out") as Error & { code?: string };
+        timeoutError.code = "CURSOR_STREAM_TIMEOUT";
+        reject(timeoutError);
       }, CURSOR_STREAM_TIMEOUT_MS);
 
       const onData = (chunk: Buffer) => {
@@ -1486,9 +1490,10 @@ export class CursorExecutor extends BaseExecutor {
               // OpenCodex: NGHTTP2_CANCEL after client-tool suspend is expected — finish
               // the SSE turn instead of surfacing a transport failure.
               if (
-                isCursorBenignCancelError(err) &&
+                (isCursorBenignCancelError(err) || isCursorStreamTimeoutError(err)) &&
                 (ctx.totalText.length > 0 || ctx.pendingToolCalls.size > 0)
               ) {
+                if (isCursorStreamTimeoutError(err)) ctx.truncatedByTimeout = true;
                 this.finalizeSseStream(ctx, body);
                 finishLifecycle(ctx, false);
                 controller.close();
@@ -1522,9 +1527,10 @@ export class CursorExecutor extends BaseExecutor {
       await this.driveH2(h2, ctx, mcpTools, blobStore, clientPlatform, todoHistory, signal);
     } catch (err) {
       if (
-        isCursorBenignCancelError(err) &&
+        (isCursorBenignCancelError(err) || isCursorStreamTimeoutError(err)) &&
         (ctx.totalText.length > 0 || ctx.pendingToolCalls.size > 0)
       ) {
+        if (isCursorStreamTimeoutError(err)) ctx.truncatedByTimeout = true;
         finishLifecycle(ctx, false);
         return {
           response: this.buildResponseFromCtx(ctx, body),
@@ -1616,7 +1622,8 @@ export class CursorExecutor extends BaseExecutor {
     // OpenAI finish_reason: "tool_calls" if the model invoked any declared
     // tool, else "stop". A turn with mixed text + tool_calls finishes with
     // "tool_calls" (the tool calls are the actionable signal for the client).
-    const finishReason = ctx.toolCalls.length > 0 ? "tool_calls" : "stop";
+    const finishReason =
+      ctx.toolCalls.length > 0 ? "tool_calls" : ctx.truncatedByTimeout ? "length" : "stop";
     emitChunk(ctx, {}, finishReason);
     emitUsage(ctx, body);
     emitDone(ctx);
@@ -1684,7 +1691,8 @@ export class CursorExecutor extends BaseExecutor {
     }
 
     const usage = buildCursorUsage(ctx, body);
-    const finishReason = ctx.toolCalls.length > 0 ? "tool_calls" : "stop";
+    const finishReason =
+      ctx.toolCalls.length > 0 ? "tool_calls" : ctx.truncatedByTimeout ? "length" : "stop";
     const message: {
       role: "assistant";
       content: string | null;

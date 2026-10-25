@@ -60,6 +60,8 @@ export type SingleModelTarget =
       modelAbortSignal?: AbortSignal | null;
       /** True when this target was selected via context-cache session pinning. */
       modelPinned?: boolean;
+      /** Prefer a sibling after a pre-content empty turn; never widens target pins (#16438). */
+      emptyTurnConnectionId?: string | null;
     })
   | { modelAbortSignal: AbortSignal };
 

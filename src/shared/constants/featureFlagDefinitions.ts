@@ -120,6 +120,30 @@ export const FEATURE_FLAG_DEFINITIONS: FeatureFlagDefinition[] = [
     warningLevel: "info",
   },
   {
+    key: "EMPTY_STREAM_SIBLING_RECOVERY_ENABLED",
+    label: "Empty Stream Sibling Recovery",
+    description:
+      "Probe Claude/Codex streams briefly for usable output and retry empty turns on eligible sibling connections. Off by default.",
+    descriptionI18nKey: "featureFlagEmptyStreamSiblingRecoveryEnabledDescription",
+    category: "network",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "caution",
+  },
+  {
+    key: "PROVIDER_SAFETY_STOPS_TERMINAL",
+    label: "Provider Safety Stops Are Terminal",
+    description:
+      "Preserve explicit provider safety refusals as terminal request-scoped failures through combo routing. Off by default.",
+    descriptionI18nKey: "featureFlagProviderSafetyStopsTerminalDescription",
+    category: "network",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "caution",
+  },
+  {
     key: "PROXY_AUTO_SELECT_ENABLED",
     label: "Proxy Auto-Selection Fallback",
     description:
