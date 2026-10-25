@@ -74,14 +74,16 @@ function isSseErrorFrame(parsed: JsonRecord, eventType: string): boolean {
   return response.status === "failed" && response.error != null;
 }
 
-const CONTENT_DELTA_KEYS = new Set([
-  "content",
-  "reasoning",
-  "reasoning_content",
-  "refusal",
-  "tool_calls",
-  "function_call",
-]);
+// Delta keys that only describe the turn. Any other non-empty key (content, refusal, tool
+// calls, or any reasoning variant: reasoning, reasoning_content, reasoning_details,
+// reasoning_text, thinking, thought, ...) is substantive and ends the peek.
+const NON_CONTENT_DELTA_KEYS = new Set(["role"]);
+
+function isEmptyDeltaValue(value: unknown): boolean {
+  if (value == null || value === "") return true;
+  if (Array.isArray(value)) return value.length === 0;
+  return typeof value === "object" && Object.keys(value).length === 0;
+}
 
 /**
  * True for a Chat Completions chunk whose choices only open the turn (e.g.
@@ -96,11 +98,7 @@ function isRoleOnlyDeltaFrame(parsed: JsonRecord): boolean {
     if (record.finish_reason != null) return false;
     const delta = asRecord(record.delta);
     return Object.entries(delta).every(
-      ([key, value]) =>
-        !CONTENT_DELTA_KEYS.has(key) ||
-        value == null ||
-        value === "" ||
-        (Array.isArray(value) && value.length === 0)
+      ([key, value]) => NON_CONTENT_DELTA_KEYS.has(key) || isEmptyDeltaValue(value)
     );
   });
 }

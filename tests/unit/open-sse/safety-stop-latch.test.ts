@@ -259,6 +259,64 @@ describe("runComboWithSafetyLatch", () => {
     const text = await response.text();
     assert.equal(text, "ok-from-b");
   });
+
+  const reasoningDeltas: Array<[string, unknown]> = [
+    ["reasoning_details", [{ type: "reasoning.text", text: "considering the request" }]],
+    ["thinking", "considering the request"],
+    ["thought", "considering the request"],
+    ["reasoning_text", "considering the request"],
+    ["some_future_reasoning_field", { text: "considering the request" }],
+  ];
+
+  for (const [key, value] of reasoningDeltas) {
+    it(`does not latch a refusal that follows a substantive ${key} delta`, async () => {
+      let upstreamCalls = 0;
+      const options = makeOptions(async (_body: unknown, model: unknown) => {
+        upstreamCalls++;
+        if (model === "a") {
+          const chunk = { id: "1", choices: [{ index: 0, delta: { [key]: value } }] };
+          return sseResponse([
+            'data: {"id":"1","choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\n',
+            `data: ${JSON.stringify(chunk)}\n\n`,
+            'event: error\ndata: {"error":{"code":"content_policy_violation","message":"blocked"}}\n\n',
+          ]);
+        }
+        return new Response("ok-from-b", { status: 200 });
+      });
+
+      const inner = async (opts: any) => {
+        await opts.handleSingleModel({}, "a", {});
+        return opts.handleSingleModel({}, "b", {});
+      };
+
+      const response = await runComboWithSafetyLatch(options, `inv-sse-${key}`, inner as any);
+      assert.equal(upstreamCalls, 2, `target B should be dispatched after a ${key} delta`);
+      assert.equal(await response.text(), "ok-from-b");
+    });
+  }
+
+  it("still peeks past deltas whose non-role fields are all empty", async () => {
+    let upstreamCalls = 0;
+    const options = makeOptions(async (_body: unknown, model: unknown) => {
+      upstreamCalls++;
+      if (model === "a") {
+        return sseResponse([
+          'data: {"id":"1","choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning_details":[],"thinking":null,"provider_specific_fields":{}}}]}\n\n',
+          'event: error\ndata: {"error":{"code":"content_policy_violation","message":"blocked"}}\n\n',
+        ]);
+      }
+      return new Response("ok-from-b", { status: 200 });
+    });
+
+    const inner = async (opts: any) => {
+      await opts.handleSingleModel({}, "a", {});
+      return opts.handleSingleModel({}, "b", {});
+    };
+
+    const response = await runComboWithSafetyLatch(options, "inv-sse-empty-fields", inner as any);
+    assert.equal(upstreamCalls, 1, "target B must not be dispatched after safety latch");
+    assert.ok((await response.text()).includes("content_policy_violation"));
+  });
 });
 
 describe("parseUpstreamError", () => {
