@@ -508,6 +508,52 @@ test("GET /api/usage/analytics does not persist guessed API key attribution", as
   assert.equal(row.api_key_name, null);
 });
 
+test("GET /api/usage/analytics?view=apiKeys returns only lifetime totals per API key", async () => {
+  const usedKey = await apiKeysDb.createApiKey("Used Key", "machine1234567890");
+  const idleKey = await apiKeysDb.createApiKey("Idle Key", "machine1234567890");
+  const db = core.getDbInstance();
+  const now = Date.now();
+  const at = (msAgo: number) => new Date(now - msAgo).toISOString();
+  const insertUsage = db.prepare(
+    `INSERT INTO usage_history (provider, model, connection_id, api_key_id, api_key_name, tokens_input, tokens_output, success, latency_ms, timestamp)
+     VALUES (?, ?, 'c1', ?, ?, ?, ?, 1, 200, ?)`
+  );
+  insertUsage.run("openai", "gpt-4o", usedKey.id, "Used Key", 100, 50, at(86_400_000));
+  insertUsage.run("openai", "gpt-4o", usedKey.id, "Old Name", 200, 100, at(60_000));
+  insertUsage.run("anthropic", "claude-sonnet", usedKey.id, "Used Key", 300, 30, at(120_000));
+  // Rows recorded before per-key ids carry only the key name.
+  insertUsage.run("openai", "gpt-4o", null, "Idle Key", 1000, 1000, at(30_000));
+
+  const response = await analyticsRoute.GET(
+    makeRequest("http://localhost/api/usage/analytics?range=all&view=apiKeys")
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(Object.keys(body), ["byApiKey"]);
+  const totalsById = new Map(body.byApiKey.map((entry) => [entry.apiKeyId, entry]));
+  const used = totalsById.get(usedKey.id);
+  assert.equal(used.apiKeyName, "Used Key");
+  assert.equal(used.requests, 3);
+  // gpt-4o: 300 in × $2.50 + 150 out × $10; claude-sonnet: 300 in × $3 + 30 out × $15 (per 1M).
+  assertClose(used.cost, 0.0036);
+  assert.equal(used.lastUsed, at(60_000));
+  assert.deepEqual(totalsById.get(idleKey.id), {
+    apiKeyId: idleKey.id,
+    apiKeyName: "Idle Key",
+    requests: 0,
+    cost: 0,
+    lastUsed: at(30_000),
+  });
+
+  const fullReport = await (
+    await analyticsRoute.GET(makeRequest("http://localhost/api/usage/analytics?range=all"))
+  ).json();
+  const fullEntry = fullReport.byApiKey.find((entry) => entry.apiKeyId === usedKey.id);
+  assert.equal(fullEntry.requests, used.requests);
+  assertClose(fullEntry.cost, used.cost);
+});
+
 test("GET /api/usage/analytics returns weeklyPattern for the costs dashboard", async () => {
   await seedAnalyticsData();
 

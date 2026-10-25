@@ -72,7 +72,7 @@ test("AC-1: GET returns 5 tiers with prefixes + bypass state envelope", async ()
   const localOnly = body.tiers.find((t) => t.name === "LOCAL_ONLY");
   assert.ok(localOnly);
   assert.ok(localOnly!.prefixes.includes("/api/mcp/"));
-  assert.ok(localOnly!.prefixes.includes("/api/cli-tools/runtime/"));
+  assert.ok(localOnly!.prefixes.includes("/api/services/"));
   assert.equal(localOnly!.bypassable, true);
 
   const alwaysProtected = body.tiers.find((t) => t.name === "ALWAYS_PROTECTED");

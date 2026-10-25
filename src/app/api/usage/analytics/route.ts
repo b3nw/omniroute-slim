@@ -17,6 +17,8 @@ import {
   getAccountCostRows,
   getAccountUsageRows,
   getApiKeyUsageRows,
+  getApiKeyTotalsRows,
+  type ApiKeyTotalsRow,
   getServiceTierUsageRows,
   getApiKeyMetadataRows,
   getWeeklyPatternRows,
@@ -124,6 +126,62 @@ function addApiKeyAlias(target: Set<string>, value: unknown): void {
   if (typeof value !== "string") return;
   const trimmed = value.trim();
   if (trimmed) target.add(trimmed);
+}
+
+type ApiKeyTotals = {
+  apiKeyId: string;
+  apiKeyName: string;
+  requests: number;
+  cost: number;
+  lastUsed: string | null;
+};
+
+/**
+ * Lifetime totals for each current API key. Rows recorded before per-key ids
+ * existed carry only a key name: they count toward last use, matched by name,
+ * but not toward requests or cost.
+ */
+function buildApiKeyTotals(
+  rows: ApiKeyTotalsRow[],
+  apiKeys: Array<{ id?: unknown; name?: unknown }>,
+  rowCost: (row: ApiKeyTotalsRow) => number
+): ApiKeyTotals[] {
+  const totalsById = new Map<string, ApiKeyTotals>();
+  const totalsByName = new Map<string, ApiKeyTotals[]>();
+  for (const apiKey of apiKeys) {
+    if (typeof apiKey.id !== "string" || typeof apiKey.name !== "string") continue;
+    const totals: ApiKeyTotals = {
+      apiKeyId: apiKey.id,
+      apiKeyName: apiKey.name,
+      requests: 0,
+      cost: 0,
+      lastUsed: null,
+    };
+    totalsById.set(apiKey.id, totals);
+    totalsByName.set(apiKey.name, [...(totalsByName.get(apiKey.name) || []), totals]);
+  }
+
+  const noteLastUsed = (totals: ApiKeyTotals, lastUsed: string | null) => {
+    if (lastUsed && (!totals.lastUsed || lastUsed > totals.lastUsed)) totals.lastUsed = lastUsed;
+  };
+  for (const row of rows) {
+    if (!row.apiKeyId) {
+      for (const totals of totalsByName.get(row.apiKeyName || "") || []) {
+        noteLastUsed(totals, row.lastUsed);
+      }
+      continue;
+    }
+    const totals = totalsById.get(row.apiKeyId);
+    if (!totals) continue;
+    totals.requests += Number(row.requests) || 0;
+    totals.cost += rowCost(row);
+    noteLastUsed(totals, row.lastUsed);
+  }
+
+  return Array.from(totalsById.values(), (totals) => ({
+    ...totals,
+    cost: roundCost(totals.cost),
+  }));
 }
 
 function stripCodexEffortSuffix(model: string): string {
@@ -414,6 +472,29 @@ export async function GET(request: Request) {
       await import("@/lib/usage/costCalculator");
     const { PROVIDER_ID_TO_ALIAS } = await import("@omniroute/open-sse/config/providerModels");
 
+    const apiKeyWhereClause = appendWhereCondition(
+      whereClause,
+      "(api_key_id IS NOT NULL AND api_key_id != '') OR (api_key_name IS NOT NULL AND api_key_name != '')"
+    );
+
+    // The API Manager key list needs only per-key totals. Skip the full report,
+    // whose queries hold the event loop for seconds on large usage_history tables.
+    if (searchParams.get("view") === "apiKeys") {
+      const byApiKey = buildApiKeyTotals(
+        getApiKeyTotalsRows(apiKeyWhereClause, params),
+        apiKeys,
+        (row) =>
+          computeUsageRowCost(
+            row as unknown as Record<string, unknown>,
+            pricingByProvider,
+            PROVIDER_ID_TO_ALIAS,
+            normalizeModelName,
+            computeCostFromPricing
+          )
+      );
+      return NextResponse.json({ byApiKey });
+    }
+
     const summaryRow = getUsageSummary(unifiedSource, unifiedParams) as Record<string, unknown>;
 
     const dailyRows = getDailyUsage(unifiedSource, unifiedParams) as UsageRows;
@@ -454,10 +535,6 @@ export async function GET(request: Request) {
 
     const accountRows = getAccountUsageRows(accountCostWhereClause, params) as UsageRows;
 
-    const apiKeyWhereClause = appendWhereCondition(
-      whereClause,
-      "(api_key_id IS NOT NULL AND api_key_id != '') OR (api_key_name IS NOT NULL AND api_key_name != '')"
-    );
     const apiKeyRows = getApiKeyUsageRows(apiKeyWhereClause, params) as UsageRows;
 
     const serviceTierRows = getServiceTierUsageRows(unifiedSource, unifiedParams) as UsageRows;

@@ -29,6 +29,12 @@ import {
   checkWebCookieConnectionIfNeeded,
   isWebCookieHealthProbeCandidate,
 } from "@/lib/tokenHealthCheckWebCookie";
+import {
+  getEffectiveTokenExpiryIso,
+  getEffectiveTokenExpiryMs,
+  parseTokenExpiryMs,
+  shouldMarkRefreshCapableExpired,
+} from "@/lib/tokenHealthCheckExpiry";
 
 const LOG_PREFIX = "[HealthCheck]";
 const TRUE_ENV_VALUES = new Set(["1", "true", "yes", "on"]);
@@ -59,29 +65,12 @@ export function extractResolvedProxyConfig(resolvedProxy: unknown) {
   return resolvedProxy ?? null;
 }
 
-function getEffectiveTokenExpiryIso(conn: any): string | null {
-  if (!conn || typeof conn !== "object") return null;
-  return conn.tokenExpiresAt || conn.expiresAt || null;
-}
-
-function getEffectiveTokenExpiryMs(conn: any): number {
-  const effectiveExpiry = getEffectiveTokenExpiryIso(conn);
-  if (!effectiveExpiry) return 0;
-  const expiryMs = new Date(effectiveExpiry).getTime();
-  return Number.isFinite(expiryMs) ? expiryMs : 0;
-}
+export { parseTokenExpiryMs, shouldMarkRefreshCapableExpired };
 
 const TOKEN_EXPIRY_BUFFER = 5 * 60 * 1000; // 5 minutes
 
 function getCopilotTokenExpiryMs(expiresAt: unknown): number {
-  if (typeof expiresAt === "number" && Number.isFinite(expiresAt)) {
-    return expiresAt < 1e12 ? expiresAt * 1000 : expiresAt;
-  }
-  if (typeof expiresAt === "string" && expiresAt.trim()) {
-    const parsed = new Date(expiresAt).getTime();
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-  return 0;
+  return parseTokenExpiryMs(expiresAt);
 }
 
 // Providers whose OAuth flow yields only a GitHub-style access token (no
@@ -777,11 +766,17 @@ export async function checkConnection(conn) {
     //   - Cursor access-token-only imports (refresh is optional; deep-control stores one)
     //   - connections already in a terminal/specific state (expired/banned/credits_exhausted)
     //   - transient cooldown state (unavailable) owned by the request path
-    const refreshCapableNeedsReauth =
-      supportsTokenRefresh(conn.provider) &&
-      conn.provider !== "cursor" &&
-      (!conn.testStatus || conn.testStatus === "active") &&
-      !(conn.apiKey && conn.apiKey.length > 0); // API-key-only connections don't need refresh tokens
+    //   - long-lived credentials with no KNOWN expiry (#14261; see below)
+    //
+    // #14261: a refresh token is how a connection RECOVERS from expiry, not proof
+    // that it HAS expired, so its absence alone must not write a terminal state for
+    // providers that mint refresh-less long-lived credentials by design (`claude
+    // setup-token`). For those, gate on the same field the badge reads
+    // (tokenExpiresAt||expiresAt): with no known expiry there is no mismatch to fix.
+    const refreshCapableNeedsReauth = shouldMarkRefreshCapableExpired(
+      conn,
+      supportsTokenRefresh(conn.provider)
+    );
     if (refreshCapableNeedsReauth) {
       const now = new Date().toISOString();
       await updateProviderConnection(conn.id, {
