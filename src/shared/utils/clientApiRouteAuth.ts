@@ -24,6 +24,8 @@ import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import { extractApiKey, isValidApiKey } from "@/sse/services/auth";
 import { isRequireApiKeyEnabled } from "@/shared/utils/featureFlags";
 import { isDashboardSessionAuthenticated } from "@/shared/utils/apiAuth";
+import { resolveSelfLoopBearer } from "@/shared/middleware/chatAdmissionIdentity";
+import { timingSafeCompare } from "@/shared/utils/timingSafeCompare";
 
 /**
  * Authenticate a client-API request at the route level.
@@ -36,6 +38,7 @@ export async function enforceClientApiRouteAuth(request: Request): Promise<Respo
   const apiKeyRaw = extractApiKey(request);
 
   if (apiKeyRaw) {
+    if (timingSafeCompare(apiKeyRaw, resolveSelfLoopBearer())) return null;
     if (await isValidApiKey(apiKeyRaw)) return null;
     return isRequireApiKeyEnabled()
       ? errorResponse(HTTP_STATUS.UNAUTHORIZED, "Invalid API key")

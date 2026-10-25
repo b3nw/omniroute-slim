@@ -1,0 +1,1 @@
+- **fix(dashboard):** Nested sidebar items and their subtitles now meet WCAG 2 AA contrast on the sidebar background — the muted label and the 60%-opacity subtitle are replaced by `text-text-main/75` and `text-text-main/65`, which clear 4.5:1 in both the light and dark themes ([#17154](https://github.com/diegosouzapw/OmniRoute/pull/17154))

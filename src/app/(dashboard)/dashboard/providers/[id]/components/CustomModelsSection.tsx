@@ -24,6 +24,7 @@ import {
   effectiveNormalizeForProtocol,
   effectivePreserveForProtocol,
   effectiveUpstreamHeadersForProtocol,
+  endpointsForApiFormatChange,
   formatProviderModelsErrorResponse,
   providerText,
   targetFormatBadgeI18nKey,
@@ -450,7 +451,11 @@ export default function CustomModelsSection({
             <select
               id="custom-api-format"
               value={newApiFormat}
-              onChange={(e) => setNewApiFormat(e.target.value)}
+              onChange={(e) => {
+                const endpoints = endpointsForApiFormatChange(newApiFormat, e.target.value);
+                setNewApiFormat(e.target.value);
+                if (endpoints) setNewEndpoints(endpoints);
+              }}
               className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
             >
               <option value="chat-completions">{t("chatCompletions")}</option>
@@ -689,7 +694,14 @@ export default function CustomModelsSection({
                           </label>
                           <select
                             value={editingApiFormat}
-                            onChange={(e) => setEditingApiFormat(e.target.value)}
+                            onChange={(e) => {
+                              const endpoints = endpointsForApiFormatChange(
+                                editingApiFormat,
+                                e.target.value
+                              );
+                              setEditingApiFormat(e.target.value);
+                              if (endpoints) setEditingEndpoints(endpoints);
+                            }}
                             className="w-full px-2.5 py-2 text-xs border border-border rounded-lg bg-background text-text-main focus:outline-none focus:border-primary"
                           >
                             <option value="chat-completions">{t("chatCompletions")}</option>

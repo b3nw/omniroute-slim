@@ -1,0 +1,1 @@
+- **fix(dashboard):** The request timeline only switches to "pan" on an actual drag — a click on the canvas or a bar no longer flips the view out of follow mode, because mouse panning now mirrors the touch path and waits for a 4px movement threshold before changing modes ([#17024](https://github.com/diegosouzapw/OmniRoute/pull/17024))

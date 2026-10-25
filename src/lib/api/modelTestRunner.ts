@@ -11,6 +11,7 @@ import {
 import { getCustomModels } from "@/lib/db/models";
 import { getProviderNodeById } from "@/lib/db/providers";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
+import { isImageOnlyModel } from "@omniroute/open-sse/config/imageRegistry";
 import { withRateLimit } from "@omniroute/open-sse/services/rateLimitManager";
 import {
   isCreditsExhausted,
@@ -20,6 +21,7 @@ import { looksLikeQuotaExhausted } from "@/shared/utils/classify429";
 import { getTrustedLocalRateLimitError } from "@omniroute/open-sse/services/rateLimitManager/errors";
 import { runAsProbe } from "@/shared/utils/probeOrigin";
 import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLeaseIsolation";
+import { resolveSelfLoopBearer } from "@/shared/middleware/chatAdmissionIdentity";
 
 const INTERNAL_ORIGIN = "http://omniroute.internal";
 export const DEFAULT_MODEL_TEST_TIMEOUT_MS = 30_000;
@@ -161,6 +163,13 @@ export function buildInternalChatRequest(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      // In-process call: it never passes the authz proxy, and the /v1 handlers authenticate
+      // on their own (#16403). Present the per-process self-loop bearer so the test keeps
+      // working under REQUIRE_API_KEY=true for callers without a dashboard cookie.
+      Authorization: `Bearer ${resolveSelfLoopBearer()}`,
+      // The bearer gives the request a memory owner; a connection test must not receive
+      // injected memory/skills or feed memory extraction (same opt-out as #13139).
+      "x-omniroute-no-memory": "true",
       // Reuse the existing strict-mode internal bypass for live health checks.
       "X-Internal-Test": "combo-health-check",
       "X-OmniRoute-No-Cache": "true",
@@ -265,7 +274,32 @@ export function detectTestKind(modelStr: string, customModel: any, nodeApiType?:
       lowerModel.includes("text-embed") ||
       lowerModel.includes("jina-clip") ||
       lowerModel.includes("colbert"));
-  return { isRerank, isEmbedding, isAudioTranscription };
+  // Responses-typed models are probed via their own endpoint upstream; keep them out of
+  // the generation skip below so a Responses node is never misreported as image-only.
+  const isResponses =
+    !isAudioTranscription &&
+    !isRerank &&
+    !isEmbedding &&
+    (apiFormat === "responses" ||
+      nodeType === "responses" ||
+      supportedEndpoints.includes("responses"));
+  // Non-chat generation endpoints (image, music, video) should NOT be dispatched
+  // as chat completions — they incur billable generation costs (#13376). An explicit
+  // generation apiFormat, or an image-only registry model that chat.ts rejects
+  // (#6457), wins over the add-model form's default "chat" tick (#17071).
+  const isGenerationFormat = apiFormat === "images-generations" || apiFormat === "video";
+  const isGenerationOnlyTag =
+    !supportedEndpoints.includes("chat") &&
+    ["images", "images-generations", "music", "videos"].some((endpoint) =>
+      supportedEndpoints.includes(endpoint)
+    );
+  const isNonChatGeneration =
+    !isAudioTranscription &&
+    !isRerank &&
+    !isEmbedding &&
+    !isResponses &&
+    (isGenerationFormat || isGenerationOnlyTag || isImageOnlyModel(modelStr));
+  return { isRerank, isEmbedding, isAudioTranscription, isResponses, isNonChatGeneration };
 }
 
 /**
@@ -311,6 +345,8 @@ export interface SingleModelTestResult {
   isQuota?: boolean;
   isTimeout?: boolean;
   retryAfter?: number;
+  /** The probe was deliberately not dispatched — not a model failure. */
+  skipped?: boolean;
 }
 
 export type ModelTestResponseText = {
@@ -424,11 +460,28 @@ export async function runSingleModelTest(
     findCustomModelMetadata(providerId, fullModelStr),
     findProviderNodeApiType(providerId),
   ]);
-  const { isRerank, isEmbedding, isAudioTranscription } = detectTestKind(
+  const { isRerank, isEmbedding, isAudioTranscription, isNonChatGeneration } = detectTestKind(
     fullModelStr,
     customModel,
     nodeApiType
   );
+
+  // #13376: Skip image/music/video generation models — dispatching them as
+  // chat completions incurs real billable generations the operator never asked for.
+  if (isNonChatGeneration) {
+    return {
+      modelId: fullModelStr,
+      status: "error",
+      latencyMs: 0,
+      // 422, not the 409 the managed-lease return above uses: the request is valid, but this
+      // model's modality cannot be exercised by a chat test. The route passes httpStatus
+      // straight to NextResponse — omitting it made Next answer 200 for a skipped test.
+      httpStatus: 422,
+      skipped: true,
+      error:
+        "Skipped: non-chat generation model (images/music/video) — use the corresponding generation endpoint instead",
+    };
+  }
 
   const testBody = isRerank
     ? {

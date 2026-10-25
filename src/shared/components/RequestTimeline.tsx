@@ -20,6 +20,10 @@ import {
   TIMELINE_LIST_POLL_STORAGE_KEY,
   FOLLOW_LINE_X,
   LIVE_LINE_FRACTION,
+  DRAG_THRESHOLD_PX,
+  TIMELINE_EXCLUDE_TESTS_STORAGE_KEY,
+  DEFAULT_EXCLUDE_TESTS,
+  buildTimelineCallLogsUrl,
   computeBarRange,
   MODE_META,
   formatTimeAxis,
@@ -51,8 +55,6 @@ export default function RequestTimeline({
   const [panFrozenMs, setPanFrozenMs] = useState(0);
   const [liveBaseMs, setLiveBaseMs] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  const [dragStartX, setDragStartX] = useState(0);
-  const [dragStartOffset, setDragStartOffset] = useState(0);
   const { emailsVisible } = useEmailPrivacyStore();
   const [selectedLog, setSelectedLog] = useState<TimelineLog | null>(null);
   const [detailData, setDetailData] = useState<any>(null);
@@ -78,6 +80,16 @@ export default function RequestTimeline({
       return DEFAULT_LIST_POLL_SECONDS;
     }
   });
+  // #10897 — hide synthetic rows (connection tests, model sync, …) in the waterfall.
+  const [excludeTests, setExcludeTests] = useState(() => {
+    if (globalThis.window === undefined) return DEFAULT_EXCLUDE_TESTS;
+    try {
+      const saved = localStorage.getItem(TIMELINE_EXCLUDE_TESTS_STORAGE_KEY);
+      return saved === "1";
+    } catch {
+      return DEFAULT_EXCLUDE_TESTS;
+    }
+  });
   const canvasRef = useRef<HTMLDivElement>(null);
   const animRef = useRef<number>(0);
   // Guards the ?id= deep-link mount effect below. Also armed by any manual
@@ -99,10 +111,15 @@ export default function RequestTimeline({
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/usage/call-logs?limit=200")
+    // #10897 — the query carries the toggle so the server filters synthetic
+    // rows at the SQL layer, before LIMIT.
+    const url = buildTimelineCallLogsUrl(200, excludeTests);
+    fetch(url)
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => {
-        if (!cancelled) setLogs(data);
+        // A non-array body (e.g. an error envelope) must not replace the list —
+        // `logs.filter` would throw and blank the whole timeline.
+        if (!cancelled && Array.isArray(data)) setLogs(data);
       })
       .catch(() => {});
     const id = setInterval(() => {
@@ -110,16 +127,18 @@ export default function RequestTimeline({
       // API), matching the pause-when-hidden pattern in RequestLoggerV2 and
       // UsageStats so a background tab doesn't keep hammering the API.
       if (document.visibilityState !== "visible") return;
-      fetch("/api/usage/call-logs?limit=200")
+      fetch(url)
         .then((res) => (res.ok ? res.json() : []))
-        .then((data) => setLogs(data))
+        .then((data) => {
+          if (Array.isArray(data)) setLogs(data);
+        })
         .catch(() => {});
     }, listPollSeconds * 1000);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [listPollSeconds]);
+  }, [listPollSeconds, excludeTests]);
 
   useEffect(() => {
     if (!canvasRef.current) return undefined;
@@ -414,29 +433,44 @@ export default function RequestTimeline({
     [nowMs]
   );
 
+  // Mouse panning mirrors the touch path below: a plain click must NOT steal the
+  // user out of "follow" into "pan" — only a deliberate drag switches mode. A
+  // click with no movement falls through to the bar's onClick (detail modal).
+  const mouseDragRef = useRef<{ x: number; offset: number; moved: boolean } | null>(null);
+
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
-    if (mode !== "pan") {
-      setMode("pan");
-      setPanFrozenMs(nowMs);
-      setLiveBaseMs(nowMs);
-    }
+    mouseDragRef.current = {
+      x: e.clientX,
+      offset: mode === "pan" ? panOffsetMs : 0,
+      // Already panning: any movement pans. From follow/live: wait for the threshold.
+      moved: mode === "pan",
+    };
     setIsDragging(true);
-    setDragStartX(e.clientX);
-    setDragStartOffset(mode === "pan" ? panOffsetMs : 0);
   };
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (!isDragging) return;
-      const dx = e.clientX - dragStartX;
+      const start = mouseDragRef.current;
+      if (!start) return;
+      const dx = e.clientX - start.x;
+      if (!start.moved && Math.abs(dx) < DRAG_THRESHOLD_PX) return;
+      if (!start.moved) {
+        start.moved = true;
+        if (mode !== "pan") {
+          setMode("pan");
+          setPanFrozenMs(nowMs);
+          setLiveBaseMs(nowMs);
+        }
+      }
       const msPerPx = windowMs / canvasWidth;
-      setPanOffsetMs(dragStartOffset - dx * msPerPx);
+      setPanOffsetMs(start.offset - dx * msPerPx);
     },
-    [isDragging, dragStartX, dragStartOffset, windowMs, canvasWidth]
+    [mode, nowMs, windowMs, canvasWidth]
   );
 
   const handleMouseUp = useCallback(() => {
+    mouseDragRef.current = null;
     setIsDragging(false);
   }, []);
 
@@ -536,6 +570,7 @@ export default function RequestTimeline({
             {(["follow", "live", "pan"] as ViewMode[]).map((m) => (
               <button
                 key={m}
+                data-testid={`timeline-mode-${m}`}
                 onClick={() => handleModeChange(m)}
                 title={t(`modes.${MODE_META[m].descriptionKey}`)}
                 className={`px-2.5 py-1 text-[11px] font-medium transition-colors ${
@@ -577,6 +612,28 @@ export default function RequestTimeline({
               className="w-10 bg-transparent text-center font-mono focus:outline-none"
             />
             <span>min</span>
+          </label>
+          {/* #10897 — hide synthetic rows (connection tests, model sync, and
+              other backend jobs) so the waterfall shows real provider traffic
+              only. The filter runs server-side, before LIMIT. */}
+          <label
+            className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-text-muted bg-bg-subtle rounded-md border border-border cursor-pointer"
+            title={t("excludeTestsTitle")}
+          >
+            <input
+              type="checkbox"
+              data-testid="timeline-exclude-tests"
+              checked={excludeTests}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setExcludeTests(next);
+                try {
+                  localStorage.setItem(TIMELINE_EXCLUDE_TESTS_STORAGE_KEY, next ? "1" : "0");
+                } catch {}
+              }}
+              className="accent-primary cursor-pointer"
+            />
+            <span>{t("excludeTests")}</span>
           </label>
           {/* How often the timeline re-polls /api/usage/call-logs for new rows. */}
           <label
@@ -624,6 +681,7 @@ export default function RequestTimeline({
       {/* Canvas */}
       <div
         ref={canvasRef}
+        data-testid="timeline-canvas"
         className={`flex-1 min-h-0 overflow-hidden relative bg-surface ${
           isDragging ? "cursor-grabbing" : mode === "pan" ? "cursor-grab" : ""
         }`}
