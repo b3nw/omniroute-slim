@@ -110,3 +110,30 @@ test("regression: non-quota error is still auto-hidden when autoHideFailed is on
     shouldHide: true,
   });
 });
+
+// ---------------------------------------------------------------------------
+// Skipped probes (generation-only / paid-skip) are never auto-hidden
+// ---------------------------------------------------------------------------
+
+test("skipped entry is NOT auto-hidden even when autoHideFailed is on", () => {
+  // The runner refuses to chat-probe image/music/video models and returns
+  // status:"error" + skipped:true — the model was never exercised, so there is
+  // no failure to hide on.
+  assert.deepEqual(evaluateTestAllEntry({ status: "error", skipped: true }, true), {
+    status: "error",
+    skipped: true,
+    shouldHide: false,
+  });
+  assert.deepEqual(evaluateTestAllEntry({ status: "error", skipped: true }, false), {
+    status: "error",
+    skipped: true,
+    shouldHide: false,
+  });
+});
+
+test("skipped: false behaves like an ordinary entry", () => {
+  assert.deepEqual(evaluateTestAllEntry({ status: "error", skipped: false }, true), {
+    status: "error",
+    shouldHide: true,
+  });
+});

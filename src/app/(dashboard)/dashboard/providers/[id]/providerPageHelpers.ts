@@ -150,6 +150,8 @@ export function validationBadgeProps(result: string): {
 export interface TestAllModelOutcome {
   status: "ok" | "error";
   isQuota?: boolean;
+  /** The probe was deliberately not dispatched (e.g. generation-only model). */
+  skipped?: boolean;
   shouldHide: boolean;
 }
 type TestAllEntryStatus = "ok" | "error" | "slow";
@@ -171,6 +173,9 @@ type TestAllEntryStatus = "ok" | "error" | "slow";
  * Genuine failures (`status:"error"` without a transient flag — e.g. upstream
  * 400 "invalid model", schema mismatch, auth failure) ARE still auto-hidden,
  * which is the intended use of the toggle.
+ *
+ * Skipped entries (`skipped: true` — e.g. image/music/video generation models the
+ * runner refuses to dispatch as chat) were never exercised, so they are never hidden.
  */
 export function evaluateTestAllEntry(
   entry:
@@ -180,6 +185,7 @@ export function evaluateTestAllEntry(
         isTimeout?: boolean;
         isTransient?: boolean;
         isQuota?: boolean;
+        skipped?: boolean;
       }
     | null
     | undefined,
@@ -195,10 +201,12 @@ export function evaluateTestAllEntry(
     // so an evening Test All on a free-tier provider doesn't silently wipe the
     // catalog for the next day.
     ...(entry?.isQuota ? { isQuota: true } : {}),
+    ...(entry?.skipped ? { skipped: true } : {}),
     // Hide only persistent failures. Transient (rate-limited, timeout, quota) are
     // surfaced on the icon but kept visible so a single throttled batch test
     // does not silently wipe the catalog.
-    shouldHide: !ok && autoHideFailed && !transient,
+    // Skipped probes never ran, so there is no failure to hide on.
+    shouldHide: !ok && autoHideFailed && !transient && !entry?.skipped,
   };
 }
 

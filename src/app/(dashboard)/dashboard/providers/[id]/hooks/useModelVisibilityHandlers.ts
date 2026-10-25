@@ -364,6 +364,7 @@ export function useModelVisibilityHandlers({
                   status?: "ok" | "error" | "slow";
                   rateLimited?: boolean;
                   isTimeout?: boolean;
+                  skipped?: boolean;
                   error?: string;
                 }
               >;

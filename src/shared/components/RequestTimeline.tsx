@@ -130,7 +130,7 @@ export default function RequestTimeline({
       fetch(url)
         .then((res) => (res.ok ? res.json() : []))
         .then((data) => {
-          if (Array.isArray(data)) setLogs(data);
+          if (!cancelled && Array.isArray(data)) setLogs(data);
         })
         .catch(() => {});
     }, listPollSeconds * 1000);
