@@ -8,9 +8,10 @@ import { NinerouterServiceTab } from "./tabs/NinerouterServiceTab";
 import { MuxServiceTab } from "./tabs/MuxServiceTab";
 import { BifrostServiceTab } from "./tabs/BifrostServiceTab";
 import { DarioServiceTab } from "./tabs/DarioServiceTab";
-import { LlmlinguaServiceTab } from "./tabs/LlmlinguaServiceTab";
 
-type Tab = "cliproxy" | "9router" | "mux" | "bifrost" | "dario" | "llmlingua";
+// LLMLingua is intentionally omitted until its /api/services/llmlingua/* backend
+// endpoints exist; re-add the tab (./tabs/LlmlinguaServiceTab) once they land.
+type Tab = "cliproxy" | "9router" | "mux" | "bifrost" | "dario";
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "cliproxy", label: "CLIProxyAPI", icon: "swap_horiz" },
@@ -18,14 +19,14 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "mux", label: "Mux", icon: "hub" },
   { id: "bifrost", label: "Bifrost", icon: "bolt" },
   { id: "dario", label: "Dario", icon: "shield_person" },
-  { id: "llmlingua", label: "LLMLingua", icon: "compress" },
 ];
 
 export default function ServicesPage() {
   const t = useTranslations("embeddedServices");
   const sp = useSearchParams();
   const router = useRouter();
-  const active = (sp.get("tab") ?? "cliproxy") as Tab;
+  const requested = sp.get("tab");
+  const active: Tab = TABS.some((tab) => tab.id === requested) ? (requested as Tab) : "cliproxy";
 
   function setTab(tab: Tab) {
     router.push(`/dashboard/providers/services?tab=${tab}`);
@@ -66,7 +67,6 @@ export default function ServicesPage() {
         {active === "mux" && <MuxServiceTab />}
         {active === "bifrost" && <BifrostServiceTab />}
         {active === "dario" && <DarioServiceTab />}
-        {active === "llmlingua" && <LlmlinguaServiceTab />}
       </div>
     </div>
   );
