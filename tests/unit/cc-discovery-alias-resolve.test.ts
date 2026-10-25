@@ -138,6 +138,66 @@ test("combo lookup: non-auto names never consult the built-in catalog", async ()
   assert.equal(builtinCalls, 0);
 });
 
+test("combo lookup: empty exact persisted auto/ combo falls through to fuzzy", async () => {
+  const fuzzy = { models: [{ id: "best-coding" }] };
+  let builtinCalls = 0;
+  const combo = await lookupCcAliasCombo("auto/coding", {
+    getPersistedCombo: async (name) => {
+      if (name === "auto/coding") return { models: [] };
+      if (name === "auto/best-coding") return fuzzy;
+      return null;
+    },
+    createBuiltinCombo: async () => {
+      builtinCalls++;
+      return { models: [{ id: "builtin" }] };
+    },
+  });
+  assert.equal(combo, fuzzy);
+  assert.equal(builtinCalls, 0);
+});
+
+test("combo lookup: empty exact and fuzzy persisted auto/ combos fall through to the built-in", async () => {
+  const builtin = { models: [{ id: "builtin" }] };
+  const seen: string[] = [];
+  const combo = await lookupCcAliasCombo("auto/coding", {
+    getPersistedCombo: async (name) => {
+      seen.push(name);
+      if (name === "auto/coding") return { models: [] };
+      if (name === "auto/best-coding") return {};
+      return null;
+    },
+    createBuiltinCombo: async (name, suffix) =>
+      name === "auto/coding" && suffix === "coding" ? builtin : null,
+  });
+  assert.equal(combo, builtin);
+  assert.deepEqual(seen, ["auto/coding", "auto/best-coding"]);
+});
+
+test("combo lookup: empty persisted non-auto combo resolves to null", async () => {
+  let builtinCalls = 0;
+  const combo = await lookupCcAliasCombo("custo-otimizado", {
+    getPersistedCombo: async () => ({ models: [] }),
+    createBuiltinCombo: async () => {
+      builtinCalls++;
+      return { models: [{ id: "x" }] };
+    },
+  });
+  assert.equal(combo, null);
+  assert.equal(builtinCalls, 0);
+});
+
+test("empty persisted auto/ combo alias still strips via the built-in fallback", async () => {
+  const result = await resolveCcDiscoveryAliasStripWith("claude/combo/auto/coding", {
+    ...baseDeps,
+    getCombo: (name) =>
+      lookupCcAliasCombo(name, {
+        getPersistedCombo: async (n) => (n === "auto/coding" ? { models: [] } : null),
+        createBuiltinCombo: async () => ({ models: [{ id: "builtin" }] }),
+      }),
+  });
+  assert.deepEqual(result, { model: "auto/coding", stripped: true });
+});
+
 test("persisted auto/ combo alias strips via the precedence-aware lookup", async () => {
   const result = await resolveCcDiscoveryAliasStripWith("claude/combo/auto/coding", {
     ...baseDeps,

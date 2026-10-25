@@ -140,12 +140,19 @@ export async function resolveCcDiscoveryAliasStripWith(
 
 type CcAliasCombo = { models?: unknown[] } | null;
 
+/** A combo row is only usable when it has at least one model (mirrors getCombo in src/sse/services/model.ts). */
+function hasComboModels(combo: CcAliasCombo): boolean {
+  return Array.isArray(combo?.models) && combo.models.length > 0;
+}
+
 /**
  * Resolve a `claude/combo/<name>` target to a combo row, matching the request
  * path's precedence in src/sse/handlers/chatHelpers.ts: for `auto/…` names a
  * persisted combo (exact, then `auto/best-<suffix>` / `auto/<suffix>` fuzzy)
  * always wins over the built-in virtual auto catalog, so an operator-defined
- * `auto/coding` combo is not shadowed by the built-in of the same name.
+ * `auto/coding` combo is not shadowed by the built-in of the same name. A
+ * persisted row with no models is treated as absent (as getCombo does), so an
+ * empty persisted `auto/…` combo falls through to fuzzy and then the built-in.
  */
 export async function lookupCcAliasCombo(
   name: string,
@@ -155,13 +162,14 @@ export async function lookupCcAliasCombo(
   }
 ): Promise<CcAliasCombo> {
   const persisted = await lookups.getPersistedCombo(name);
-  if (persisted || !name.startsWith("auto/")) return persisted ?? null;
+  if (hasComboModels(persisted)) return persisted;
+  if (!name.startsWith("auto/")) return null;
 
   const suffix = name.slice("auto/".length);
   for (const candidate of [`auto/best-${suffix}`, `auto/${suffix}`]) {
     if (candidate === name) continue;
     const fuzzy = await lookups.getPersistedCombo(candidate);
-    if (fuzzy) return fuzzy;
+    if (hasComboModels(fuzzy)) return fuzzy;
   }
 
   try {
