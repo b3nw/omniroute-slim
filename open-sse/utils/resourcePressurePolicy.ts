@@ -208,10 +208,32 @@ function workingSetBytes(cgroup: ResourceSignals["cgroup"]): number | null {
   return cgroup.currentBytes - cgroup.fileBytes;
 }
 
+/**
+ * The V8 heap counts as recovered when EITHER bound is satisfied: the ratio
+ * (`heapUsed / heapLimit <= recoveryRatio`) or, when an absolute shed threshold
+ * is configured, `heapUsed <= heapAbsoluteThresholdMb * recoveryRatio`.
+ * Requiring both compounded the bounds — the absolute threshold is itself
+ * ~85% of the limit, so AND-ing them demanded the heap drop to ~64% of the
+ * limit before recovery, which a heap shedding all traffic rarely reaches.
+ */
+export function isHeapRecovered(
+  signals: ResourceSignals,
+  thresholds: ResourcePressureThresholds
+): boolean {
+  const { heapUsedBytes, heapLimitBytes } = signals.v8;
+  const ratioRecovered =
+    heapLimitBytes > 0 ? heapUsedBytes / heapLimitBytes <= thresholds.recoveryRatio : null;
+  const absoluteRecovered =
+    thresholds.heapAbsoluteThresholdMb != null
+      ? heapUsedBytes / MB <= thresholds.heapAbsoluteThresholdMb * thresholds.recoveryRatio
+      : null;
+  if (ratioRecovered === null && absoluteRecovered === null) return true;
+  return ratioRecovered === true || absoluteRecovered === true;
+}
+
 function isRecovered(signals: ResourceSignals, thresholds: ResourcePressureThresholds): boolean {
   const cgroupWorkingSetBytes = workingSetBytes(signals.cgroup);
   const ratios: Array<readonly [number | null, number | null]> = [
-    [signals.v8.heapUsedBytes, signals.v8.heapLimitBytes],
     [cgroupWorkingSetBytes, signals.cgroup.maxBytes],
     [signals.cgroup.currentBytes, signals.cgroup.highBytes],
   ];
@@ -223,12 +245,7 @@ function isRecovered(signals: ResourceSignals, thresholds: ResourcePressureThres
   ) {
     return false;
   }
-  if (
-    thresholds.heapAbsoluteThresholdMb != null &&
-    signals.v8.heapUsedBytes / MB > thresholds.heapAbsoluteThresholdMb * thresholds.recoveryRatio
-  ) {
-    return false;
-  }
+  if (!isHeapRecovered(signals, thresholds)) return false;
   return ![signals.psi?.someAvg10, signals.psi?.fullAvg10].some(
     (value) => value != null && value > thresholds.recoveryPsiAvg10
   );

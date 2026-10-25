@@ -1,4 +1,8 @@
-import { checkHeapPressureGuard, HEAP_PRESSURE_THRESHOLD_MB } from "./heapPressure.ts";
+import {
+  checkHeapPressureGuard,
+  HEAP_PRESSURE_THRESHOLD_MB,
+  tryEmergencyGc,
+} from "./heapPressure.ts";
 import { buildErrorBody } from "./error.ts";
 import {
   createResourcePressureTracker,
@@ -33,6 +37,8 @@ export type ResourcePressureRuntimeOptions = {
   thresholds?: Partial<ResourcePressureThresholds>;
   heapThresholdMb?: number | null;
   immediateHeapUsedMb?: () => number;
+  /** Debounced forced-GC hook used to break the shed deadlock; injectable for tests. */
+  emergencyGc?: () => boolean;
   sample?: () => Promise<ResourceSignals>;
   nowMs?: () => number;
   schedule?: (refresh: () => void) => void;
@@ -92,10 +98,15 @@ function buildCriticalGuard(reason: PressureReason): ResourcePressureGuardResult
 
 function immediateHeapGuard(
   heapUsedMb: number,
-  thresholdMb: number | null
+  thresholdMb: number | null,
+  remeasureHeapUsedMb: () => number,
+  emergencyGc: () => boolean
 ): ResourcePressureGuardResult | null {
   if (thresholdMb == null) return null;
-  const guard = checkHeapPressureGuard(heapUsedMb, thresholdMb);
+  const guard = checkHeapPressureGuard(heapUsedMb, thresholdMb, {
+    remeasureHeapUsedMb,
+    emergencyGc,
+  });
   if (!guard) return null;
   return buildCriticalGuard("v8_heap_absolute");
 }
@@ -125,6 +136,7 @@ export function createResourcePressureRuntime(
   const nowMs = options.nowMs ?? Date.now;
   const immediateHeapUsedMb =
     options.immediateHeapUsedMb ?? (() => process.memoryUsage().heapUsed / MB);
+  const emergencyGc = options.emergencyGc ?? (() => tryEmergencyGc());
   const sample = options.sample ?? (() => sampleResourceSignals(options.samplerDeps));
   const schedule =
     options.schedule ??
@@ -152,6 +164,14 @@ export function createResourcePressureRuntime(
         const settledAtMs = nowMs();
         lastSignals = signals;
         state = tracker.observe(signals);
+        // While shedding on heap pressure nothing allocates, so V8 never collects
+        // on its own; force a (debounced) GC so the next sample can recover.
+        if (
+          state.severity === "critical" &&
+          (state.reason === "v8_heap_ratio" || state.reason === "v8_heap_absolute")
+        ) {
+          emergencyGc();
+        }
         lastRefreshAtMs = settledAtMs;
         nextRefreshAtMs = settledAtMs + staleAfterMs;
       })
@@ -177,7 +197,12 @@ export function createResourcePressureRuntime(
       } catch {
         heapUsedMb = 0;
       }
-      const immediate = immediateHeapGuard(heapUsedMb, heapThresholdMb);
+      const immediate = immediateHeapGuard(
+        heapUsedMb,
+        heapThresholdMb,
+        immediateHeapUsedMb,
+        emergencyGc
+      );
       const now = nowMs();
       if (now >= nextRefreshAtMs) scheduleRefresh();
       if (immediate) {
@@ -196,7 +221,14 @@ export function createResourcePressureRuntime(
         ? buildCriticalGuard(state.reason)
         : null;
     },
-    getObservation: () => ({ signals: lastSignals, state }),
+    getObservation: () => {
+      // The front-door admission gate (chatBodyAdmission) reads this cached state
+      // and sheds BEFORE chatCore ever calls check(). Refresh here too, or a
+      // critical state latched by check() is never re-sampled once every request
+      // is shed at admission — a permanent 503 even after the heap recovers.
+      if (nowMs() >= nextRefreshAtMs) scheduleRefresh();
+      return { signals: lastSignals, state };
+    },
     whenRefreshSettled: async () => {
       if (scheduled) await new Promise<void>((resolve) => setImmediate(resolve));
       if (inFlight) await inFlight;

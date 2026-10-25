@@ -387,6 +387,45 @@ export function summarizeCodexAccountPools(
   return summary;
 }
 
+export type HealthStatus = "healthy" | "degraded" | "unhealthy";
+
+/**
+ * Derive the liveness verdict from admission pressure and provider breakers.
+ * `status` was previously hardcoded "healthy", so a process stuck rejecting 100%
+ * of chat traffic at admission (critical heap pressure) still reported healthy
+ * to external probes. Only breakers for ACTIVE configured providers count —
+ * connection-scoped breakers or stale breakers for removed providers never flip
+ * the verdict.
+ */
+export function deriveHealthStatus({
+  chatPressure,
+  adaptivePressure,
+  activeProviders,
+  providerBreakers,
+}: {
+  chatPressure?: string | null;
+  adaptivePressure?: string | null;
+  activeProviders: ReadonlySet<string>;
+  providerBreakers: ReadonlyArray<{ provider: string; state: string }>;
+}): HealthStatus {
+  if (chatPressure === "critical" || adaptivePressure === "critical") return "unhealthy";
+  const activeBreakers = providerBreakers.filter((breaker) =>
+    activeProviders.has(breaker.provider)
+  );
+  const openProviders = new Set(
+    activeBreakers.filter((breaker) => breaker.state === "OPEN").map((breaker) => breaker.provider)
+  );
+  if (activeProviders.size > 0 && openProviders.size === activeProviders.size) return "unhealthy";
+  if (
+    chatPressure === "high" ||
+    adaptivePressure === "high" ||
+    activeBreakers.some((breaker) => breaker.state === "OPEN" || breaker.state === "DEGRADED")
+  ) {
+    return "degraded";
+  }
+  return "healthy";
+}
+
 export function buildHealthPayload({
   appVersion,
   catalogCount = 0,
@@ -473,8 +512,15 @@ export function buildHealthPayload({
     { open: 0, halfOpen: 0, degraded: 0, closed: 0 }
   );
 
+  const status = deriveHealthStatus({
+    chatPressure: chatAdmission?.pressureSeverity,
+    adaptivePressure: adaptiveAdmission?.resourceSeverity,
+    activeProviders,
+    providerBreakers,
+  });
+
   return {
-    status: "healthy",
+    status,
     timestamp,
     system,
     version: system.version,

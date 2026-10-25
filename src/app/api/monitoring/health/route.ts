@@ -34,12 +34,20 @@ function publicHealthView(payload: unknown): Record<string, unknown> {
   };
 }
 
+// Probes (Zabbix, load balancers) key off the HTTP code, not the body: an
+// unhealthy process (e.g. shedding all chat traffic under critical heap
+// pressure) must answer 503. "degraded" still serves traffic, so it stays 200.
+function healthHttpStatus(payload: unknown): number {
+  return (payload as { status?: unknown } | null)?.status === "unhealthy" ? 503 : 200;
+}
+
 export async function GET(request: Request) {
   const fullView = (await requireManagementAuth(request, { alwaysRequireAuth: true })) === null;
   const cachedNow = Date.now();
   if (healthPayloadCache && cachedNow <= healthPayloadCache.expiresAt) {
     return NextResponse.json(
-      fullView ? healthPayloadCache.payload : publicHealthView(healthPayloadCache.payload)
+      fullView ? healthPayloadCache.payload : publicHealthView(healthPayloadCache.payload),
+      { status: healthHttpStatus(healthPayloadCache.payload) }
     );
   }
 
@@ -218,7 +226,9 @@ export async function GET(request: Request) {
     });
 
     healthPayloadCache = { payload, expiresAt: Date.now() + HEALTH_PAYLOAD_TTL_MS };
-    return NextResponse.json(fullView ? payload : publicHealthView(payload));
+    return NextResponse.json(fullView ? payload : publicHealthView(payload), {
+      status: healthHttpStatus(payload),
+    });
   } catch (error) {
     console.error("[API] GET /api/monitoring/health error:", error);
     return NextResponse.json({

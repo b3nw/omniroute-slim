@@ -8,6 +8,15 @@ if [ -n "$OMNIROUTE_MEMORY_MB" ]; then
   export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=${OMNIROUTE_MEMORY_MB}"
 fi
 
+# Expose global.gc so the heap-pressure guard can force an emergency GC when it
+# trips (open-sse/utils/heapPressure.ts tryEmergencyGc). Without it, a process
+# shedding 100% of requests stops allocating, V8 never collects, and the guard
+# stays latched in a 503 deadlock. Idempotent if the operator already set it.
+case " ${NODE_OPTIONS:-} " in
+  *" --expose-gc "*|*" --expose_gc "*) ;;
+  *) export NODE_OPTIONS="${NODE_OPTIONS:-} --expose-gc" ;;
+esac
+
 # Hard Rule #13: never interpolate OMNIROUTE_BASE_PATH (or any runtime path)
 # into sed/awk/shell. The Node guard reads process.env itself — invoke with a
 # fixed argv only; do not pass the subpath as a CLI argument or script body.
