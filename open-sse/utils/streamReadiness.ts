@@ -421,12 +421,15 @@ export function prependBufferedChunks(
   chunks: Uint8Array[],
   reader: ReadableStreamDefaultReader<Uint8Array>
 ): ReadableStream<Uint8Array> {
-  let bufferedIndex = 0;
+  // `chunks` is consumed destructively (shift / length = 0) so the buffered
+  // prefix is released for GC as soon as it is replayed or the stream is
+  // cancelled, instead of staying pinned for the lifetime of a long SSE stream.
   let readInFlight = false;
   let cancelRequested = false;
   let readerReleased = false;
 
   const releaseReader = () => {
+    chunks.length = 0;
     if (readerReleased) return;
     readerReleased = true;
     reader.releaseLock();
@@ -435,6 +438,7 @@ export function prependBufferedChunks(
   const cancelReader = (reason: unknown) => {
     if (cancelRequested) return;
     cancelRequested = true;
+    chunks.length = 0;
 
     try {
       // The provider controls this promise and may never settle. Cancellation
@@ -456,9 +460,9 @@ export function prependBufferedChunks(
       // Replay exactly one readiness chunk per demand. Reading the source
       // eagerly here would let a subsequent source error clear this queue
       // before the consumer has observed the buffered prefix.
-      if (bufferedIndex < chunks.length) {
-        controller.enqueue(chunks[bufferedIndex]);
-        bufferedIndex += 1;
+      if (chunks.length > 0) {
+        const chunk = chunks.shift()!;
+        controller.enqueue(chunk);
         return;
       }
 

@@ -2,6 +2,7 @@ import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import {
   __getProxyDispatcherOptionsForTest,
+  __getProxyRetryDispatcherOptionsForTest,
   __getSocksOptionsForTest,
   __resolveDispatcherFamilyForTest,
   proxyConfigToUrl,
@@ -68,14 +69,22 @@ describe("proxyDispatcher connection pool", () => {
   it("keeps enough proxy connections for concurrent SSE streams by default", () => {
     const options = __getProxyDispatcherOptionsForTest({});
     assert.equal(options.connections, 32);
-    // #9100: the proxy path keeps sockets alive (no more 1ms TTL). Pipelining is
-    // disabled (matching #4580 on the direct path) so a long SSE stream cannot
-    // head-of-line block requests queued behind it on a pooled socket. Stale
-    // sockets are recovered by the retry-once-with-fresh-socket path in
+    // #9100: the proxy path keeps sockets alive (no more 1ms TTL). pipelining 1
+    // means no HTTP/1.1 pipelining (1 in-flight request per socket) so a long
+    // SSE stream cannot head-of-line block requests queued behind it, while
+    // keeping undici keep-alive reuse (pipelining 0 destroys the socket after
+    // every response). Stale sockets are recovered by the retry-once path in
     // proxyFetch, not by killing idle sockets after 1ms.
-    assert.equal(options.pipelining, 0);
+    assert.equal(options.pipelining, 1);
     assert.equal(options.keepAliveTimeout, 30000);
     assert.equal(options.keepAliveMaxTimeout, 60000);
+  });
+
+  it("proxy retry dispatcher keeps pipelining 0 + 1ms keep-alive for a fresh socket", () => {
+    const options = __getProxyRetryDispatcherOptionsForTest({});
+    assert.equal(options.pipelining, 0);
+    assert.equal(options.keepAliveTimeout, 1);
+    assert.equal(options.connections, 1);
   });
 
   it("allows operators to force a single proxy connection for diagnostics", () => {

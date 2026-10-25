@@ -181,24 +181,34 @@ export function createSseFirstDataScanner(): (chunk: Uint8Array) => boolean {
   };
 }
 
+/**
+ * Merge the caller signal with the per-attempt signal. `cleanup` detaches every
+ * listener (idempotent); callers must invoke it once the first-byte phase ends,
+ * otherwise a successful (never-aborted) attempt leaves its listener pinned on
+ * the long-lived caller signal.
+ */
 function mergeAbortSignals(
   primary: AbortSignal | null | undefined,
   secondary: AbortSignal
-): AbortSignal {
-  if (!primary) return secondary;
-  if (primary.aborted) return primary;
+): { signal: AbortSignal; cleanup: () => void } {
+  if (!primary) return { signal: secondary, cleanup: () => {} };
+  if (primary.aborted) return { signal: primary, cleanup: () => {} };
   const controller = new AbortController();
   const onPrimaryAbort = () => controller.abort(primary.reason);
   const onSecondaryAbort = () => controller.abort(secondary.reason);
+  let cleanedUp = false;
   const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
     primary.removeEventListener("abort", onPrimaryAbort);
     secondary.removeEventListener("abort", onSecondaryAbort);
+    controller.signal.removeEventListener("abort", cleanup);
   };
   primary.addEventListener("abort", onPrimaryAbort, { once: true });
   secondary.addEventListener("abort", onSecondaryAbort, { once: true });
   controller.signal.addEventListener("abort", cleanup, { once: true });
   propagateComboTargetTimeoutDisarm(controller.signal, primary, secondary);
-  return controller.signal;
+  return { signal: controller.signal, cleanup };
 }
 
 function abortReason(signal: AbortSignal): unknown {
@@ -333,7 +343,10 @@ export async function fetchWithFirstByteDeadline(
     // Intentionally NOT unref'd: this timer is always cleared on every exit path,
     // and an unref'd deadline could let the event loop drain while an attempt is
     // still pending (the deadline must fire to abort a hung upstream).
-    const attemptSignal = mergeAbortSignals(callerSignal, attemptController.signal);
+    const { signal: attemptSignal, cleanup: cleanupAttemptSignal } = mergeAbortSignals(
+      callerSignal,
+      attemptController.signal
+    );
 
     // Casts keep TS from narrowing these to `null` inside the catch block.
     let response = null as Response | null;
@@ -400,6 +413,8 @@ export async function fetchWithFirstByteDeadline(
       }
       record(timing);
       throw err;
+    } finally {
+      cleanupAttemptSignal();
     }
   }
 

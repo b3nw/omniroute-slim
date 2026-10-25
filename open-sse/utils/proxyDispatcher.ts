@@ -109,16 +109,19 @@ function getProxyDispatcherOptions(env: Record<string, string | undefined> = pro
   // by the retry-once-with-fresh-socket path in proxyFetch.ts (mirrors the
   // direct-path #4252 fix) instead of by killing all idle sockets after 1ms.
   //
-  // Pipelining 0 (matching #4580 on the direct path): HTTP/1.1 pipelining let a
-  // long-lived SSE stream head-of-line block requests queued behind it on the
-  // same pooled socket, stalling first byte. Concurrency comes from the
-  // per-origin connection limit instead.
+  // Pipelining 1 disables HTTP/1.1 pipelining (at most 1 in-flight request per
+  // socket), so a long-lived SSE stream cannot head-of-line block requests
+  // queued behind it on the same pooled socket. It must NOT be 0: undici only
+  // keeps a socket alive after a response when client[kPipelining] is truthy
+  // (client-h1.js), so pipelining 0 destroyed the socket after every response
+  // and caused massive off-heap TLS socket churn. Concurrency comes from the
+  // per-origin connection limit.
   return {
     ...options,
     connections: getProxyDispatcherConnectionLimit(env),
     keepAliveTimeout: Math.max(options.keepAliveTimeout, 30_000),
     keepAliveMaxTimeout: Math.max(options.keepAliveMaxTimeout, 60_000),
-    pipelining: 0,
+    pipelining: 1,
   };
 }
 
@@ -141,15 +144,18 @@ export function getDefaultDispatcherConnectionLimit(
 
 function getDefaultDispatcherOptions(env: Record<string, string | undefined> = process.env) {
   const options = getDispatcherOptions();
-  // #4580 — On the direct egress path, undici's default pipelining (1) let a long
-  // SSE stream monopolize the single pooled socket per origin. Keep the public
-  // connection-limit option here, but getDefaultDispatcher() fans it out across
-  // independent one-connection Agents; in production traces, one multi-connection
-  // Agent could still queue same-origin Codex streams behind prior trailers.
+  // #4580 — On the direct egress path, a long SSE stream could monopolize the
+  // single pooled socket per origin. Keep the public connection-limit option
+  // here, but getDefaultDispatcher() fans it out across independent
+  // one-connection Agents; in production traces, one multi-connection Agent
+  // could still queue same-origin Codex streams behind prior trailers.
+  // pipelining 1 = no HTTP/1.1 pipelining (1 in-flight request per socket)
+  // while keeping client[kPipelining] truthy so undici reuses keep-alive
+  // sockets; pipelining 0 would destroy the socket after every response.
   return {
     ...options,
     connections: getDefaultDispatcherConnectionLimit(env),
-    pipelining: 0,
+    pipelining: 1,
   };
 }
 
@@ -158,7 +164,8 @@ function createRoundRobinDirectDispatcher(connectionLimit: number): Dispatcher {
   const perAgentOptions = {
     ...baseOptions,
     connections: 1,
-    pipelining: 0,
+    // 1 in-flight request per socket, keep-alive reuse preserved (see above).
+    pipelining: 1,
   };
   const dispatchers = Array.from({ length: connectionLimit }, () => new Agent(perAgentOptions));
   return createRoundRobinDispatcher(dispatchers);
@@ -186,15 +193,21 @@ export function getDefaultDispatcher(): Dispatcher {
  * dispatcher mitigation) to force a fresh socket. Healthy keep-alive reuse on
  * the first attempt is preserved — only the retry pays the fresh-socket cost.
  */
+function getRetryDispatcherOptions() {
+  // pipelining 0 is intentional here: together with keepAliveTimeout 1 it
+  // forces single-use socket disposal so the retry never reuses a socket.
+  return {
+    ...getDispatcherOptions(),
+    keepAliveTimeout: 1,
+    keepAliveMaxTimeout: 1,
+    pipelining: 0,
+  };
+}
+
 export function getRetryDispatcher(): Dispatcher {
   let dispatcher = getRetryCachedDispatcher();
   if (!dispatcher) {
-    dispatcher = new Agent({
-      ...getDispatcherOptions(),
-      keepAliveTimeout: 1,
-      keepAliveMaxTimeout: 1,
-      pipelining: 0,
-    });
+    dispatcher = new Agent(getRetryDispatcherOptions());
     setRetryCachedDispatcher(dispatcher);
   }
   return dispatcher;
@@ -434,13 +447,23 @@ export function __getDefaultDispatcherOptionsForTest(
   return getDefaultDispatcherOptions(env);
 }
 
+export function __getRetryDispatcherOptionsForTest() {
+  return getRetryDispatcherOptions();
+}
+
+export function __getProxyRetryDispatcherOptionsForTest(
+  env: Record<string, string | undefined> = process.env
+) {
+  return getProxyRetryDispatcherOptions(env);
+}
+
 export function __createRoundRobinDispatcherForTest(dispatchers: Dispatcher[]): Dispatcher {
   return createRoundRobinDispatcher(dispatchers);
 }
 
 /**
  * Build a ProxyAgent / socks dispatcher for a normalized proxy URL using the
- * given options. Shared by the pooled dispatcher (keep-alive, no pipelining)
+ * given options. Shared by the pooled dispatcher (keep-alive, pipelining 1)
  * and the retry dispatcher (fresh no-keep-alive socket, mirrors #4252).
  */
 function buildProxyDispatcher(
@@ -517,6 +540,19 @@ export function createProxyDispatcher(proxyUrl: string): Dispatcher {
  * stale pooled socket (a proxy that silently dropped it) is recovered instead
  * of re-hitting the dead connection. Cached per normalized proxy URL.
  */
+function getProxyRetryDispatcherOptions(env: Record<string, string | undefined> = process.env) {
+  return {
+    ...getProxyDispatcherOptions(env),
+    // Retry needs exactly one fresh socket (not the inherited connection pool).
+    connections: 1,
+    // pipelining 0 + keepAliveTimeout 1 intentionally force single-use socket
+    // disposal on retry.
+    keepAliveTimeout: 1,
+    keepAliveMaxTimeout: 1,
+    pipelining: 0,
+  };
+}
+
 export function getProxyRetryDispatcher(proxyUrl: string): Dispatcher {
   const normalizedUrl = normalizeProxyUrl(proxyUrl, "proxy dispatcher");
   const dispatcherCache = getDispatcherCache();
@@ -525,14 +561,7 @@ export function getProxyRetryDispatcher(proxyUrl: string): Dispatcher {
   let dispatcher = dispatcherCache.get(retryKey);
   if (dispatcher) return dispatcher;
 
-  dispatcher = buildProxyDispatcher(normalizedUrl, {
-    ...getProxyDispatcherOptions(),
-    // Retry needs exactly one fresh socket (not the inherited connection pool).
-    connections: 1,
-    keepAliveTimeout: 1,
-    keepAliveMaxTimeout: 1,
-    pipelining: 0,
-  });
+  dispatcher = buildProxyDispatcher(normalizedUrl, getProxyRetryDispatcherOptions());
 
   const winner = dispatcherCache.get(retryKey);
   if (winner) {

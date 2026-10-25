@@ -1,4 +1,5 @@
 import test from "node:test";
+import { getEventListeners } from "node:events";
 import assert from "node:assert/strict";
 import {
   fetchWithFirstByteDeadline,
@@ -10,6 +11,7 @@ import {
   computeAdaptiveGeminiCliFirstByteTimeoutMs,
   MAX_ADAPTIVE_GEMINI_CLI_FIRST_BYTE_TIMEOUT_MS,
 } from "../../open-sse/executors/geminiCliFirstByte.ts";
+import { prependBufferedChunks } from "../../open-sse/utils/streamReadiness.ts";
 import { GeminiCliExecutor } from "../../open-sse/executors/geminiCli.ts";
 import { isRequestScopedUpstreamFailure } from "../../open-sse/services/combo/comboPredicates.ts";
 import { isSelfInflictedUpstreamTimeout } from "../../open-sse/handlers/chatCore/cooldownClassification.ts";
@@ -819,4 +821,80 @@ test("combo + upstream-start timeouts: stream:false gemini-cli disarms both on f
   assert.equal(res.status, 200);
   const json = await res.json();
   assert.equal(json.choices?.[0]?.message?.content, "hello world");
+});
+
+test("fetchWithFirstByteDeadline detaches its caller-signal abort listener after a 200 OK", async () => {
+  const caller = new AbortController();
+  const baseline = getEventListeners(caller.signal, "abort").length;
+  for (let i = 0; i < 5; i++) {
+    const { fetchImpl } = scriptedFetch([() => sseResponse('data: {"n":1}\n\ndata: [DONE]\n\n')]);
+    const { response, attempts } = await fetchWithFirstByteDeadline({
+      ...baseOptions,
+      fetchImpl,
+      signal: caller.signal,
+      timeoutMs: 1000,
+      maxAttempts: 1,
+      totalBudgetMs: 1000,
+    });
+    assert.equal(attempts[0].outcome, "ok");
+    // Listener is gone as soon as the first-byte phase resolves, before the body is drained.
+    assert.equal(getEventListeners(caller.signal, "abort").length, baseline);
+    await readAll(response);
+  }
+  assert.equal(getEventListeners(caller.signal, "abort").length, baseline);
+});
+
+test("fetchWithFirstByteDeadline detaches caller-signal listeners after first-byte retries", async () => {
+  const caller = new AbortController();
+  const good = 'data: {"n":1}\n\n';
+  const { fetchImpl } = scriptedFetch([hangingFetch, () => sseResponse(good)]);
+  const { response, attempts } = await fetchWithFirstByteDeadline({
+    ...baseOptions,
+    fetchImpl,
+    signal: caller.signal,
+    timeoutMs: 20,
+    maxAttempts: 2,
+    totalBudgetMs: 1000,
+  });
+  assert.equal(attempts.length, 2);
+  assert.equal(getEventListeners(caller.signal, "abort").length, 0);
+  assert.equal(await readAll(response), good);
+});
+
+function chunkSourceReader(texts: string[]) {
+  const state = { cancelled: false };
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      for (const t of texts) c.enqueue(encoder.encode(t));
+      c.close();
+    },
+    cancel() {
+      state.cancelled = true;
+    },
+  });
+  return { reader: stream.getReader(), state };
+}
+
+test("prependBufferedChunks drains the buffered chunks array as they are pulled", async () => {
+  const chunks = [encoder.encode("a"), encoder.encode("b")];
+  const { reader } = chunkSourceReader(["c"]);
+  const replay = prependBufferedChunks(chunks, reader).getReader();
+  assert.equal(decoder.decode((await replay.read()).value), "a");
+  assert.equal(chunks.length, 1);
+  assert.equal(decoder.decode((await replay.read()).value), "b");
+  assert.equal(chunks.length, 0);
+  assert.equal(decoder.decode((await replay.read()).value), "c");
+  assert.equal((await replay.read()).done, true);
+  assert.equal(chunks.length, 0);
+});
+
+test("prependBufferedChunks clears unconsumed buffered chunks on cancel", async () => {
+  const chunks = [encoder.encode("a"), encoder.encode("b"), encoder.encode("c")];
+  const { reader, state } = chunkSourceReader(["d"]);
+  const replay = prependBufferedChunks(chunks, reader).getReader();
+  assert.equal(decoder.decode((await replay.read()).value), "a");
+  assert.ok(chunks.length > 0);
+  await replay.cancel("client gone");
+  assert.equal(chunks.length, 0);
+  assert.equal(state.cancelled, true);
 });

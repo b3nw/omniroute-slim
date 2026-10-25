@@ -5,6 +5,7 @@ import {
   __createRoundRobinDispatcherForTest,
   __getDefaultDispatcherOptionsForTest,
   __getProxyDispatcherOptionsForTest,
+  __getRetryDispatcherOptionsForTest,
   getDefaultDispatcherConnectionLimit,
   clearDispatcherCache,
 } from "../../open-sse/utils/proxyDispatcher.ts";
@@ -19,9 +20,17 @@ afterEach(() => clearDispatcherCache());
 // mirrors that fix while KEEPING keep-alive (a proxy-only concern was the 1ms TTL).
 
 describe("#4580 direct dispatcher options", () => {
-  it("disables pipelining so concurrent streams open separate sockets", () => {
+  it("uses pipelining 1 (no HTTP/1.1 pipelining, keep-alive reuse preserved)", () => {
+    // pipelining 0 would make undici destroy the socket after every response
+    // (client[kPipelining] falsy), causing TLS socket churn.
     const opts = __getDefaultDispatcherOptionsForTest({});
+    assert.equal(opts.pipelining, 1);
+  });
+
+  it("retry dispatcher keeps pipelining 0 + 1ms keep-alive for single-use sockets", () => {
+    const opts = __getRetryDispatcherOptionsForTest();
     assert.equal(opts.pipelining, 0);
+    assert.equal(opts.keepAliveTimeout, 1);
   });
 
   it("caps connections to a finite number (default 32)", () => {
