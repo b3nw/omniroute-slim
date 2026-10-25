@@ -527,9 +527,10 @@ export async function parseUpstreamError(response: Response, provider: string | 
       const { error: clinepassEnvError } = unwrapClinepassEnvelope(json, provider);
       message = clinepassEnvError
         ? clinepassEnvError.message
-        : json.error?.message || json.message || json.error || text;
-      errorCode = json.error?.code || json.code;
-      errorType = json.error?.type || json.type;
+        : json.error?.message || json.message || json.response?.error?.message || json.error || text;
+      // Nested Responses failures carry the error under `response.error` (#17049).
+      errorCode = json.error?.code || json.code || json.response?.error?.code;
+      errorType = json.error?.type || json.type || json.response?.error?.type;
     } catch {
       message = text;
     }

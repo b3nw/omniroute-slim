@@ -74,6 +74,37 @@ function isSseErrorFrame(parsed: JsonRecord, eventType: string): boolean {
   return response.status === "failed" && response.error != null;
 }
 
+const CONTENT_DELTA_KEYS = new Set([
+  "content",
+  "reasoning",
+  "reasoning_content",
+  "refusal",
+  "tool_calls",
+  "function_call",
+]);
+
+/**
+ * True for a Chat Completions chunk whose choices only open the turn (e.g.
+ * `delta: { role: "assistant" }`) without content, reasoning, tools or a finish reason.
+ */
+function isRoleOnlyDeltaFrame(parsed: JsonRecord): boolean {
+  const choices = parsed.choices;
+  if (!Array.isArray(choices)) return false;
+  if (choices.length === 0) return true;
+  return choices.every((choice) => {
+    const record = asRecord(choice);
+    if (record.finish_reason != null) return false;
+    const delta = asRecord(record.delta);
+    return Object.entries(delta).every(
+      ([key, value]) =>
+        !CONTENT_DELTA_KEYS.has(key) ||
+        value == null ||
+        value === "" ||
+        (Array.isArray(value) && value.length === 0)
+    );
+  });
+}
+
 /** Classify one parsed SSE frame: a safety stop, other content/error, or a pre-content frame. */
 function classifySseFrame(parsed: JsonRecord, eventType: string): "safety" | "stop" | null {
   if (isSseErrorFrame(parsed, eventType)) {
@@ -89,7 +120,8 @@ function classifySseFrame(parsed: JsonRecord, eventType: string): "safety" | "st
       });
     return safety ? "safety" : "stop";
   }
-  return PRE_CONTENT_SSE_EVENTS.has(eventType) ? null : "stop";
+  if (PRE_CONTENT_SSE_EVENTS.has(eventType)) return null;
+  return isRoleOnlyDeltaFrame(parsed) ? null : "stop";
 }
 
 /**

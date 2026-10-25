@@ -1,7 +1,14 @@
 import { after, afterEach, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-safety-latch-"));
+process.env.DATA_DIR = TEST_DATA_DIR;
 
 import { runComboWithSafetyLatch } from "../../../open-sse/services/combo/safetyStopLatch.ts";
+import { parseUpstreamError } from "../../../open-sse/utils/error.ts";
 import {
   classifyProviderSafetyError,
   PROVIDER_SAFETY_STOPS_TERMINAL_FLAG,
@@ -21,6 +28,7 @@ before(() => {
 after(() => {
   if (previousFlag === undefined) delete process.env[FLAG];
   else process.env[FLAG] = previousFlag;
+  fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 afterEach(() => {
@@ -36,6 +44,22 @@ function jsonResponse(status: number, body: unknown): Response {
 
 function safetyResponse(code = "content_policy_violation", status = 400): Response {
   return jsonResponse(status, { error: { message: "blocked", code, type: "invalid_request_error" } });
+}
+
+function sseResponse(frames: string[]): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const frame of frames) {
+        controller.enqueue(encoder.encode(frame));
+      }
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
 }
 
 const noopLog = { info() {}, warn() {}, error() {}, debug() {} };
@@ -157,5 +181,117 @@ describe("runComboWithSafetyLatch", () => {
     assert.equal(response.status, 400);
     const body = (await response.json()) as { error: { code: string } };
     assert.equal(body.error.code, "content_policy_violation");
+  });
+
+  it("peeks past role-only delta SSE chunks and latches a subsequent safety refusal", async () => {
+    let upstreamCalls = 0;
+    const options = makeOptions(async (_body: unknown, model: unknown) => {
+      upstreamCalls++;
+      if (model === "a") {
+        return sseResponse([
+          'data: {"id":"1","choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\n',
+          'event: error\ndata: {"error":{"code":"content_policy_violation","message":"blocked"}}\n\n',
+        ]);
+      }
+      return new Response("ok-from-b", { status: 200 });
+    });
+
+    const inner = async (opts: any) => {
+      const first = await opts.handleSingleModel({}, "a", {});
+      const second = await opts.handleSingleModel({}, "b", {});
+      return second;
+    };
+
+    const response = await runComboWithSafetyLatch(options, "inv-sse-role", inner as any);
+    assert.equal(upstreamCalls, 1, "target B must not be dispatched after safety latch");
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    assert.ok(text.includes("content_policy_violation"));
+  });
+
+  it("peeks past empty choices SSE chunks and latches a subsequent safety refusal", async () => {
+    let upstreamCalls = 0;
+    const options = makeOptions(async (_body: unknown, model: unknown) => {
+      upstreamCalls++;
+      if (model === "a") {
+        return sseResponse([
+          'data: {"id":"1","choices":[]}\n\n',
+          'event: error\ndata: {"error":{"code":"content_policy_violation","message":"blocked"}}\n\n',
+        ]);
+      }
+      return new Response("ok-from-b", { status: 200 });
+    });
+
+    const inner = async (opts: any) => {
+      const first = await opts.handleSingleModel({}, "a", {});
+      const second = await opts.handleSingleModel({}, "b", {});
+      return second;
+    };
+
+    const response = await runComboWithSafetyLatch(options, "inv-sse-empty", inner as any);
+    assert.equal(upstreamCalls, 1, "target B must not be dispatched after safety latch");
+    const text = await response.text();
+    assert.ok(text.includes("content_policy_violation"));
+  });
+
+  it("does not latch when SSE stream emits substantive content before refusal", async () => {
+    let upstreamCalls = 0;
+    const options = makeOptions(async (_body: unknown, model: unknown) => {
+      upstreamCalls++;
+      if (model === "a") {
+        return sseResponse([
+          'data: {"id":"1","choices":[{"index":0,"delta":{"content":"hello"}}]}\n\n',
+          'event: error\ndata: {"error":{"code":"content_policy_violation","message":"blocked"}}\n\n',
+        ]);
+      }
+      return new Response("ok-from-b", { status: 200 });
+    });
+
+    const inner = async (opts: any) => {
+      const first = await opts.handleSingleModel({}, "a", {});
+      const second = await opts.handleSingleModel({}, "b", {});
+      return second;
+    };
+
+    const response = await runComboWithSafetyLatch(options, "inv-sse-content", inner as any);
+    assert.equal(upstreamCalls, 2, "target B should be dispatched when content preceded refusal");
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    assert.equal(text, "ok-from-b");
+  });
+});
+
+describe("parseUpstreamError", () => {
+  it("extracts nested response.error.code and classifies safety stop under feature flag", async () => {
+    const raw = jsonResponse(400, {
+      response: {
+        error: {
+          code: "content_policy_violation",
+          type: "policy_error",
+          message: "Nested refusal from Responses API",
+        },
+      },
+    });
+    const parsed = await parseUpstreamError(raw);
+    assert.equal(parsed.errorCode, "content_policy_violation");
+    assert.equal(parsed.errorType, "invalid_request_error");
+    assert.equal(parsed.message, "Nested refusal from Responses API");
+  });
+
+  it("preserves unclassified nested error code when safety flag is off", async () => {
+    process.env[FLAG] = "false";
+    const raw = jsonResponse(400, {
+      response: {
+        error: {
+          code: "content_policy_violation",
+          type: "policy_error",
+          message: "Nested refusal without safety flag",
+        },
+      },
+    });
+    const parsed = await parseUpstreamError(raw);
+    assert.equal(parsed.errorCode, "content_policy_violation");
+    assert.equal(parsed.errorType, "policy_error");
+    assert.equal(parsed.message, "Nested refusal without safety flag");
   });
 });
