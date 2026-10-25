@@ -9,6 +9,8 @@ import { MuxServiceTab } from "./tabs/MuxServiceTab";
 import { BifrostServiceTab } from "./tabs/BifrostServiceTab";
 import { DarioServiceTab } from "./tabs/DarioServiceTab";
 
+// LLMLingua is intentionally omitted until its /api/services/llmlingua/* backend
+// endpoints exist; re-add the tab (./tabs/LlmlinguaServiceTab) once they land.
 type Tab = "cliproxy" | "9router" | "mux" | "bifrost" | "dario";
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
@@ -23,7 +25,8 @@ export default function ServicesPage() {
   const t = useTranslations("embeddedServices");
   const sp = useSearchParams();
   const router = useRouter();
-  const active = (sp.get("tab") ?? "cliproxy") as Tab;
+  const requested = sp.get("tab");
+  const active: Tab = TABS.some((tab) => tab.id === requested) ? (requested as Tab) : "cliproxy";
 
   function setTab(tab: Tab) {
     router.push(`/dashboard/providers/services?tab=${tab}`);

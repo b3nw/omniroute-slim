@@ -12,7 +12,7 @@
  */
 
 import { getModelContextLimit } from "../../src/lib/modelCapabilities";
-import { parseModel } from "./model.ts";
+import { parseModel, resolveProviderModelAlias } from "./model.ts";
 import {
   CONTEXT_OVERFLOW_REGEX,
   containsModelUnavailableMessage,
@@ -20,6 +20,7 @@ import {
 } from "./errorClassifier.ts";
 import { getRegistryEntry } from "../config/providerRegistry.ts";
 import { isModelSelectable } from "./modelLifecycle.ts";
+import { isModelLocked } from "./accountFallback.ts";
 
 // ── Model Family Definitions ─────────────────────────────────────────────────
 
@@ -83,6 +84,7 @@ const FAMILY_FALLBACK_TEMPLATES: Record<string, readonly string[]> = {
   "claude-fable-5": ["claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-5"],
 
   // Claude Opus family
+  "claude-opus-5-5": ["claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-5"],
   "claude-opus-5": ["claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-5"],
   "claude-opus-4-8": ["claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-5"],
   "claude-opus-4-7": ["claude-opus-4-6", "claude-opus-4-5-20251101", "claude-sonnet-5"],
@@ -263,6 +265,58 @@ export function getNextFamilyFallback(
   }
 
   return null; // family exhausted
+}
+
+// Fork deviation from upstream #17113: the fork's family fallback has no
+// combo-visibility gate, so eligibility here is the resilience (model-lock)
+// gate only. `getNextFamilyFallback` above stays lock-agnostic for its
+// existing callers; connection-aware callers use the eligible variants below.
+function isFamilyFallbackCandidateEligible(
+  provider: string,
+  candidate: string,
+  connectionId: string
+): boolean {
+  const parsedCandidate = parseModel(candidate);
+  const candidateModel = parsedCandidate.model || candidate;
+  // A catalog id can reach the upstream under a different provider wire alias
+  // (github `claude-opus-4.5` -> `claude-opus-4-5-20251101`); a lock recorded
+  // under either form must exclude the candidate on this connection.
+  const wireModel = resolveProviderModelAlias(provider, candidateModel);
+  return (
+    !isModelLocked(provider, connectionId, candidateModel) &&
+    !isModelLocked(provider, connectionId, wireModel)
+  );
+}
+
+export function isFamilyFallbackEligible(
+  candidate: string,
+  provider: string,
+  connectionId: string
+): boolean {
+  return isFamilyFallbackCandidateEligible(provider, candidate, connectionId);
+}
+
+/**
+ * Get the next same-connection family fallback that passes the resilience
+ * gate used by combo targets (catalog id and wire alias not model-locked).
+ */
+export function getNextEligibleFamilyFallback(
+  currentModel: string,
+  triedModels: Set<string>,
+  providerHint: string | null | undefined,
+  connectionId: string
+): string | null {
+  const resolved = resolveProviderFamilyCandidates(currentModel, providerHint);
+  if (!resolved) return null;
+
+  for (const candidate of resolved.candidates) {
+    if (wasCandidateTried(candidate, resolved.provider, triedModels)) continue;
+    const fallbackModel = `${resolved.outputPrefix}${candidate}`;
+    if (isFamilyFallbackCandidateEligible(resolved.provider, fallbackModel, connectionId)) {
+      return fallbackModel;
+    }
+  }
+  return null;
 }
 
 /**

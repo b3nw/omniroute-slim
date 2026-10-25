@@ -644,30 +644,47 @@ function purifyHistory(messages: Record<string, unknown>[], targetTokens: number
   const system = messages.filter((m) => m.role === "system" || m.role === "developer");
   const nonSystem = messages.filter((m) => m.role !== "system" && m.role !== "developer");
 
-  // Binary search for how many messages to keep from the end
-  let keep = nonSystem.length;
-  while (keep > 2) {
-    let candidate = [...system, ...nonSystem.slice(-keep)];
+  // #16613: agentic sessions are one user task plus many assistant/tool pairs, so the
+  // kept tail can hold no user turn at all. vLLM chat templates (Qwen) reject that
+  // with HTTP 400 "No user query found in messages", so re-anchor the newest real
+  // user query (not a tool_result carrier) right after the system message.
+  let lastUserIdx = -1;
+  for (let i = nonSystem.length - 1; i >= 0; i--) {
+    const m = nonSystem[i];
+    if (
+      m.role === "user" &&
+      (!Array.isArray(m.content) ||
+        (m.content as Record<string, unknown>[]).some((b) => b?.type !== "tool_result"))
+    ) {
+      lastUserIdx = i;
+      break;
+    }
+  }
+
+  const build = (k: number) => {
+    const anchor =
+      lastUserIdx >= 0 && lastUserIdx < nonSystem.length - k ? [nonSystem[lastUserIdx]] : [];
+    let candidate = [...system, ...anchor, ...nonSystem.slice(-k)];
     candidate = fixToolPairs(candidate);
     candidate = fixToolAdjacency(candidate);
     // Re-run pair fix: fixToolAdjacency may have stripped tool_use blocks, leaving
-    // orphan tool_results that Claude rejects ("tool_result without preceding tool_use").
+    // orphan tool_results that Claude rejects ("tool_result without preceding tool_use",
+    // discussion #2410 — orphan tool_result -> upstream 400).
     candidate = fixToolPairs(candidate);
-    candidate = stripTrailingAssistantOrphanToolUse(candidate);
+    return stripTrailingAssistantOrphanToolUse(candidate);
+  };
+
+  // Binary search for how many messages to keep from the end
+  let keep = nonSystem.length;
+  while (keep > 2) {
     // #8594: measure the candidate structure directly so image-bearing turns are not
     // over-counted and pruned during the binary search.
-    const tokens = estimateTokens(candidate);
+    const tokens = estimateTokens(build(keep));
     if (tokens <= targetTokens) break;
     keep = Math.max(2, Math.floor(keep * 0.7)); // Drop 30% each iteration
   }
 
-  let result = [...system, ...nonSystem.slice(-keep)];
-  result = fixToolPairs(result);
-  result = fixToolAdjacency(result);
-  // Re-run pair fix to drop any tool_result whose matching tool_use was removed by
-  // fixToolAdjacency (discussion #2410 — orphan tool_result -> upstream 400).
-  result = fixToolPairs(result);
-  result = stripTrailingAssistantOrphanToolUse(result);
+  const result = build(keep);
 
   // Add summary of dropped messages. Merge the notice INTO the leading
   // system/developer message instead of splicing a second system-role message

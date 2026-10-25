@@ -50,6 +50,8 @@ export interface BatchTestResultEntry {
   isQuota?: boolean;
   hidden?: boolean;
   isTimeout?: boolean;
+  /** The probe was deliberately not dispatched (e.g. generation-only model) — not a model failure. */
+  skipped?: boolean;
 }
 
 function toBatchEntry(
@@ -66,6 +68,7 @@ function toBatchEntry(
   if (result.isTransient === true) entry.isTransient = true;
   if (result.isQuota === true) entry.isQuota = true;
   if (result.isTimeout === true) entry.isTimeout = true;
+  if (result.skipped === true) entry.skipped = true;
   return entry;
 }
 
@@ -135,6 +138,7 @@ export async function POST(request: Request) {
         status: "error",
         latencyMs: 0,
         error: "Skipped: paid model with hidePaidModels enabled",
+        skipped: true,
       };
       continue;
     }
@@ -194,6 +198,7 @@ export async function POST(request: Request) {
     if (
       autoHideFailed &&
       entry.status === "error" &&
+      !entry.skipped &&
       !entry.rateLimited &&
       !entry.isTimeout &&
       !entry.isTransient &&

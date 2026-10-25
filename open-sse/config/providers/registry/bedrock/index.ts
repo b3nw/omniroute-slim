@@ -31,6 +31,15 @@ export const bedrockProvider: RegistryEntry = {
       contextLength: 1000000,
     },
     {
+      id: "anthropic.claude-opus-5-5",
+      name: "Claude Opus 5.5 (Bedrock)",
+      toolCalling: true,
+      supportedThinkingEfforts: ["low", "medium", "high", "xhigh", "max"],
+      supportsXHighEffort: true,
+      supportsVision: true,
+      contextLength: 1000000,
+    },
+    {
       id: "anthropic.claude-opus-4-7",
       name: "Claude Opus 4.7 (Bedrock)",
       toolCalling: true,

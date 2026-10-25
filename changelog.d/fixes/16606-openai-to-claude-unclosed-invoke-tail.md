@@ -1,0 +1,1 @@
+- **fix(translator):** an unclosed `<invoke>` / `<tool_call>` tag in an OpenAI-compatible stream is now released as text when the stream ends on OpenAI→Claude translation, instead of silently swallowing everything from the tag to the end of the reply ([#16606](https://github.com/diegosouzapw/OmniRoute/pull/16606)) — thanks @pacocartones

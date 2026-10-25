@@ -46,7 +46,7 @@ A boolean flag is considered **enabled** when its effective value is `"true"`,
 
 ## Flag Catalog
 
-37 flags across 6 categories. **Default** is the definition default — the value
+39 flags across 6 categories. **Default** is the definition default — the value
 used when neither a DB override nor an environment variable is present.
 
 ### Security (7)
@@ -63,7 +63,7 @@ used when neither a DB override nor an environment variable is present.
 | `PII_RESPONSE_SANITIZATION_MODE` | enum    | `redact` | Mode for PII response sanitization. Values: `redact`, `warn`, `block`, `off`. |
 | `OUTBOUND_SSRF_GUARD_ENABLED`    | boolean | `true`   | Block outbound requests to private/internal IP ranges.                        |
 
-### Network (8)
+### Network (10)
 
 | Key                                             | Type    | Default | Restart | Description                                                                                                                                                                                   |
 | ----------------------------------------------- | ------- | ------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -75,6 +75,8 @@ used when neither a DB override nor an environment variable is present.
 | `OMNIROUTE_ALLOW_PRIVATE_PROVIDER_URLS`         | boolean | `false` |         | Allow provider URLs pointing to private/internal networks.                                                                                                                                    |
 | `OMNIROUTE_ALLOW_LOCAL_PROVIDER_URLS`           | boolean | `true`  |         | Allow adding/validating providers on local/private addresses (127.0.0.1, localhost, LAN). On by default (local-first); disable for strict public-only blocking. Cloud-metadata stays blocked. |
 | `ENABLE_CC_COMPATIBLE_PROVIDER`                 | boolean | `false` | ✓       | Enable Claude Code compatible provider mode.                                                                                                                                                  |
+| `EMPTY_STREAM_SIBLING_RECOVERY_ENABLED`         | boolean | `false` |         | Claude/Codex empty-stream recovery: an `empty_content` turn spends the existing bounded retry on a sibling connection (no cooldown, no model lockout); round-robin stops retrying once the client disconnects. |
+| `PROVIDER_SAFETY_STOPS_TERMINAL`                | boolean | `false` |         | Keep explicit provider safety stops (`misalignment_policy_violation`, `content_policy_violation`) terminal: the code survives error projection and a combo stops at the refusal instead of retrying other targets (#17049). |
 
 ### Policies (3)
 

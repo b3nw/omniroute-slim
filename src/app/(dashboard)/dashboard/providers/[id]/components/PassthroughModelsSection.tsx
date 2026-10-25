@@ -162,6 +162,7 @@ export default function PassthroughModelsSection({
               status?: "ok" | "error" | "slow";
               rateLimited?: boolean;
               isTimeout?: boolean;
+              skipped?: boolean;
               error?: string;
             }
           >;

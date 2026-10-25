@@ -35,6 +35,27 @@ export const DEFAULT_LIST_POLL_SECONDS = 2;
 export const TIMELINE_LIST_POLL_STORAGE_KEY = "timelineListPollSeconds";
 export const FOLLOW_LINE_X = 0.75;
 export const LIVE_LINE_FRACTION = 0.9;
+/** Pointer travel (px) before a press counts as a drag. Below this it stays a
+ *  click/tap, so selecting a bar never flips the view out of follow mode. */
+export const DRAG_THRESHOLD_PX = 4;
+/** #10897 — storage key for the timeline's "hide test probes" preference. */
+export const TIMELINE_EXCLUDE_TESTS_STORAGE_KEY = "timelineExcludeTests";
+/** #10897 — default: the timeline shows everything, including test probes. */
+export const DEFAULT_EXCLUDE_TESTS = false;
+
+/**
+ * #10897 — build the call-logs query for the timeline.
+ *
+ * `excludeTests=1` makes the server drop synthetic rows (connection tests,
+ * model sync, and every other non-inference backend job) at the SQL layer,
+ * before LIMIT — so a burst of probes can never crowd real traffic out of
+ * the waterfall. The flag is opt-in: without it the timeline keeps showing
+ * every row, which is what an operator debugging a probe wants.
+ */
+export function buildTimelineCallLogsUrl(limit: number, excludeTests: boolean): string {
+  const base = `/api/usage/call-logs?limit=${limit}`;
+  return excludeTests ? `${base}&excludeTests=1` : base;
+}
 
 export function computeBarRange(
   log: TimelineLog,

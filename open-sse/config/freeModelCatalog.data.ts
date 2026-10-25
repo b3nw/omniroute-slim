@@ -16,7 +16,7 @@ import type { FreeModelBudget } from "./freeModelCatalog.ts";
  * rewrites file timestamps on every deploy, which would report a months-old
  * catalog as "updated today". Bump this whenever the entries below change.
  */
-export const FREE_CATALOG_CURATED_AT = "2026-08-26";
+export const FREE_CATALOG_CURATED_AT = "2026-10-19";
 
 export const FREE_MODEL_BUDGETS: FreeModelBudget[] = [
   { provider: "agentrouter", modelId: "claude-opus-4-8", displayName: "Claude Opus 4.8", monthlyTokens: 0, creditTokens: 200000000, freeType: "one-time-initial", poolKey: "agentrouter", tos: "caution" },
@@ -235,7 +235,6 @@ export const FREE_MODEL_BUDGETS: FreeModelBudget[] = [
   { provider: "kilo-gateway", modelId: "kilo-auto/free", displayName: "Kilo Auto Free (auto-router)", monthlyTokens: 0, creditTokens: 0, freeType: "recurring-uncapped", poolKey: "kilo-gateway-free", tos: "caution", trainsOnPrompts: true },
   { provider: "kilo-gateway", modelId: "tencent/hy3:free", displayName: "Tencent Hy3 (free)", monthlyTokens: 0, creditTokens: 0, freeType: "recurring-uncapped", poolKey: "kilo-gateway-free", tos: "caution", trainsOnPrompts: true },
   { provider: "kilo-gateway", modelId: "stepfun/step-3.7-flash:free", displayName: "StepFun Step 3.7 Flash (free)", monthlyTokens: 0, creditTokens: 0, freeType: "recurring-uncapped", poolKey: "kilo-gateway-free", tos: "caution", trainsOnPrompts: true },
-  { provider: "kilo-gateway", modelId: "openrouter/auto-beta", displayName: "OpenRouter Auto Router (beta)", monthlyTokens: 0, creditTokens: 0, freeType: "recurring-uncapped", poolKey: "kilo-gateway-free", tos: "caution", trainsOnPrompts: true },
   { provider: "kilo-gateway", modelId: "openrouter/free", displayName: "OpenRouter Free Models Router", monthlyTokens: 0, creditTokens: 0, freeType: "recurring-uncapped", poolKey: "kilo-gateway-free", tos: "caution", trainsOnPrompts: true },
   { provider: "kilo-gateway", modelId: "poolside/laguna-xs-2.1:free", displayName: "Poolside Laguna XS 2.1 (free)", monthlyTokens: 0, creditTokens: 0, freeType: "recurring-uncapped", poolKey: "kilo-gateway-free", tos: "caution", trainsOnPrompts: true },
   { provider: "kilo-gateway", modelId: "poolside/laguna-m.1:free", displayName: "Poolside Laguna M.1 (free)", monthlyTokens: 0, creditTokens: 0, freeType: "recurring-uncapped", poolKey: "kilo-gateway-free", tos: "caution", trainsOnPrompts: true },

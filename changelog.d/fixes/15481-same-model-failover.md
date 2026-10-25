@@ -1,0 +1,1 @@
+- **fix(routing):** native Codex turn pins expand dynamic targets over the active, key-allowed connection pool and no longer resurrect a disabled or removed pinned account onto the first candidate, so a turn can fail over to another account serving the same model ([#15481](https://github.com/diegosouzapw/OmniRoute/pull/15481))

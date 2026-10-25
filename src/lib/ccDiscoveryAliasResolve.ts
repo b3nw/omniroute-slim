@@ -23,6 +23,7 @@ import { getRegistryEntry } from "@omniroute/open-sse/config/providerRegistry.ts
 import { getProviderById, getProviderByAlias } from "@/shared/constants/providers";
 import { getCachedProviderNodes } from "@/lib/db/readCache";
 import { getComboByName } from "@/lib/db/combos";
+import { createBuiltinAutoCombo } from "@omniroute/open-sse/services/autoCombo/builtinCatalog.ts";
 import {
   resolveCcAliasEnabled,
   getCcAliasGlobalState,
@@ -137,6 +138,47 @@ export async function resolveCcDiscoveryAliasStripWith(
   });
 }
 
+type CcAliasCombo = { models?: unknown[] } | null;
+
+/** A combo row is only usable when it has at least one model (mirrors getCombo in src/sse/services/model.ts). */
+function hasComboModels(combo: CcAliasCombo): boolean {
+  return Array.isArray(combo?.models) && combo.models.length > 0;
+}
+
+/**
+ * Resolve a `claude/combo/<name>` target to a combo row, matching the request
+ * path's precedence in src/sse/handlers/chatHelpers.ts: for `auto/…` names a
+ * persisted combo (exact, then `auto/best-<suffix>` / `auto/<suffix>` fuzzy)
+ * always wins over the built-in virtual auto catalog, so an operator-defined
+ * `auto/coding` combo is not shadowed by the built-in of the same name. A
+ * persisted row with no models is treated as absent (as getCombo does), so an
+ * empty persisted `auto/…` combo falls through to fuzzy and then the built-in.
+ */
+export async function lookupCcAliasCombo(
+  name: string,
+  lookups: {
+    getPersistedCombo(name: string): Promise<CcAliasCombo> | CcAliasCombo;
+    createBuiltinCombo(name: string, suffix: string): Promise<CcAliasCombo>;
+  }
+): Promise<CcAliasCombo> {
+  const persisted = await lookups.getPersistedCombo(name);
+  if (hasComboModels(persisted)) return persisted;
+  if (!name.startsWith("auto/")) return null;
+
+  const suffix = name.slice("auto/".length);
+  for (const candidate of [`auto/best-${suffix}`, `auto/${suffix}`]) {
+    if (candidate === name) continue;
+    const fuzzy = await lookups.getPersistedCombo(candidate);
+    if (hasComboModels(fuzzy)) return fuzzy;
+  }
+
+  try {
+    return await lookups.createBuiltinCombo(name, suffix);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * True when `prefix` names a provider the router can actually reach.
  *
@@ -188,7 +230,11 @@ export async function resolveCcDiscoveryAliasStrip(
     claudeModelIds,
     isRegistryProvider: (prefix) => isRoutableProviderPrefix(prefix),
     customProviderPrefixes,
-    getCombo: (name) => getComboByName(name),
+    getCombo: (name) =>
+      lookupCcAliasCombo(name, {
+        getPersistedCombo: getComboByName,
+        createBuiltinCombo: createBuiltinAutoCombo,
+      }),
     gateGlobal: () => globalEnabled,
     gateProvider: (providerId) => getCcAliasProviderSetting(providerId),
     gateModel: (providerId, modelId) => getCcAliasModelSetting(providerId, modelId),

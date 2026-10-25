@@ -33,6 +33,7 @@ import {
 } from "./completedRequestDetails";
 import { shouldPersistToDisk } from "./migrations";
 import { emitUsageRecorded } from "./usageEvents";
+import { getCallLogApiKeyContext } from "./callLogApiKeyContext";
 import {
   getLoggedInputTokens,
   getLoggedOutputTokens,
@@ -647,6 +648,19 @@ export interface UsageEntry {
  */
 export async function saveRequestUsage(entry: UsageEntry) {
   if (!shouldPersistToDisk) return;
+
+  // Fall back to the request-scoped api-key context, exactly as saveCallLogOperation
+  // does. The context exists so callers need not thread identity through every
+  // handler, but this writer only ever read `entry.apiKeyId` — so media paths, which
+  // set the context once in the route, stored an unattributed usage row while their
+  // call-log row came out attributed. Attribution matters here more than in call_logs:
+  // this table is what the per-key usage aggregation reads.
+  const apiKeyContext = getCallLogApiKeyContext();
+  entry = {
+    ...entry,
+    apiKeyId: entry.apiKeyId || apiKeyContext?.apiKeyId || null,
+    apiKeyName: entry.apiKeyName || apiKeyContext?.apiKeyName || null,
+  };
 
   try {
     const db = getDbInstance();

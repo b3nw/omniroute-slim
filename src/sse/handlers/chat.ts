@@ -29,7 +29,7 @@ import { getCombo, getComboForModel, getModelInfo } from "../services/model";
 import { stripContextWindowSuffix } from "@omniroute/open-sse/services/model.ts";
 import { resolveBareModelToConnectionDefault } from "@omniroute/open-sse/services/model.ts";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
-import { getImageModelEntry } from "@omniroute/open-sse/config/imageRegistry.ts";
+import { getImageModelEntry, isImageOnlyModel } from "@omniroute/open-sse/config/imageRegistry.ts";
 import { acceptHeaderForcesStream } from "@omniroute/open-sse/utils/aiSdkCompat.ts";
 import {
   applyNoThinkingAlias,
@@ -59,7 +59,6 @@ import {
   detectFormatFromUrl,
 } from "@omniroute/open-sse/services/provider.ts";
 import {
-  getModelsByProviderId,
   getModelTargetFormat,
   PROVIDER_ID_TO_ALIAS,
 } from "@omniroute/open-sse/config/providerModels.ts";
@@ -356,6 +355,14 @@ const managedComboRejection = () =>
 
 const comboPromoteDeps = { updateCombo, info: log.info, warn: log.warn };
 
+function breakerCountsAsFailure(error: unknown): boolean {
+  return !isLocalStreamLifecycleError(error);
+}
+
+function logBreakerStateChange(name: string, from: string, to: string): void {
+  log.info("CIRCUIT", `${name}: ${from} → ${to}`);
+}
+
 export { shouldTripProviderBreakerForResult } from "./chatPredicates";
 
 async function handleChatImplementation(
@@ -605,10 +612,7 @@ async function handleChatImplementation(
   // Keep this narrower than getComboForModel() so mappings and synthetic aliases
   // retain their existing resolution order.
   const isExactStoredCombo = imageModel ? Boolean(await getComboByName(modelStr)) : false;
-  const isChatCatalogModel = imageModel
-    ? getModelsByProviderId(imageModel.provider).some((model) => model.id === imageModel.model)
-    : false;
-  if (imageModel && !isExactStoredCombo && !isChatCatalogModel) {
+  if (imageModel && !isExactStoredCombo && isImageOnlyModel(modelStr)) {
     log.warn("CHAT", `Rejecting image-generation model on chat endpoint: ${modelStr}`);
     return errorResponse(
       HTTP_STATUS.BAD_REQUEST,
@@ -1074,6 +1078,8 @@ async function handleChatImplementation(
           providerId?: string | null;
           effectiveComboStrategy?: string | null;
           modelAbortSignal?: AbortSignal | null;
+          /** #16438: connection that just returned a pre-output empty turn (prefer a sibling). */
+          emptyTurnConnectionId?: string | null;
         }
       ) =>
         handleSingleModelChat(
@@ -1106,6 +1112,7 @@ async function handleChatImplementation(
             correlationId: reqId,
             conversationId,
             modelPinned: (target as any)?.modelPinned ?? false,
+            emptyTurnConnectionId: target?.emptyTurnConnectionId ?? null,
             reasoningTransportFallback,
             reasoningDecision,
             reasoningIntent,
@@ -1318,6 +1325,7 @@ async function handleSingleModelChat(
     conversationId?: string | null;
     routingComboId?: string | null;
     modelPinned?: boolean;
+    emptyTurnConnectionId?: string | null;
     reasoningDecision?: ReasoningRuleDecision | null;
     reasoningIntent?: ExtractedReasoningIntent | null;
     reasoningRequestTags?: string[];
@@ -1388,7 +1396,7 @@ async function handleSingleModelChat(
           {
             sessionId: "", // safety-net redirect doesn't have session context
             forceLiveComboTest: false,
-            forcedConnectionId: null,
+            forcedConnectionId: runtimeOptions?.forcedConnectionId ?? null,
             allowedConnectionIds: null,
             comboStepId: null,
             comboExecutionKey: null,
@@ -1518,9 +1526,8 @@ async function handleSingleModelChat(
     resetTimeout: providerProfile.resetTimeoutMs,
     // #4602: a local WS-bridge "Controller is already closed" throw is not an
     // upstream outage — keep it from tripping the whole-provider breaker.
-    isFailure: (e) => !isLocalStreamLifecycleError(e),
-    onStateChange: (name: string, from: string, to: string) =>
-      log.info("CIRCUIT", `${name}: ${from} → ${to}`),
+    isFailure: breakerCountsAsFailure,
+    onStateChange: logBreakerStateChange,
     ...(useHints429
       ? {
           cooldownByKind: {
@@ -1569,6 +1576,8 @@ async function handleSingleModelChat(
   const occupancySessionKey =
     runtimeOptions.sessionAffinityKey ?? runtimeOptions.sessionId ?? `request:${randomUUID()}`;
   let initialPreselectedCredentials = runtimeOptions.preselectedCredentials;
+  // #16438 opt-in (EMPTY_STREAM_SIBLING_RECOVERY_ENABLED): read once per dispatch.
+  const emptyStreamSiblingRecovery = isFeatureFlagEnabled("EMPTY_STREAM_SIBLING_RECOVERY_ENABLED");
 
   requestAttemptLoop: while (true) {
     const excludedConnectionIds = new Set<string>(runtimeOptions.excludedConnectionIds ?? []);
@@ -1579,48 +1588,71 @@ async function handleSingleModelChat(
     initialPreselectedCredentials = null;
 
     while (true) {
-      const credentials =
+      const selectCredentials = (excluded: Set<string>) =>
+        getProviderCredentialsWithQuotaPreflight(
+          provider,
+          null,
+          effectiveAllowedConnections,
+          model,
+          {
+            sessionKey: occupancySessionKey,
+            reserveOAuthSession: true,
+            excludeConnectionIds: Array.from(excluded),
+            ...(runtimeOptions.allowRateLimitedConnection
+              ? { allowRateLimitedConnections: true }
+              : {}),
+            ...(forceLiveComboTest
+              ? {
+                  allowSuppressedConnections: true,
+                  bypassQuotaPolicy: true,
+                }
+              : {}),
+            ...(!forceLiveComboTest && bypassProviderQuotaPolicy
+              ? { bypassQuotaPolicy: true }
+              : {}),
+            ...(runtimeOptions.managedLease
+              ? { lease: credentialLease(runtimeOptions.managedLease) }
+              : {}),
+            ...(() => {
+              const effectiveForcedId = resolveForcedConnectionForCredentialPool({
+                forcedConnectionId: runtimeOptions.forcedConnectionId ?? null,
+                excludedConnectionIds,
+                connections: [],
+                allowRateLimitedConnections:
+                  runtimeOptions.allowRateLimitedConnection === true || forceLiveComboTest,
+                bypassQuotaPolicy: forceLiveComboTest || bypassProviderQuotaPolicy,
+                isQuotaExhausted: () => false,
+                isQuotaPolicyBlocked: () => false,
+              });
+              return effectiveForcedId ? { forcedConnectionId: effectiveForcedId } : {};
+            })(),
+          }
+        );
+      // #16438: a pre-output empty turn prefers a sibling connection; when none is eligible the
+      // original exclusion set decides (no lockout either way). An explicit account pin is never
+      // excluded or widened to siblings by empty-turn recovery (the effective forced id is only
+      // ever derived from forcedConnectionId, so hasForcedConnection covers both).
+      const emptyTurnExcluded = new Set(excludedConnectionIds);
+      if (
+        emptyStreamSiblingRecovery &&
+        runtimeOptions.emptyTurnConnectionId &&
+        !hasForcedConnection
+      ) {
+        emptyTurnExcluded.add(runtimeOptions.emptyTurnConnectionId);
+      }
+      let credentials =
         preselectedCredentials && excludedConnectionIds.size === 0
           ? preselectedCredentials
-          : await getProviderCredentialsWithQuotaPreflight(
-              provider,
-              null,
-              effectiveAllowedConnections,
-              model,
-              {
-                sessionKey: occupancySessionKey,
-                reserveOAuthSession: true,
-                excludeConnectionIds: Array.from(excludedConnectionIds),
-                ...(runtimeOptions.allowRateLimitedConnection
-                  ? { allowRateLimitedConnections: true }
-                  : {}),
-                ...(forceLiveComboTest
-                  ? {
-                      allowSuppressedConnections: true,
-                      bypassQuotaPolicy: true,
-                    }
-                  : {}),
-                ...(!forceLiveComboTest && bypassProviderQuotaPolicy
-                  ? { bypassQuotaPolicy: true }
-                  : {}),
-                ...(runtimeOptions.managedLease
-                  ? { lease: credentialLease(runtimeOptions.managedLease) }
-                  : {}),
-                ...(() => {
-                  const effectiveForcedId = resolveForcedConnectionForCredentialPool({
-                    forcedConnectionId: runtimeOptions.forcedConnectionId ?? null,
-                    excludedConnectionIds,
-                    connections: [],
-                    allowRateLimitedConnections:
-                      runtimeOptions.allowRateLimitedConnection === true || forceLiveComboTest,
-                    bypassQuotaPolicy: forceLiveComboTest || bypassProviderQuotaPolicy,
-                    isQuotaExhausted: () => false,
-                    isQuotaPolicyBlocked: () => false,
-                  });
-                  return effectiveForcedId ? { forcedConnectionId: effectiveForcedId } : {};
-                })(),
-              }
-            );
+          : await selectCredentials(emptyTurnExcluded);
+      if (
+        emptyTurnExcluded.size > excludedConnectionIds.size &&
+        (!credentials ||
+          "allRateLimited" in credentials ||
+          "allExpired" in credentials ||
+          !credentials.connectionId)
+      ) {
+        credentials = await selectCredentials(excludedConnectionIds);
+      }
       preselectedCredentials = null;
 
       if (runtimeOptions.managedLease && credentials) {
@@ -1873,6 +1905,7 @@ async function handleSingleModelChat(
             correlationId: runtimeOptions?.correlationId ?? null,
             conversationId: runtimeOptions?.conversationId ?? null,
             modelPinned: runtimeOptions?.modelPinned ?? false,
+            emptyTurnConnectionId: runtimeOptions?.emptyTurnConnectionId ?? null,
             routingComboId: runtimeOptions?.routingComboId ?? null,
             sessionAffinityKey: runtimeOptions.sessionAffinityKey ?? null,
             reasoningTransportFallback: runtimeOptions.reasoningTransportFallback ?? "drop",

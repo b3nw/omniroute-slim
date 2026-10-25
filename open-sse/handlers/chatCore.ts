@@ -408,6 +408,7 @@ import { saveIdempotency } from "@/lib/idempotencyLayer";
 import {
   isModelUnavailableError,
   getNextFamilyFallback,
+  getNextEligibleFamilyFallback,
   isContextOverflowError,
   findLargerContextModel,
   getModelFamily,
@@ -4547,7 +4548,12 @@ export async function handleChatCore({
     // Claude 5.5 entitlement failures skip intra-family fallback: the account rotation layer
     // must try the same tier on another account rather than silently downgrading here.
     if (!isClaude55Entitlement && isModelUnavailableError(statusCode, message, provider)) {
-      const nextModel = getNextFamilyFallback(currentModel, triedModels, provider);
+      // #17113: a sibling whose wire alias (or catalog id) is model-locked on
+      // THIS connection must not be picked — the client pinned that wire id
+      // explicitly, so failing over to it would override the pin.
+      const nextModel = errorConnectionId
+        ? getNextEligibleFamilyFallback(currentModel, triedModels, provider, errorConnectionId)
+        : getNextFamilyFallback(currentModel, triedModels, provider);
       if (nextModel) {
         triedModels.add(nextModel);
         currentModel = nextModel;
@@ -4638,7 +4644,9 @@ export async function handleChatCore({
       );
       const nextModel =
         findLargerContextModel(currentModel, familyCandidates, provider) ??
-        getNextFamilyFallback(currentModel, triedModels, provider);
+        (errorConnectionId
+          ? getNextEligibleFamilyFallback(currentModel, triedModels, provider, errorConnectionId)
+          : getNextFamilyFallback(currentModel, triedModels, provider));
       if (nextModel) {
         triedModels.add(nextModel);
         currentModel = nextModel;
@@ -4899,7 +4907,15 @@ export async function handleChatCore({
       persistFailureUsage(HTTP_STATUS.BAD_GATEWAY, "empty_content");
 
       // Trigger non-recursive fallback for empty content
-      const nextModel = getNextFamilyFallback(currentModel, triedModels, provider);
+      const emptyContentConnectionId = getCurrentConnectionId();
+      const nextModel = emptyContentConnectionId
+        ? getNextEligibleFamilyFallback(
+            currentModel,
+            triedModels,
+            provider,
+            emptyContentConnectionId
+          )
+        : getNextFamilyFallback(currentModel, triedModels, provider);
       if (nextModel) {
         triedModels.add(nextModel);
         currentModel = nextModel;

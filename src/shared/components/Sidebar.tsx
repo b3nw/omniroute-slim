@@ -385,7 +385,7 @@ export default function Sidebar({
       collapsed ? "justify-center px-2 py-2.5" : "px-3 py-1.5",
       active
         ? "bg-primary/10 text-primary"
-        : "text-text-muted hover:bg-surface/50 hover:text-text-main"
+        : "text-text-main/75 hover:bg-surface/50 hover:text-text-main"
     );
     const iconClassName = cn(
       "material-symbols-outlined text-[18px] shrink-0",
@@ -400,7 +400,7 @@ export default function Sidebar({
           <div className="flex min-w-0 flex-col">
             <span className="truncate text-sm font-medium">{item.label}</span>
             {item.subtitle && (
-              <span className="truncate text-[10px] text-text-muted/60">{item.subtitle}</span>
+              <span className="truncate text-[10px] text-text-main/65">{item.subtitle}</span>
             )}
           </div>
         )}

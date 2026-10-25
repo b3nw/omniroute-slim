@@ -4,6 +4,8 @@ import { getDefaultErrorMessage, getErrorInfo } from "../config/errorConfig.ts";
 import { normalizePayloadForLog } from "@/lib/logPayloads";
 import type { ModelCooldownErrorPayload } from "@/types";
 import { buildPassthroughErrorResponse } from "./upstreamErrorPassthrough.ts";
+import { parseDetailedRetryHintFromJsonBody } from "../services/retryAfterJson.ts";
+import { classifyProviderSafetyError } from "./providerSafety.ts";
 
 /**
  * Sanitize an error message to prevent stack trace exposure in API responses.
@@ -499,14 +501,18 @@ export function parseAntigravityRetryTime(message: unknown): number | null {
  * @returns {Promise<{statusCode: number, message: string, retryAfterMs: number|null, responseBody: unknown}>}
  */
 export async function parseUpstreamError(response: Response, provider: string | null = null) {
+  // Cap maximum retry time at 24 hours to prevent infinite wait
+  const MAX_RETRY_MS = 24 * 60 * 60 * 1000;
   let message: unknown = "";
   let retryAfterMs: number | null = null;
   let responseBody: unknown = null;
   let errorCode: unknown = undefined;
   let errorType: unknown = undefined;
+  let rawText = "";
 
   try {
     const text = await response.text();
+    rawText = text;
     responseBody = normalizePayloadForLog(text);
 
     // Try parse as JSON
@@ -521,9 +527,10 @@ export async function parseUpstreamError(response: Response, provider: string | 
       const { error: clinepassEnvError } = unwrapClinepassEnvelope(json, provider);
       message = clinepassEnvError
         ? clinepassEnvError.message
-        : json.error?.message || json.message || json.error || text;
-      errorCode = json.error?.code || json.code;
-      errorType = json.error?.type || json.type;
+        : json.error?.message || json.message || json.response?.error?.message || json.error || text;
+      // Nested Responses failures carry the error under `response.error` (#17049).
+      errorCode = json.error?.code || json.code || json.response?.error?.code;
+      errorType = json.error?.type || json.type || json.response?.error?.type;
     } catch {
       message = text;
     }
@@ -532,6 +539,18 @@ export async function parseUpstreamError(response: Response, provider: string | 
     responseBody = { _rawText: message };
   }
 
+  // Code-only Responses failures still belong to the request, not account health (#17049).
+  // Returns null unless PROVIDER_SAFETY_STOPS_TERMINAL is on.
+  const safety = classifyProviderSafetyError({
+    status: response.status,
+    code: errorCode,
+    type: errorType,
+    message,
+  });
+  if (safety) {
+    errorCode = safety.code;
+    errorType = "invalid_request_error";
+  }
   const messageStr = typeof message === "string" ? message : JSON.stringify(message);
 
   const retryAfterHeader = response.headers?.get?.("retry-after");
@@ -545,6 +564,13 @@ export async function parseUpstreamError(response: Response, provider: string | 
         retryAfterMs = retryAfterDate - Date.now();
       }
     }
+  }
+
+  // Gemini may carry its authoritative retry window only in a structured
+  // google.rpc.RetryInfo detail, without prose or a Retry-After header.
+  if (response.status === 429 && !retryAfterMs) {
+    const structuredHint = parseDetailedRetryHintFromJsonBody(rawText, MAX_RETRY_MS);
+    if (structuredHint) retryAfterMs = structuredHint.retryAfterMs;
   }
 
   // Parse Antigravity-specific retry time from error message
@@ -565,8 +591,6 @@ export async function parseUpstreamError(response: Response, provider: string | 
     }
   }
 
-  // Cap maximum retry time at 24 hours to prevent infinite wait
-  const MAX_RETRY_MS = 24 * 60 * 60 * 1000;
   if (retryAfterMs && retryAfterMs > MAX_RETRY_MS) {
     retryAfterMs = MAX_RETRY_MS;
   }
@@ -593,6 +617,14 @@ export async function parseUpstreamError(response: Response, provider: string | 
  * @param {number|null} retryAfterMs - Optional retry-after time in milliseconds
  * @returns {{ success: false, status: number, error: string, response: Response, retryAfterMs?: number }}
  */
+function buildErrorResultHeaders(retryAfterMs: number | null | undefined): Record<string, string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (retryAfterMs && Number.isFinite(retryAfterMs) && retryAfterMs > 0) {
+    headers["Retry-After"] = String(Math.ceil(retryAfterMs / 1000));
+  }
+  return headers;
+}
+
 export function createErrorResult(
   statusCode: number,
   message: string,
@@ -639,7 +671,7 @@ export function createErrorResult(
     errorCode,
     response: new Response(JSON.stringify(body), {
       status: statusCode,
-      headers: { "Content-Type": "application/json" },
+      headers: buildErrorResultHeaders(retryAfterMs),
     }),
   };
 

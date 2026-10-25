@@ -1,0 +1,1 @@
+- **fix(providers):** Microsoft 365 Copilot HAR import, credential validation and pasted ChatHub URLs now accept the exact `substrate.svc.cloud.microsoft` ChatHub host through one shared trusted-host check, while still rejecting untrusted hosts, non-`wss:` schemes, custom ports, userinfo and malformed URLs ([#17137](https://github.com/diegosouzapw/OmniRoute/pull/17137))

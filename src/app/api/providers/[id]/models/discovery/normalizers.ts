@@ -237,6 +237,17 @@ export function normalizeDataRobotCatalogResponse(
     .filter((value): value is { id: string; name: string } => Boolean(value));
 }
 
+// #17121: SiliconFlow free-only imports rely on live pricing and explicit flags.
+// Keep that evidence through discovery so a paid row cannot become free by losing
+// its veto. Project only the fields consumed by payloadFreeEvidence.
+function pickSiliconFlowPricingEvidence(item: Record<string, unknown>): Record<string, unknown> {
+  const picked: Record<string, unknown> = {};
+  for (const key of ["pricing", "isFree", "is_free", "free", "tags"] as const) {
+    if (item[key] !== undefined && item[key] !== null) picked[key] = item[key];
+  }
+  return picked;
+}
+
 export function normalizeOpenAiLikeModelsResponse(
   data: unknown,
   fallbackOwner: string
@@ -263,7 +274,12 @@ export function normalizeOpenAiLikeModelsResponse(
         id;
       const ownedBy =
         toNonEmptyString(item.owned_by) || toNonEmptyString(item.provider) || fallbackOwner;
-      return { id, name, owned_by: ownedBy };
+      return {
+        ...(fallbackOwner === "siliconflow" ? pickSiliconFlowPricingEvidence(item) : {}),
+        id,
+        name,
+        owned_by: ownedBy,
+      };
     })
     .filter((value): value is { id: string; name: string; owned_by: string } => Boolean(value));
 }

@@ -1,0 +1,1 @@
+- **fix(github):** strip `temperature` for GitHub Copilot GPT-5.4+ and GPT-6.x models (`gpt-5.5`, `gpt-5.6-sol/terra/luna`, `gpt-6-astra`, …) on both chat and Responses bodies through one shared anchored predicate, instead of only matching `gpt-5.4` (which also over-matched malformed ids) ([#16725](https://github.com/diegosouzapw/OmniRoute/pull/16725)) — thanks @m00nie

@@ -3,6 +3,7 @@ export { APP_CONFIG, THEME_CONFIG } from "./appConfig";
 // Provider API endpoints (for display only)
 export const PROVIDER_ENDPOINTS = {
   agentrouter: "https://agentrouter.org/v1/chat/completions",
+  unifically: "https://api.unifically.com/v1/chat/completions",
   openrouter: "https://openrouter.ai/api/v1/chat/completions",
   dgrid: "https://api.dgrid.ai/v1/chat/completions",
   bai: "https://api.b.ai/v1/chat/completions",

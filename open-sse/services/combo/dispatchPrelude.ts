@@ -50,6 +50,7 @@ import {
   releaseRejectedQualityResponse,
   validateResponseQuality,
 } from "./validateQuality.ts";
+import { getStrategyTraits } from "./strategyRegistry.ts";
 import type {
   ComboCollectionLike,
   ComboLike,
@@ -431,13 +432,14 @@ export async function tryFusionDispatch(args: {
     cfg.fusionTuning && typeof cfg.fusionTuning === "object"
       ? (cfg.fusionTuning as FusionTuning)
       : undefined;
-  if (strategy !== "fusion" && (configuredJudge || fusionTuning)) {
+  const isFusion = getStrategyTraits(strategy).dispatchPrelude === "fusion";
+  if (!isFusion && (configuredJudge || fusionTuning)) {
     log.warn(
       "COMBO",
       `Combo "${combo.name}" sets config.judgeModel/fusionTuning but strategy is "${strategy}" — these fields are only consumed by the fusion strategy and will be ignored (#6455)`
     );
   }
-  if (strategy !== "fusion") return null;
+  if (!isFusion) return null;
 
   let allResolvedFusionTargets = resolveComboTargets(
     combo,
@@ -583,7 +585,7 @@ export async function tryPipelineDispatch(args: {
     log,
     hiddenModelsByProvider,
   } = args;
-  if (strategy !== "pipeline") return null;
+  if (getStrategyTraits(strategy).dispatchPrelude !== "pipeline") return null;
   const resolvedTargets = resolveComboTargets(
     combo,
     allCombos,
@@ -647,9 +649,10 @@ async function orderRuntimeUnits(args: {
   settings?: Record<string, unknown> | null;
 }): Promise<RuntimeUnitOrdering> {
   const { strategy, executeModeUnits, combo, config, settings } = args;
+  const { stickyPin, runtimeUnitOrder } = getStrategyTraits(strategy);
   let runtimeUnits = executeModeUnits;
   let unitExecutionStrategy = strategy;
-  if (strategy === "weighted") {
+  if (stickyPin === "weighted") {
     const stickyLimit = clampStickyWeightedTargetLimit(
       (config as Record<string, unknown>).stickyWeightedLimit
     );
@@ -665,8 +668,8 @@ async function orderRuntimeUnits(args: {
       unitExecutionStrategy = "priority";
     }
   }
-  if (strategy === "random") runtimeUnits = fisherYatesShuffle([...runtimeUnits]);
-  if (strategy === "strict-random") {
+  if (runtimeUnitOrder === "shuffle") runtimeUnits = fisherYatesShuffle([...runtimeUnits]);
+  if (runtimeUnitOrder === "deck") {
     const key = await getNextFromDeck(
       `combo:${combo.name}`,
       runtimeUnits.map((unit) => unit.executionKey)
@@ -679,7 +682,7 @@ async function orderRuntimeUnits(args: {
   }
   let runtimeStickyLimit: number | null = null;
   let runtimeStickyTargets: ResolvedComboUnit[] = runtimeUnits;
-  if (strategy === "round-robin") {
+  if (stickyPin === "round-robin") {
     const perComboStickyLimit = (config as Record<string, unknown>).stickyRoundRobinLimit;
     runtimeStickyLimit = resolveComboStickyRoundRobinLimit(
       perComboStickyLimit,
@@ -752,16 +755,11 @@ export async function tryRuntimeUnitDispatch(args: {
         )
       : [];
   const hasExecutableComboRef = executeModeUnits.some((unit) => unit.kind === "combo-ref");
-  const simpleExecuteStrategies = new Set([
-    "priority",
-    "round-robin",
-    "random",
-    "strict-random",
-    "weighted",
-    "fill-first",
-  ]);
-
-  if (!hasExecutableComboRef || !simpleExecuteStrategies.has(strategy)) return null;
+  // Only the simple execute strategies (priority / round-robin / random / strict-random /
+  // weighted / fill-first) support execute-mode runtime units — every other strategy has
+  // `runtimeUnitOrder: "unsupported"` in the strategy registry.
+  const runtimeUnitsSupported = getStrategyTraits(strategy).runtimeUnitOrder !== "unsupported";
+  if (!hasExecutableComboRef || !runtimeUnitsSupported) return null;
 
   const ordering = await orderRuntimeUnits({
     strategy,
@@ -819,7 +817,8 @@ function recordRuntimeUnitStickySuccess(args: {
   stickyTargets: ResolvedComboUnit[];
 }): void {
   const { strategy, combo, config, execution, stickyLimit, stickyTargets } = args;
-  if (strategy === "weighted" && execution.response.ok && execution.unit) {
+  const { stickyPin } = getStrategyTraits(strategy);
+  if (stickyPin === "weighted" && execution.response.ok && execution.unit) {
     const weightedLimit = clampStickyWeightedTargetLimit(
       (config as Record<string, unknown>).stickyWeightedLimit
     );
@@ -827,7 +826,7 @@ function recordRuntimeUnitStickySuccess(args: {
       recordStickyWeightedSuccess(combo.name, execution.unit.executionKey, weightedLimit);
   }
   if (
-    strategy === "round-robin" &&
+    stickyPin === "round-robin" &&
     execution.response.ok &&
     execution.unit &&
     stickyLimit &&

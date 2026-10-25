@@ -5,9 +5,16 @@ import { getModelsByProviderId } from "../../open-sse/config/providerModels.ts";
 import { getModelSpec } from "../../src/shared/constants/modelSpecs.ts";
 import { getPricingForModel } from "../../src/shared/constants/pricing.ts";
 
-const EXPECTED_MODELS = ["gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
+const EXPECTED_MODELS = [
+  "gpt-5.6",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
+  "gpt-6-sol",
+  "gpt-6-luna",
+];
 
-test("OpenAI API catalog exposes the public GPT-5.6 family and keeps GPT-5.4", () => {
+test("OpenAI API catalog exposes the public GPT-5.6/GPT-6 models and keeps GPT-5.4", () => {
   const models = getModelsByProviderId("openai");
 
   assert.deepEqual(
@@ -44,6 +51,8 @@ test("OpenAI API GPT-5.6 pricing matches the published standard tier", () => {
     "gpt-5.6-sol": { input: 5, cached: 0.5, cache_creation: 6.25, output: 30 },
     "gpt-5.6-terra": { input: 2.5, cached: 0.25, cache_creation: 3.125, output: 15 },
     "gpt-5.6-luna": { input: 1, cached: 0.1, cache_creation: 1.25, output: 6 },
+    "gpt-6-sol": { input: 5, cached: 0.5, cache_creation: 6.25, output: 30 },
+    "gpt-6-luna": { input: 1, cached: 0.1, cache_creation: 1.25, output: 6 },
   };
 
   for (const [modelId, expected] of Object.entries(expectedPricing)) {

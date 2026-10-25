@@ -20,6 +20,7 @@ import {
   normalizeOutputIndex,
   normalizeUpstreamFailure,
   getVisibleResponsesReasoningSummaryText,
+  resolveResponsesDoneEventType,
 } from "./openai-responses/pureHelpers.ts";
 import { createEventEmitter } from "./openai-responses/eventEmitter.ts";
 import { buildResponsesToolCallItem } from "./responsesToolItem.ts";
@@ -992,8 +993,10 @@ function openaiResponsesToOpenAIResponseStream(chunk, state) {
   }
 
   // Handle different event types from Responses API
-  const eventType = chunk.type || chunk.event;
+  const rawEventType = chunk.type || chunk.event;
   const data = chunk.data || chunk;
+  if (rawEventType === "response.done" && state.finishReasonSent) return null;
+  const eventType = resolveResponsesDoneEventType(rawEventType, data);
 
   if (!state.model) {
     const upstreamModel =
@@ -1443,6 +1446,63 @@ function openaiResponsesToOpenAIResponseStream(chunk, state) {
         finalChunk.usage = state.usage;
       }
 
+      return finalChunk;
+    }
+    return null;
+  }
+
+  if (eventType === "response.incomplete") {
+    const response = data.response || {};
+    const incompleteReason = response.incomplete_details?.reason;
+    state.finishReason =
+      incompleteReason === "content_filter" ? "content_filter" : "length";
+
+    // Match response.completed: translate usage into Chat Completions token fields.
+    const responseUsage = response.usage;
+    if (responseUsage && typeof responseUsage === "object") {
+      const inputTokens = responseUsage.input_tokens || responseUsage.prompt_tokens || 0;
+      const outputTokens = responseUsage.output_tokens || responseUsage.completion_tokens || 0;
+      const cacheReadTokens =
+        responseUsage.cache_read_input_tokens ||
+        responseUsage.input_tokens_details?.cached_tokens ||
+        responseUsage.prompt_tokens_details?.cached_tokens ||
+        0;
+      const cacheCreationTokens = responseUsage.cache_creation_input_tokens || 0;
+      const promptTokens =
+        inputTokens +
+        ("cache_read_input_tokens" in responseUsage ? cacheReadTokens + cacheCreationTokens : 0);
+      state.usage = {
+        prompt_tokens: promptTokens,
+        completion_tokens: outputTokens,
+        total_tokens: promptTokens + outputTokens,
+      };
+      if (cacheReadTokens > 0 || cacheCreationTokens > 0) {
+        state.usage.prompt_tokens_details = {};
+        if (cacheReadTokens > 0) state.usage.prompt_tokens_details.cached_tokens = cacheReadTokens;
+        if (cacheCreationTokens > 0) {
+          state.usage.prompt_tokens_details.cache_creation_tokens = cacheCreationTokens;
+        }
+      }
+      const reasoningTokens =
+        responseUsage.output_tokens_details?.reasoning_tokens ||
+        responseUsage.completion_tokens_details?.reasoning_tokens ||
+        responseUsage.reasoning_tokens ||
+        0;
+      if (reasoningTokens > 0) {
+        state.usage.completion_tokens_details = { reasoning_tokens: reasoningTokens };
+      }
+    }
+
+    if (!state.finishReasonSent) {
+      state.finishReasonSent = true;
+      const finalChunk: Record<string, unknown> = {
+        id: state.chatId,
+        object: "chat.completion.chunk",
+        created: state.created,
+        model: state.model || "gpt-4",
+        choices: [{ index: 0, delta: {}, finish_reason: state.finishReason }],
+      };
+      if (state.usage && typeof state.usage === "object") finalChunk.usage = state.usage;
       return finalChunk;
     }
     return null;

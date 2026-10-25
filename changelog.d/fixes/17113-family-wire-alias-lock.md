@@ -1,0 +1,1 @@
+- **fix(routing):** connection-aware family fallback (`getNextEligibleFamilyFallback` / `isFamilyFallbackEligible`) now skips a sibling whose catalog id or provider wire alias is model-locked on the selected connection, while another account's lock does not apply ([#17113](https://github.com/diegosouzapw/OmniRoute/pull/17113))

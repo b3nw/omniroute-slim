@@ -12,6 +12,7 @@ import {
 import { SafeOutboundFetchError } from "@/shared/network/safeOutboundFetch";
 import { normalizeSessionCookieHeader } from "@/lib/providers/webCookieAuth";
 import { normalizeGeminiCookieInput } from "@omniroute/open-sse/utils/geminiCookies.ts";
+import { isTrustedM365ChatHubUrl } from "@omniroute/open-sse/utils/m365Credentials.ts";
 import {
   META_AI_ASBD_ID,
   META_AI_FRIENDLY_NAME,
@@ -356,16 +357,13 @@ export function extractM365CredentialParts(
 
   // Accept the current M365 web endpoint (m365.cloud.microsoft, including
   // regional subdomains) plus the two legacy hosts (substrate.office.com,
-  // copilot.microsoft.com). The path still carries /m365Copilot/Chathub/<tenant>,
-  // so extraction is unchanged. (OmniRoute issue #7078)
+  // copilot.microsoft.com) and the exact substrate.svc.cloud.microsoft ChatHub host
+  // (#16327). The path still carries /m365Copilot/Chathub/<tenant>, so extraction
+  // is unchanged. (OmniRoute issue #7078)
   if (/^wss:\/\//i.test(text)) {
     try {
       const url = new URL(text);
-      const hostOk =
-        /^(?:[\w-]+\.)*(?:m365\.cloud\.microsoft|copilot\.microsoft\.com|substrate\.office\.com)$/i.test(
-          url.hostname
-        );
-      if (hostOk && url.pathname.startsWith("/m365Copilot/Chathub/")) {
+      if (isTrustedM365ChatHubUrl(url)) {
         parts.access_token ||= url.searchParams.get("access_token") || "";
         parts.chathubPath ||= decodeURIComponent(
           url.pathname.split("/m365Copilot/Chathub/")[1] || ""

@@ -94,6 +94,7 @@ export const NAMED_OPENAI_STYLE_PROVIDERS = new Set([
   "clova-studio",
   "internlm",
   "ant-ling",
+  "unifically",
   "nanogpt",
   // Logfare (https://logfare.ai) — free OpenAI-compatible gateway live-verified
   // 2026-08-21: GET https://logfare.ai/v1/models returns a real 20-model catalog

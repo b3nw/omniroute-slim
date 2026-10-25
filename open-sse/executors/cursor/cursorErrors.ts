@@ -82,6 +82,10 @@ export function isCursorBenignCancelError(value: unknown): boolean {
   return false;
 }
 
+export function isCursorStreamTimeoutError(value: unknown): boolean {
+  return errorCode(value) === "CURSOR_STREAM_TIMEOUT";
+}
+
 export function classifyCursorErrorKind(rawMessage: string): CursorErrorKind {
   const lower = rawMessage.toLowerCase();
 

@@ -28,6 +28,13 @@ export const DEFAULT_PRICING_INFERENCE = {
       reasoning: 1.12,
       cache_creation: 0.56,
     },
+    "claude-opus-5-5": {
+      input: 2.8,
+      output: 14.0,
+      cached: 0.28,
+      reasoning: 14.0,
+      cache_creation: 3.5,
+    },
     "claude-fable-5": {
       input: 7.0,
       output: 35.0,

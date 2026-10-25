@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveCcDiscoveryAliasStripWith } from "../../src/lib/ccDiscoveryAliasResolve.ts";
+import {
+  lookupCcAliasCombo,
+  resolveCcDiscoveryAliasStripWith,
+} from "../../src/lib/ccDiscoveryAliasResolve.ts";
 
 /**
  * These tests exercise the async request-path resolver by injecting all of its
@@ -59,6 +62,152 @@ test("combo alias strips when the combo exists (non-empty models) and gate on", 
     getCombo: async (name) => (name === "custo-otimizado" ? { models: [{ id: "a" }] } : null),
   });
   assert.deepEqual(result, { model: "custo-otimizado", stripped: true });
+});
+
+test("built-in auto combo alias strips when the auto combo resolver returns a combo", async () => {
+  const result = await resolveCcDiscoveryAliasStripWith("claude/combo/auto/coding", {
+    ...baseDeps,
+    getCombo: async (name) => (name === "auto/coding" ? { models: [{ id: "auto/coding" }] } : null),
+  });
+  assert.deepEqual(result, { model: "auto/coding", stripped: true });
+});
+
+test("combo lookup: persisted auto/ combo takes precedence over the built-in", async () => {
+  const persisted = { models: [{ id: "persisted" }] };
+  let builtinCalls = 0;
+  const combo = await lookupCcAliasCombo("auto/coding", {
+    getPersistedCombo: async (name) => (name === "auto/coding" ? persisted : null),
+    createBuiltinCombo: async () => {
+      builtinCalls++;
+      return { models: [{ id: "builtin" }] };
+    },
+  });
+  assert.equal(combo, persisted);
+  assert.equal(builtinCalls, 0);
+});
+
+test("combo lookup: persisted fuzzy auto/best-<suffix> beats the built-in", async () => {
+  const fuzzy = { models: [{ id: "best-fast" }] };
+  let builtinCalls = 0;
+  const combo = await lookupCcAliasCombo("auto/fast", {
+    getPersistedCombo: async (name) => (name === "auto/best-fast" ? fuzzy : null),
+    createBuiltinCombo: async () => {
+      builtinCalls++;
+      return { models: [{ id: "builtin" }] };
+    },
+  });
+  assert.equal(combo, fuzzy);
+  assert.equal(builtinCalls, 0);
+});
+
+test("combo lookup: falls back to the built-in when no persisted auto/ combo exists", async () => {
+  const builtin = { models: [{ id: "builtin" }] };
+  const seen: string[] = [];
+  const combo = await lookupCcAliasCombo("auto/coding", {
+    getPersistedCombo: async (name) => {
+      seen.push(name);
+      return null;
+    },
+    createBuiltinCombo: async (name, suffix) =>
+      name === "auto/coding" && suffix === "coding" ? builtin : null,
+  });
+  assert.equal(combo, builtin);
+  assert.deepEqual(seen, ["auto/coding", "auto/best-coding"]);
+});
+
+test("combo lookup: built-in failure resolves to null", async () => {
+  const combo = await lookupCcAliasCombo("auto/coding", {
+    getPersistedCombo: async () => null,
+    createBuiltinCombo: async () => {
+      throw new Error("no providers");
+    },
+  });
+  assert.equal(combo, null);
+});
+
+test("combo lookup: non-auto names never consult the built-in catalog", async () => {
+  let builtinCalls = 0;
+  const combo = await lookupCcAliasCombo("custo-otimizado", {
+    getPersistedCombo: async () => null,
+    createBuiltinCombo: async () => {
+      builtinCalls++;
+      return { models: [{ id: "x" }] };
+    },
+  });
+  assert.equal(combo, null);
+  assert.equal(builtinCalls, 0);
+});
+
+test("combo lookup: empty exact persisted auto/ combo falls through to fuzzy", async () => {
+  const fuzzy = { models: [{ id: "best-coding" }] };
+  let builtinCalls = 0;
+  const combo = await lookupCcAliasCombo("auto/coding", {
+    getPersistedCombo: async (name) => {
+      if (name === "auto/coding") return { models: [] };
+      if (name === "auto/best-coding") return fuzzy;
+      return null;
+    },
+    createBuiltinCombo: async () => {
+      builtinCalls++;
+      return { models: [{ id: "builtin" }] };
+    },
+  });
+  assert.equal(combo, fuzzy);
+  assert.equal(builtinCalls, 0);
+});
+
+test("combo lookup: empty exact and fuzzy persisted auto/ combos fall through to the built-in", async () => {
+  const builtin = { models: [{ id: "builtin" }] };
+  const seen: string[] = [];
+  const combo = await lookupCcAliasCombo("auto/coding", {
+    getPersistedCombo: async (name) => {
+      seen.push(name);
+      if (name === "auto/coding") return { models: [] };
+      if (name === "auto/best-coding") return {};
+      return null;
+    },
+    createBuiltinCombo: async (name, suffix) =>
+      name === "auto/coding" && suffix === "coding" ? builtin : null,
+  });
+  assert.equal(combo, builtin);
+  assert.deepEqual(seen, ["auto/coding", "auto/best-coding"]);
+});
+
+test("combo lookup: empty persisted non-auto combo resolves to null", async () => {
+  let builtinCalls = 0;
+  const combo = await lookupCcAliasCombo("custo-otimizado", {
+    getPersistedCombo: async () => ({ models: [] }),
+    createBuiltinCombo: async () => {
+      builtinCalls++;
+      return { models: [{ id: "x" }] };
+    },
+  });
+  assert.equal(combo, null);
+  assert.equal(builtinCalls, 0);
+});
+
+test("empty persisted auto/ combo alias still strips via the built-in fallback", async () => {
+  const result = await resolveCcDiscoveryAliasStripWith("claude/combo/auto/coding", {
+    ...baseDeps,
+    getCombo: (name) =>
+      lookupCcAliasCombo(name, {
+        getPersistedCombo: async (n) => (n === "auto/coding" ? { models: [] } : null),
+        createBuiltinCombo: async () => ({ models: [{ id: "builtin" }] }),
+      }),
+  });
+  assert.deepEqual(result, { model: "auto/coding", stripped: true });
+});
+
+test("persisted auto/ combo alias strips via the precedence-aware lookup", async () => {
+  const result = await resolveCcDiscoveryAliasStripWith("claude/combo/auto/coding", {
+    ...baseDeps,
+    getCombo: (name) =>
+      lookupCcAliasCombo(name, {
+        getPersistedCombo: async (n) => (n === "auto/coding" ? { models: [{ id: "p" }] } : null),
+        createBuiltinCombo: async () => ({ models: [] }),
+      }),
+  });
+  assert.deepEqual(result, { model: "auto/coding", stripped: true });
 });
 
 test("combo alias is left intact when the combo has no models", async () => {

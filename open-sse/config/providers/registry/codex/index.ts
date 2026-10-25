@@ -2,6 +2,7 @@ import type { RegistryEntry } from "../../shared.ts";
 import {
   GPT_5_6_CODEX_CAPABILITIES,
   GPT_5_5_CODEX_CAPABILITIES,
+  GPT_6_CODEX_CAPABILITIES,
   getCodexDefaultHeaders,
   resolvePublicCred,
 } from "../../shared.ts";
@@ -136,6 +137,77 @@ export const codexProvider: RegistryEntry = {
       id: "gpt-5.6-luna-low",
       name: "GPT 5.6 Luna (Low)",
       ...GPT_5_6_CODEX_CAPABILITIES,
+    },
+    // GPT-6 models require Codex identity >= 0.155.0 for discovery and inference.
+    {
+      id: "gpt-6-sol",
+      name: "GPT 6 Sol",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-sol-ultra",
+      name: "GPT 6 Sol (Ultra)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-sol-max",
+      name: "GPT 6 Sol (Max)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-sol-xhigh",
+      name: "GPT 6 Sol (xHigh)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-sol-high",
+      name: "GPT 6 Sol (High)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-sol-medium",
+      name: "GPT 6 Sol (Medium)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-sol-low",
+      name: "GPT 6 Sol (Low)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-luna",
+      name: "GPT 6 Luna",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-luna-max",
+      name: "GPT 6 Luna (Max)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-luna-xhigh",
+      name: "GPT 6 Luna (xHigh)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-luna-high",
+      name: "GPT 6 Luna (High)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-luna-medium",
+      name: "GPT 6 Luna (Medium)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-luna-low",
+      name: "GPT 6 Luna (Low)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-astra",
+      name: "GPT 6 Astra",
+      ...GPT_6_CODEX_CAPABILITIES,
     },
     // gpt-5.5 codex OAuth backend caps context at 400K (not the public-API
     // 1.05M). Public refs : openai/codex#19208, #19319, #19464 ;

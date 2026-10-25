@@ -317,6 +317,18 @@ export const GPT_5_6_CODEX_CAPABILITIES = {
   maxOutputTokens: 128000,
 } as const;
 
+// GPT-6 Codex OAuth catalog limits for Sol/Luna (272K context, 32K output).
+export const GPT_6_CODEX_CAPABILITIES = {
+  targetFormat: "openai-responses",
+  toolCalling: true,
+  supportsReasoning: true,
+  supportsVision: true,
+  supportsXHighEffort: true,
+  contextLength: 272000,
+  maxInputTokens: 272000,
+  maxOutputTokens: 32768,
+} as const;
+
 export const CHAT_OPENAI_COMPAT_MODELS: Record<string, RegistryModel[]> = {
   deepinfra: buildModels([
     "anthropic/claude-4-opus",

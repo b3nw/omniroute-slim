@@ -4,6 +4,7 @@
  */
 import {
   CLAUDE_OPUS_5_PRICING,
+  CLAUDE_OPUS_5_5_PRICING,
   GEMINI_3_7_FLASH_PROMO_PRICING,
   GPT_5_3_CODEX_PRICING,
   GPT_5_5_PRICING,
@@ -27,6 +28,7 @@ export const DEFAULT_PRICING_OAUTH = {
       reasoning: 50.0,
       cache_creation: 12.5,
     },
+    "claude-opus-5-5": CLAUDE_OPUS_5_5_PRICING,
     "claude-opus-5": CLAUDE_OPUS_5_PRICING,
     "claude-opus-4-8": {
       input: 5.0,
@@ -109,6 +111,20 @@ export const DEFAULT_PRICING_OAUTH = {
     "gpt-5.6-luna-high": GPT_5_6_LUNA_PRICING,
     "gpt-5.6-luna-medium": GPT_5_6_LUNA_PRICING,
     "gpt-5.6-luna-low": GPT_5_6_LUNA_PRICING,
+    // GPT-6 Sol/Luna bill at the GPT-5.6 Sol/Luna rates.
+    "gpt-6-sol": GPT_5_6_SOL_PRICING,
+    "gpt-6-sol-ultra": GPT_5_6_SOL_PRICING,
+    "gpt-6-sol-max": GPT_5_6_SOL_PRICING,
+    "gpt-6-sol-xhigh": GPT_5_6_SOL_PRICING,
+    "gpt-6-sol-high": GPT_5_6_SOL_PRICING,
+    "gpt-6-sol-medium": GPT_5_6_SOL_PRICING,
+    "gpt-6-sol-low": GPT_5_6_SOL_PRICING,
+    "gpt-6-luna": GPT_5_6_LUNA_PRICING,
+    "gpt-6-luna-max": GPT_5_6_LUNA_PRICING,
+    "gpt-6-luna-xhigh": GPT_5_6_LUNA_PRICING,
+    "gpt-6-luna-high": GPT_5_6_LUNA_PRICING,
+    "gpt-6-luna-medium": GPT_5_6_LUNA_PRICING,
+    "gpt-6-luna-low": GPT_5_6_LUNA_PRICING,
     // GPT 5.5
     "gpt-5.5": GPT_5_5_PRICING,
     "gpt5.5": GPT_5_5_PRICING,
@@ -317,6 +333,7 @@ export const DEFAULT_PRICING_OAUTH = {
   antigravity: ANTIGRAVITY_GEMINI_3_7_PRICING,
   agy: ANTIGRAVITY_GEMINI_3_7_PRICING,
   gh: {
+    "claude-opus-5-5": CLAUDE_OPUS_5_5_PRICING,
     "claude-opus-5": CLAUDE_OPUS_5_PRICING,
     "gpt-5": {
       input: 3.0,

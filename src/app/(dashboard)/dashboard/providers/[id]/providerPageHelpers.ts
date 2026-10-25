@@ -10,6 +10,7 @@ import {
   MODEL_COMPAT_PROTOCOL_KEYS,
   type ModelCompatProtocolKey,
 } from "@/shared/constants/modelCompat";
+import { type ModelSupportedEndpoint } from "@/shared/constants/modelSupportedEndpoints";
 import {
   getClaudeCodeCompatibleRequestDefaults as _getClaudeCodeCompatibleRequestDefaults,
   getCodexRequestDefaults as _getCodexRequestDefaults,
@@ -115,6 +116,24 @@ export function targetFormatBadgeI18nKey(value: string): string | null {
   return TARGET_FORMAT_BADGE_I18N_KEYS[value] ?? null;
 }
 
+/** #17071 — endpoint ticks a generation apiFormat owns. */
+const GENERATION_FORMAT_ENDPOINTS: Record<string, ModelSupportedEndpoint[]> = {
+  "images-generations": ["images"],
+  video: ["videos"],
+};
+
+/**
+ * #17071 — endpoint ticks to apply when the custom-model API Format changes, or null to keep
+ * them. A generation format replaces the form's default "chat" tick (else the row advertises
+ * chat for an image/video-only model); leaving one restores the "chat" default.
+ */
+export function endpointsForApiFormatChange(
+  from: string,
+  to: string
+): ModelSupportedEndpoint[] | null {
+  return GENERATION_FORMAT_ENDPOINTS[to] ?? (GENERATION_FORMAT_ENDPOINTS[from] ? ["chat"] : null);
+}
+
 /** #5442 — badge for add-credential validation; unsupported → neutral N/A (not red Invalid). */
 export function validationBadgeProps(result: string): {
   variant: "success" | "error" | "info";
@@ -131,6 +150,8 @@ export function validationBadgeProps(result: string): {
 export interface TestAllModelOutcome {
   status: "ok" | "error";
   isQuota?: boolean;
+  /** The probe was deliberately not dispatched (e.g. generation-only model). */
+  skipped?: boolean;
   shouldHide: boolean;
 }
 type TestAllEntryStatus = "ok" | "error" | "slow";
@@ -152,6 +173,9 @@ type TestAllEntryStatus = "ok" | "error" | "slow";
  * Genuine failures (`status:"error"` without a transient flag — e.g. upstream
  * 400 "invalid model", schema mismatch, auth failure) ARE still auto-hidden,
  * which is the intended use of the toggle.
+ *
+ * Skipped entries (`skipped: true` — e.g. image/music/video generation models the
+ * runner refuses to dispatch as chat) were never exercised, so they are never hidden.
  */
 export function evaluateTestAllEntry(
   entry:
@@ -161,6 +185,7 @@ export function evaluateTestAllEntry(
         isTimeout?: boolean;
         isTransient?: boolean;
         isQuota?: boolean;
+        skipped?: boolean;
       }
     | null
     | undefined,
@@ -176,10 +201,12 @@ export function evaluateTestAllEntry(
     // so an evening Test All on a free-tier provider doesn't silently wipe the
     // catalog for the next day.
     ...(entry?.isQuota ? { isQuota: true } : {}),
+    ...(entry?.skipped ? { skipped: true } : {}),
     // Hide only persistent failures. Transient (rate-limited, timeout, quota) are
     // surfaced on the icon but kept visible so a single throttled batch test
     // does not silently wipe the catalog.
-    shouldHide: !ok && autoHideFailed && !transient,
+    // Skipped probes never ran, so there is no failure to hide on.
+    shouldHide: !ok && autoHideFailed && !transient && !entry?.skipped,
   };
 }
 

@@ -234,6 +234,19 @@ export const CODEX_NATIVE_UNPREFIXED_MODELS = new Set([
   "gpt-5.6-luna-high",
   "gpt-5.6-luna-medium",
   "gpt-5.6-luna-low",
+  "gpt-6-sol",
+  "gpt-6-sol-ultra",
+  "gpt-6-sol-max",
+  "gpt-6-sol-xhigh",
+  "gpt-6-sol-high",
+  "gpt-6-sol-medium",
+  "gpt-6-sol-low",
+  "gpt-6-luna",
+  "gpt-6-luna-max",
+  "gpt-6-luna-xhigh",
+  "gpt-6-luna-high",
+  "gpt-6-luna-medium",
+  "gpt-6-luna-low",
   "gpt-5.5",
   "gpt-5.5-xhigh",
   "gpt-5.5-high",
@@ -333,7 +346,7 @@ export function normalizeCrossProxyModelId(modelId: unknown): {
 /**
  * Resolve provider-specific legacy model alias to canonical model ID.
  */
-function resolveProviderModelAlias(
+export function resolveProviderModelAlias(
   providerOrAlias: string | null | undefined,
   modelId: string | null | undefined
 ) {

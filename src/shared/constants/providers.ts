@@ -91,6 +91,7 @@ export const IMAGE_ONLY_PROVIDER_IDS = new Set([
 ]);
 
 export const AGGREGATOR_PROVIDER_IDS = new Set([
+  "unifically",
   "openrouter",
   "synthetic",
   "kilo-gateway",

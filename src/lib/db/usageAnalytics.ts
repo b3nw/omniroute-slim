@@ -522,6 +522,83 @@ export function getApiKeyUsageRows(
     .all(params) as ApiKeyUsageRow[];
 }
 
+export interface ApiKeyTotalsRow {
+  apiKeyId: string | null;
+  apiKeyName: string | null;
+  provider: string;
+  model: string;
+  serviceTier: string;
+  requests: number;
+  promptTokens: number;
+  completionTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  reasoningTokens: number;
+  lastUsed: string | null;
+}
+
+/**
+ * Per-API-key totals and last-used time in a single scan, without the per-day
+ * grouping of `getApiKeyUsageRows`. Backs the API Manager key list, which only
+ * needs lifetime requests, cost and last use per key.
+ *
+ * Requests that never produce a usage_history row (e.g. image generation) are
+ * still recorded in call_logs, so a second branch contributes their latest
+ * timestamp as `lastUsed` only. Those rows carry zero requests/tokens and an
+ * empty provider/model, so they never add to request or cost totals.
+ *
+ * @param apiKeyWhereClause - Full WHERE clause including api_key presence guard.
+ *                            Applied to both usage_history and call_logs, so it
+ *                            may only reference `timestamp`, `api_key_id` and
+ *                            `api_key_name`.
+ * @param params            - Named params referenced inside `apiKeyWhereClause`.
+ */
+export function getApiKeyTotalsRows(
+  apiKeyWhereClause: string,
+  params: AnalyticsParams
+): ApiKeyTotalsRow[] {
+  const db = getDbInstance();
+  return db
+    .prepare(
+      `
+      SELECT
+        NULLIF(api_key_id, '') as apiKeyId,
+        NULLIF(api_key_name, '') as apiKeyName,
+        LOWER(provider) as provider,
+        LOWER(model) as model,
+        COALESCE(NULLIF(service_tier, ''), 'standard') as serviceTier,
+        COUNT(*) as requests,
+        COALESCE(SUM(tokens_input), 0) as promptTokens,
+        COALESCE(SUM(tokens_output), 0) as completionTokens,
+        COALESCE(SUM(tokens_cache_read), 0) as cacheReadTokens,
+        COALESCE(SUM(tokens_cache_creation), 0) as cacheCreationTokens,
+        COALESCE(SUM(tokens_reasoning), 0) as reasoningTokens,
+        MAX(timestamp) as lastUsed
+      FROM usage_history
+      ${apiKeyWhereClause}
+      GROUP BY NULLIF(api_key_id, ''), NULLIF(api_key_name, ''), LOWER(provider), LOWER(model), serviceTier
+      UNION ALL
+      SELECT
+        NULLIF(api_key_id, '') as apiKeyId,
+        NULLIF(api_key_name, '') as apiKeyName,
+        '' as provider,
+        '' as model,
+        'standard' as serviceTier,
+        0 as requests,
+        0 as promptTokens,
+        0 as completionTokens,
+        0 as cacheReadTokens,
+        0 as cacheCreationTokens,
+        0 as reasoningTokens,
+        MAX(timestamp) as lastUsed
+      FROM call_logs
+      ${apiKeyWhereClause}
+      GROUP BY NULLIF(api_key_id, ''), NULLIF(api_key_name, '')
+    `
+    )
+    .all(params) as ApiKeyTotalsRow[];
+}
+
 // ---------------------------------------------------------------------------
 
 export interface ServiceTierUsageRow {

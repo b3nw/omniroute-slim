@@ -11,6 +11,7 @@ import { invalidateReasoningRoutingRuleCache } from "./reasoningRoutingRules";
 import { getKeyGroupsForApiKey, checkKeyModelAccess } from "./apiKeyGroups";
 import { API_KEY_COLUMN_FALLBACKS } from "./apiKeyColumnFallbacks";
 import { timingSafeCompare } from "@/shared/utils/timingSafeCompare";
+import { withTimeout } from "@/shared/utils/requestTimeout";
 import {
   appendUsageLimitUpdates,
   hasUsageLimitUpdate,
@@ -273,6 +274,10 @@ function isRedisAuthCacheEnabled(): boolean {
   );
 }
 
+// Upper bound for best-effort Redis auth-cache writes so a stalled connection
+// never blocks API key validation or key mutation paths.
+const REDIS_AUTH_CACHE_TIMEOUT_MS = 1000;
+
 async function deleteRedisAuthCacheEntry(keyHash: unknown): Promise<void> {
   if (!isRedisAuthCacheEnabled() || typeof keyHash !== "string" || keyHash.trim() === "") return;
 
@@ -280,7 +285,11 @@ async function deleteRedisAuthCacheEntry(keyHash: unknown): Promise<void> {
     const { getRedisClient, isRedisConfigured } = await import("@/shared/utils/rateLimiter");
     if (!isRedisConfigured()) return;
     const redis = await getRedisClient();
-    await redis.del(`auth:api_key:${keyHash}`);
+    await withTimeout(
+      () => redis.del(`auth:api_key:${keyHash}`),
+      REDIS_AUTH_CACHE_TIMEOUT_MS,
+      "Redis auth cache delete"
+    );
   } catch {
     // Redis is an optimization for auth caching; SQLite remains authoritative.
   }
@@ -1190,34 +1199,10 @@ export async function validateApiKey(key: string | null | undefined) {
     return cached.valid;
   }
 
-  if (isRedisAuthCacheEnabled()) {
-    // Try Redis cache for multi-instance consistency
-    try {
-      const { getRedisClient, isRedisConfigured } = await import("@/shared/utils/rateLimiter");
-      if (isRedisConfigured()) {
-        const redis = await getRedisClient();
-        const redisKey = `auth:api_key:${hashedKey}`;
-        const redisData = await redis.get(redisKey);
-        if (redisData) {
-          const data = JSON.parse(redisData);
-          const isBanned = !!data.isBanned;
-          const isActive = !!data.isActive;
-          const revokedAt = data.revokedAt;
-          const expiresAt = data.expiresAt;
-
-          if (isBanned || !isActive) return false;
-          if (typeof revokedAt === "string" && revokedAt.trim() !== "") return false;
-          if (typeof expiresAt === "string" && expiresAt.trim() !== "") {
-            const expiresMs = Date.parse(expiresAt);
-            if (Number.isFinite(expiresMs) && expiresMs <= now) return false;
-          }
-          return true;
-        }
-      }
-    } catch {
-      // Redis lookup failures fall through to SQLite.
-    }
-  }
+  // A Redis hit never authorizes on its own (GHSA-66vh-35g3-78qv): eviction on regenerate/revoke
+  // is best-effort and a late SET can resurrect an evicted entry, so the entry could keep a
+  // retired credential valid for its whole TTL. SQLite is the source of truth for identity and
+  // lifecycle; the lookup below is a single indexed read.
 
   const db = getDbInstance() as ApiKeysDbLike;
   const stmt = getPreparedStatements(db);
@@ -1250,17 +1235,22 @@ export async function validateApiKey(key: string | null | undefined) {
       if (isRedisConfigured()) {
         const redis = await getRedisClient();
         const redisKey = `auth:api_key:${hashedKey}`;
-        await redis.set(
-          redisKey,
-          JSON.stringify({
-            id: row.id,
-            isBanned: parseIsBanned(row.is_banned),
-            isActive: parseIsActive(row.is_active),
-            expiresAt: row.expires_at,
-            revokedAt: row.revoked_at,
-          }),
-          "EX",
-          3600 // 1 hour cache
+        await withTimeout(
+          () =>
+            redis.set(
+              redisKey,
+              JSON.stringify({
+                id: row.id,
+                isBanned: parseIsBanned(row.is_banned),
+                isActive: parseIsActive(row.is_active),
+                expiresAt: row.expires_at,
+                revokedAt: row.revoked_at,
+              }),
+              "EX",
+              3600 // 1 hour cache
+            ),
+          REDIS_AUTH_CACHE_TIMEOUT_MS,
+          "Redis auth cache set"
         );
       }
     } catch {

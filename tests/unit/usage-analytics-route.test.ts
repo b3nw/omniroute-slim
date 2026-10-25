@@ -508,6 +508,103 @@ test("GET /api/usage/analytics does not persist guessed API key attribution", as
   assert.equal(row.api_key_name, null);
 });
 
+test("GET /api/usage/analytics?view=apiKeys returns only lifetime totals per API key", async () => {
+  const usedKey = await apiKeysDb.createApiKey("Used Key", "machine1234567890");
+  const idleKey = await apiKeysDb.createApiKey("Idle Key", "machine1234567890");
+  const db = core.getDbInstance();
+  const now = Date.now();
+  const at = (msAgo: number) => new Date(now - msAgo).toISOString();
+  const insertUsage = db.prepare(
+    `INSERT INTO usage_history (provider, model, connection_id, api_key_id, api_key_name, tokens_input, tokens_output, success, latency_ms, timestamp)
+     VALUES (?, ?, 'c1', ?, ?, ?, ?, 1, 200, ?)`
+  );
+  insertUsage.run("openai", "gpt-4o", usedKey.id, "Used Key", 100, 50, at(86_400_000));
+  insertUsage.run("openai", "gpt-4o", usedKey.id, "Old Name", 200, 100, at(60_000));
+  insertUsage.run("anthropic", "claude-sonnet", usedKey.id, "Used Key", 300, 30, at(120_000));
+  // Rows recorded before per-key ids carry only the key name.
+  insertUsage.run("openai", "gpt-4o", null, "Idle Key", 1000, 1000, at(30_000));
+
+  const response = await analyticsRoute.GET(
+    makeRequest("http://localhost/api/usage/analytics?range=all&view=apiKeys")
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(Object.keys(body), ["byApiKey"]);
+  const totalsById = new Map(body.byApiKey.map((entry) => [entry.apiKeyId, entry]));
+  const used = totalsById.get(usedKey.id);
+  assert.equal(used.apiKeyName, "Used Key");
+  assert.equal(used.requests, 3);
+  // gpt-4o: 300 in × $2.50 + 150 out × $10; claude-sonnet: 300 in × $3 + 30 out × $15 (per 1M).
+  assertClose(used.cost, 0.0036);
+  assert.equal(used.lastUsed, at(60_000));
+  assert.deepEqual(totalsById.get(idleKey.id), {
+    apiKeyId: idleKey.id,
+    apiKeyName: "Idle Key",
+    requests: 0,
+    cost: 0,
+    lastUsed: at(30_000),
+  });
+
+  const fullReport = await (
+    await analyticsRoute.GET(makeRequest("http://localhost/api/usage/analytics?range=all"))
+  ).json();
+  const fullEntry = fullReport.byApiKey.find((entry) => entry.apiKeyId === usedKey.id);
+  assert.equal(fullEntry.requests, used.requests);
+  assertClose(fullEntry.cost, used.cost);
+});
+
+test("GET /api/usage/analytics?view=apiKeys takes lastUsed from call_logs without counting requests", async () => {
+  const imageKey = await apiKeysDb.createApiKey("Image Key", "machine1234567890");
+  const mixedKey = await apiKeysDb.createApiKey("Mixed Key", "machine1234567890");
+  const legacyKey = await apiKeysDb.createApiKey("Legacy Key", "machine1234567890");
+  const db = core.getDbInstance();
+  const now = Date.now();
+  const at = (msAgo: number) => new Date(now - msAgo).toISOString();
+  const insertCallLog = db.prepare(
+    `INSERT INTO call_logs (id, provider, model, connection_id, api_key_id, api_key_name, status, timestamp)
+     VALUES (?, ?, ?, 'c1', ?, ?, 200, ?)`
+  );
+  // Image generation: call_logs only, no usage_history rows for this key.
+  insertCallLog.run("img-1", "openai", "gpt-image-1", imageKey.id, "Image Key", at(600_000));
+  insertCallLog.run("img-2", "openai", "gpt-image-1", imageKey.id, "Image Key", at(45_000));
+  // Mixed key: usage_history is older than its latest call_logs entry.
+  db.prepare(
+    `INSERT INTO usage_history (provider, model, connection_id, api_key_id, api_key_name, tokens_input, tokens_output, success, latency_ms, timestamp)
+     VALUES ('openai', 'gpt-4o', 'c1', ?, 'Mixed Key', 100, 50, 1, 200, ?)`
+  ).run(mixedKey.id, at(3_600_000));
+  insertCallLog.run("mix-1", "openai", "gpt-image-1", mixedKey.id, "Mixed Key", at(15_000));
+  // Legacy call_logs rows carry only the key name.
+  insertCallLog.run("legacy-1", "openai", "gpt-image-1", null, "Legacy Key", at(20_000));
+
+  const response = await analyticsRoute.GET(
+    makeRequest("http://localhost/api/usage/analytics?range=all&view=apiKeys")
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  const totalsById = new Map(body.byApiKey.map((entry) => [entry.apiKeyId, entry]));
+  assert.deepEqual(totalsById.get(imageKey.id), {
+    apiKeyId: imageKey.id,
+    apiKeyName: "Image Key",
+    requests: 0,
+    cost: 0,
+    lastUsed: at(45_000),
+  });
+  const mixed = totalsById.get(mixedKey.id);
+  assert.equal(mixed.requests, 1);
+  // gpt-4o: 100 in × $2.50 + 50 out × $10 (per 1M).
+  assertClose(mixed.cost, 0.00075);
+  assert.equal(mixed.lastUsed, at(15_000));
+  assert.deepEqual(totalsById.get(legacyKey.id), {
+    apiKeyId: legacyKey.id,
+    apiKeyName: "Legacy Key",
+    requests: 0,
+    cost: 0,
+    lastUsed: at(20_000),
+  });
+});
+
 test("GET /api/usage/analytics returns weeklyPattern for the costs dashboard", async () => {
   await seedAnalyticsData();
 

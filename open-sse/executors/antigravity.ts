@@ -45,6 +45,7 @@ import {
   stripCloudCodeThinkingConfig,
 } from "../services/cloudCodeThinking.ts";
 import { buildGeminiTools } from "../translator/helpers/geminiToolsSanitizer.ts";
+import { sanitizeGeminiPartFunctionResponse } from "../translator/request/openai-to-gemini/helpers.ts";
 import {
   buildClaude55ThinkingConfig,
   collectSignedFunctionCallIds,
@@ -829,22 +830,26 @@ export class AntigravityExecutor extends BaseExecutor {
             : c.parts;
 
         const parts =
-          candidateParts?.filter((p) => {
-            if (typeof p.text === "string" && p.text === "") return false;
-            if (p.functionCall && !p.functionCall.name) return false;
-            if (isClaude55 && p.thought === true && isClaude55Signature(p.thoughtSignature)) {
-              return true;
-            }
+          candidateParts
+            ?.filter((p) => {
+              if (typeof p.text === "string" && p.text === "") return false;
+              if (p.functionCall && !p.functionCall.name) return false;
+              if (isClaude55 && p.thought === true && isClaude55Signature(p.thoughtSignature)) {
+                return true;
+              }
 
-            // Only strip if it's NOT our bypass sentinel.
-            // Antigravity models (like Gemini) need this sentinel to bypass 400 errors.
-            return (
-              !p.thought &&
-              (hasFunctionCall ||
-                !p.thoughtSignature ||
-                p.thoughtSignature === "skip_thought_signature_validator")
-            );
-          }) || [];
+              // Only strip if it's NOT our bypass sentinel.
+              // Antigravity models (like Gemini) need this sentinel to bypass 400 errors.
+              return (
+                !p.thought &&
+                (hasFunctionCall ||
+                  !p.thoughtSignature ||
+                  p.thoughtSignature === "skip_thought_signature_validator")
+              );
+            })
+            // #16153: Cloud Code parses `$ref` in functionResponse.response as an
+            // unresolvable OpenAPI reference (HTTP 400 INVALID_ARGUMENT).
+            .map(sanitizeGeminiPartFunctionResponse) || [];
         return { ...c, role, parts };
       }) || [];
 

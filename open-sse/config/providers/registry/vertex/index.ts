@@ -28,6 +28,7 @@ export const vertexProvider: RegistryEntry = {
     { id: "Qwen3.6-35B-A3B", name: "Qwen3.6 35B A3B (Vertex Partner)" },
     { id: "GLM-5.1-FP8", name: "GLM-5.1 (Vertex Partner)" },
     { id: "claude-fable-5", name: "Claude Fable 5 (Vertex)", targetFormat: "claude" },
+    { id: "claude-opus-5-5", name: "Claude Opus 5.5 (Vertex)", targetFormat: "claude" },
     { id: "claude-opus-5", name: "Claude Opus 5 (Vertex)", targetFormat: "claude" },
     { id: "claude-sonnet-5", name: "Claude Sonnet 5 (Vertex)", targetFormat: "claude" },
     { id: "claude-opus-4-8", name: "Claude Opus 4.8 (Vertex)", targetFormat: "claude" },
