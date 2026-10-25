@@ -542,7 +542,15 @@ export interface ApiKeyTotalsRow {
  * grouping of `getApiKeyUsageRows`. Backs the API Manager key list, which only
  * needs lifetime requests, cost and last use per key.
  *
+ * Requests that never produce a usage_history row (e.g. image generation) are
+ * still recorded in call_logs, so a second branch contributes their latest
+ * timestamp as `lastUsed` only. Those rows carry zero requests/tokens and an
+ * empty provider/model, so they never add to request or cost totals.
+ *
  * @param apiKeyWhereClause - Full WHERE clause including api_key presence guard.
+ *                            Applied to both usage_history and call_logs, so it
+ *                            may only reference `timestamp`, `api_key_id` and
+ *                            `api_key_name`.
  * @param params            - Named params referenced inside `apiKeyWhereClause`.
  */
 export function getApiKeyTotalsRows(
@@ -569,6 +577,23 @@ export function getApiKeyTotalsRows(
       FROM usage_history
       ${apiKeyWhereClause}
       GROUP BY NULLIF(api_key_id, ''), NULLIF(api_key_name, ''), LOWER(provider), LOWER(model), serviceTier
+      UNION ALL
+      SELECT
+        NULLIF(api_key_id, '') as apiKeyId,
+        NULLIF(api_key_name, '') as apiKeyName,
+        '' as provider,
+        '' as model,
+        'standard' as serviceTier,
+        0 as requests,
+        0 as promptTokens,
+        0 as completionTokens,
+        0 as cacheReadTokens,
+        0 as cacheCreationTokens,
+        0 as reasoningTokens,
+        MAX(timestamp) as lastUsed
+      FROM call_logs
+      ${apiKeyWhereClause}
+      GROUP BY NULLIF(api_key_id, ''), NULLIF(api_key_name, '')
     `
     )
     .all(params) as ApiKeyTotalsRow[];
