@@ -16,6 +16,8 @@ const { writeCallArtifact, readCallArtifact } = await import(
 
 const OMITTED = "[omitted: call log artifact size limit exceeded]";
 const TRUNCATED = "[truncated: call log artifact size limit exceeded]";
+// Default CALL_LOG_ARTIFACT_PREVIEW_KB.
+const PREVIEW_BYTES = 8 * 1024;
 
 // The reported shape: a request body large enough to trip the 512KB cap on its
 // own, next to an error small enough that keeping it costs nothing.
@@ -50,11 +52,16 @@ function roundTrip(input: ReturnType<typeof artifact>) {
   return stored as unknown as Record<string, unknown>;
 }
 
+function assertBodyPreview(body: unknown) {
+  assert.notEqual(body, OMITTED, "an oversized body keeps a preview instead of a marker");
+  assert.equal(body, `${HUGE_BODY.slice(0, PREVIEW_BYTES)} ${TRUNCATED}`);
+}
+
 test("a size-limited row keeps the error that says why the request failed", () => {
   const stored = roundTrip(artifact());
 
-  // The bodies are what tripped the cap; they are still dropped.
-  assert.equal(stored.requestBody, OMITTED);
+  // The body is what tripped the cap; only a preview of its head is kept.
+  assertBodyPreview(stored.requestBody);
   // The error is the only field that distinguishes a provider outage from a
   // local timeout from an upstream 400. It survives.
   assert.equal(stored.error, REAL_ERROR);
@@ -85,7 +92,7 @@ test("truncation does not split a multi-byte character", () => {
 test("a request with no error still stores null rather than a marker", () => {
   const stored = roundTrip(artifact({ error: null }));
 
-  assert.equal(stored.requestBody, OMITTED);
+  assertBodyPreview(stored.requestBody);
   assert.equal(stored.error, null);
 });
 

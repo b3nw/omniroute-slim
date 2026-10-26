@@ -10571,7 +10571,13 @@
         "providerRequest": "Requête du fournisseur",
         "providerResponse": "Réponse du fournisseur",
         "clientResponse": "Réponse du client",
-        "pipelineError": "Erreur du pipeline"
+        "pipelineError": "Erreur du pipeline",
+        "requestBody": "Corps de la requête",
+        "responseBody": "Corps de la réponse",
+        "sizeLimitTitle": "Limite de taille du journal d'appels",
+        "omitted": "Payload omis — limite de taille du journal d'appels dépassée.",
+        "truncated": "Payload tronqué — limite de taille du journal d'appels dépassée. {kept} conservés sur {total}.",
+        "truncatedNoTotal": "Payload tronqué — limite de taille du journal d'appels dépassée. Les premiers {kept} ont été conservés."
       },
       "payloadMissing": "L’artefact de charge utile détaillé n’est plus disponible pour cette entrée de journal.",
       "payloadCorrupt": "L’artefact de charge utile détaillé n’a pas pu être analysé.",

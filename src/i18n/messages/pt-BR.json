@@ -10571,7 +10571,13 @@
         "providerRequest": "Solicitação de Provedor",
         "providerResponse": "Resposta do Provedor",
         "clientResponse": "Resposta do Cliente",
-        "pipelineError": "Erro de Pipeline"
+        "pipelineError": "Erro de Pipeline",
+        "requestBody": "Corpo da Requisição",
+        "responseBody": "Corpo da Resposta",
+        "sizeLimitTitle": "Limite de Tamanho do Log de Chamadas",
+        "omitted": "Payload omitido — o limite de tamanho do log de chamadas foi excedido.",
+        "truncated": "Payload truncado — o limite de tamanho do log de chamadas foi excedido. Mantidos {kept} de {total}.",
+        "truncatedNoTotal": "Payload truncado — o limite de tamanho do log de chamadas foi excedido. Mantidos os primeiros {kept}."
       },
       "payloadMissing": "O artefato de carga detalhada não está mais disponível para esta entrada de log.",
       "payloadCorrupt": "O artefato de carga detalhada não pôde ser analisado.",

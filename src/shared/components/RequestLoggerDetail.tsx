@@ -12,6 +12,9 @@ import { formatErrorForDisplay } from "@/shared/utils/formatting";
 import {
   PayloadSection,
   ConversationContextSection,
+  SizeLimitNoticeBanner,
+  getSizeLimitNotice,
+  isSizeLimitOmission,
 } from "@/shared/components/RequestLoggerDetail.sections";
 
 // ─── Copy-all composition ────────────────────────────────────────────────────
@@ -228,7 +231,16 @@ export default function RequestLoggerDetail({
   // #8213 combo/cooldown checks below went straight to the raw field and call
   // .toLowerCase() on it — which throws the moment `error` is an object. Same helper,
   // same normalization, one source of truth.
-  const errorText = formatErrorForDisplay(detail?.error || log.error) ?? "";
+  //
+  // An artifact that overflowed its size cap may hold the omission marker where the error
+  // was; the summary row's error is still real then, so prefer it, and never style the
+  // marker itself as an error.
+  const rawError =
+    detail?.error && !isSizeLimitOmission(detail.error)
+      ? detail.error
+      : log.error || detail?.error;
+  const errorOmitted = isSizeLimitOmission(rawError);
+  const errorText = errorOmitted ? "" : (formatErrorForDisplay(rawError) ?? "");
   const isCombo503 =
     log.status === 503 && errorText.toLowerCase().includes("all targets exhausted");
   const isModelCooldown = !isCombo503 && errorText.toLowerCase().includes("cooling down");
@@ -295,7 +307,17 @@ export default function RequestLoggerDetail({
     }
   };
 
+  // A size-limited body keeps only a preview of its head; show that raw text rather than
+  // its JSON-escaped wrapper.
+  const toPayloadText = (payload) => {
+    const notice = getSizeLimitNotice(payload);
+    return notice?.kind === "truncated" ? notice.preview : toPrettyJson(payload);
+  };
+
   const pipelinePayloads = detail?.pipelinePayloads || null;
+  // When the artifact overflowed its cap the pipeline collapses to a single size-limit
+  // notice, but requestBody/responseBody may still carry previews worth showing.
+  const pipelineOmitted = isSizeLimitOmission(pipelinePayloads?.error);
   const payloadSections = pipelinePayloads
     ? [
         ["clientRawRequest", t("payload.clientRawRequest")],
@@ -309,12 +331,17 @@ export default function RequestLoggerDetail({
         .map(([key, title]) => ({
           key,
           title,
-          json: toPrettyJson(pipelinePayloads[key]),
+          payload: pipelinePayloads[key],
+          json: toPayloadText(pipelinePayloads[key]),
         }))
         .filter((section) => section.json)
     : [];
-  const requestJson = detail?.requestBody ? toPrettyJson(detail.requestBody) : null;
-  const responseJson = detail?.responseBody ? toPrettyJson(detail.responseBody) : null;
+  const requestJson = detail?.requestBody ? toPayloadText(detail.requestBody) : null;
+  const responseJson = detail?.responseBody ? toPayloadText(detail.responseBody) : null;
+  const showBodySections = payloadSections.length === 0 || pipelineOmitted;
+  const bodySectionTitles = pipelineOmitted
+    ? { response: t("payload.responseBody"), request: t("payload.requestBody") }
+    : { response: t("responsePayloadLegacy"), request: t("requestPayloadLegacy") };
   const streamChunks = (() => {
     if (!debugEnabled || !detail?.pipelinePayloads?.streamChunks) return null;
     let chunks: StreamChunks = detail.pipelinePayloads.streamChunks;
@@ -333,8 +360,15 @@ export default function RequestLoggerDetail({
   // users can copy the whole request/response transcript with one click instead
   // of copying each section individually.
   const handleCopyAll = async () => {
+    const sections = pipelineOmitted
+      ? [
+          ...payloadSections,
+          ...(responseJson ? [{ title: bodySectionTitles.response, json: responseJson }] : []),
+          ...(requestJson ? [{ title: bodySectionTitles.request, json: requestJson }] : []),
+        ]
+      : payloadSections;
     const text = buildCopyAllText({
-      sections: payloadSections,
+      sections,
       streamChunks: streamChunks || undefined,
       legacyResponse: payloadSections.length === 0 ? responseJson : null,
       legacyRequest: payloadSections.length === 0 ? requestJson : null,
@@ -744,7 +778,10 @@ export default function RequestLoggerDetail({
           )}
 
           {/* Error Message */}
-          {(detail?.error || log.error) && (
+          {rawError && errorOmitted && (
+            <SizeLimitNoticeBanner notice={{ kind: "omitted" }} />
+          )}
+          {rawError && !errorOmitted && (
             <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30">
               <div className="flex items-center justify-between mb-1">
                 <div className="text-[10px] text-red-600 dark:text-red-400 uppercase tracking-wider font-bold">
@@ -832,7 +869,7 @@ export default function RequestLoggerDetail({
                 )}
               </div>
               <div className="text-sm text-red-600 dark:text-red-300 font-mono whitespace-pre-wrap break-words">
-                {formatErrorForDisplay(detail?.error || log.error)}
+                {errorText}
               </div>
             </div>
           )}
@@ -975,22 +1012,25 @@ export default function RequestLoggerDetail({
                     key={section.key}
                     title={section.title}
                     json={section.json}
+                    payload={section.payload}
                     onCopy={() => onCopy(section.json)}
                   />
                 ))}
 
-              {payloadSections.length === 0 && responseJson && (
+              {showBodySections && responseJson && (
                 <PayloadSection
-                  title={t("responsePayloadLegacy")}
+                  title={bodySectionTitles.response}
                   json={responseJson}
+                  payload={detail.responseBody}
                   onCopy={() => onCopy(responseJson)}
                 />
               )}
 
-              {payloadSections.length === 0 && requestJson && (
+              {showBodySections && requestJson && (
                 <PayloadSection
-                  title={t("requestPayloadLegacy")}
+                  title={bodySectionTitles.request}
                   json={requestJson}
+                  payload={detail.requestBody}
                   onCopy={() => onCopy(requestJson)}
                 />
               )}

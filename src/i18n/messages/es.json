@@ -10571,7 +10571,13 @@
         "providerRequest": "Solicitud de Proveedor",
         "providerResponse": "Respuesta del Proveedor",
         "clientResponse": "Respuesta del Cliente",
-        "pipelineError": "Error de Pipeline"
+        "pipelineError": "Error de Pipeline",
+        "requestBody": "Cuerpo de la Solicitud",
+        "responseBody": "Cuerpo de la Respuesta",
+        "sizeLimitTitle": "Límite de Tamaño del Registro de Llamadas",
+        "omitted": "Payload omitido — se superó el límite de tamaño del registro de llamadas.",
+        "truncated": "Payload truncado — se superó el límite de tamaño del registro de llamadas. Se conservaron {kept} de {total}.",
+        "truncatedNoTotal": "Payload truncado — se superó el límite de tamaño del registro de llamadas. Se conservaron los primeros {kept}."
       },
       "payloadMissing": "El artefacto de carga detallada ya no está disponible para esta entrada de registro.",
       "payloadCorrupt": "No se pudo analizar el artefacto de carga detallada.",

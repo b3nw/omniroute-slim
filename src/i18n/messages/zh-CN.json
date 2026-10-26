@@ -10571,7 +10571,13 @@
         "providerRequest": "提供者请求",
         "providerResponse": "提供者响应",
         "clientResponse": "客户端响应",
-        "pipelineError": "管道错误"
+        "pipelineError": "管道错误",
+        "requestBody": "请求正文",
+        "responseBody": "响应正文",
+        "sizeLimitTitle": "调用日志大小限制",
+        "omitted": "已省略负载 — 超出调用日志大小限制。",
+        "truncated": "已截断负载 — 超出调用日志大小限制。保留了 {total} 中的 {kept}。",
+        "truncatedNoTotal": "已截断负载 — 超出调用日志大小限制。保留了前 {kept}。"
       },
       "payloadMissing": "此日志条目的详细有效负载工件不再可用。",
       "payloadCorrupt": "无法解析详细的有效负载工件。",
