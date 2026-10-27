@@ -119,11 +119,13 @@ export function createResourcePressureRuntime(
   if (heapThresholdMb !== null && (!Number.isFinite(heapThresholdMb) || heapThresholdMb <= 0)) {
     throw new RangeError("heapThresholdMb must be positive and finite or null");
   }
+  // Default the absolute heap guard to the same threshold the immediate guard uses,
+  // so the periodic classifier agrees with check() instead of overwriting it.
   const thresholds = resolveResourcePressureThresholds({
     ...options.thresholds,
     heapAbsoluteThresholdMb:
       options.thresholds?.heapAbsoluteThresholdMb === undefined
-        ? null
+        ? heapThresholdMb
         : options.thresholds.heapAbsoluteThresholdMb,
   });
   const staleAfterMs = requireDuration("staleAfterMs", options.staleAfterMs ?? 1_000);
@@ -167,7 +169,7 @@ export function createResourcePressureRuntime(
         // While shedding on heap pressure nothing allocates, so V8 never collects
         // on its own; force a (debounced) GC so the next sample can recover.
         if (
-          state.severity === "critical" &&
+          (state.severity === "critical" || state.severity === "high") &&
           (state.reason === "v8_heap_ratio" || state.reason === "v8_heap_absolute")
         ) {
           emergencyGc();

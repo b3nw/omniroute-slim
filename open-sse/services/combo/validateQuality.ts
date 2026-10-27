@@ -483,12 +483,13 @@ export async function validateResponseQuality(
     ): Response {
       // Snapshot the prefix so mutations after this point don't affect it.
       const prefix = bufferedChunks.slice();
-      let prefixIdx = 0;
       const stream = new ReadableStream<Uint8Array>({
         async pull(controller) {
-          // 1. Drain the buffered prefix one chunk at a time.
-          if (prefixIdx < prefix.length) {
-            controller.enqueue(prefix[prefixIdx++]);
+          // 1. Drain the buffered prefix one chunk at a time, releasing each
+          //    reference as it is handed off so consumed bytes can be GC'd.
+          const buffered = prefix.shift();
+          if (buffered) {
+            controller.enqueue(buffered);
             return;
           }
           // 2. Forward the remainder from the original reader.
@@ -502,6 +503,12 @@ export async function validateResponseQuality(
           } catch {
             controller.close();
           }
+        },
+        // Propagate cancellation to the tee branch backing readerToForward. Do not
+        // await: the cancel promise can stay pending until the sibling branch drains.
+        cancel(reason) {
+          prefix.length = 0;
+          void readerToForward.cancel(reason).catch(() => {});
         },
       });
       return new Response(stream, {
@@ -529,6 +536,7 @@ export async function validateResponseQuality(
               "COMBO",
               `Streaming response reported an upstream error before content (${reason}) — marking as invalid for combo failover`
             );
+            void reader.cancel().catch(() => {});
             return { valid: false, reason, ...(upstreamFailure ? { upstreamFailure } : {}) };
           }
 
@@ -544,6 +552,7 @@ export async function validateResponseQuality(
                 ? "Streaming Claude response has complete lifecycle but its content block(s) carried no usable text/tool_use — marking as invalid for combo failover"
                 : "Streaming Claude response has complete lifecycle but zero content blocks (content_filter?) — marking as invalid for combo failover"
             );
+            void reader.cancel().catch(() => {});
             return { valid: false, reason: "streaming empty content block" };
           }
 
@@ -566,6 +575,7 @@ export async function validateResponseQuality(
               "COMBO",
               "Streaming response ended with no recognized content or SSE terminator — marking as invalid for combo failover"
             );
+            void reader.cancel().catch(() => {});
             return { valid: false, reason: "streaming no recognized content" };
           }
 
@@ -583,6 +593,7 @@ export async function validateResponseQuality(
               "COMBO",
               "Streaming OpenAI-shape response ended with no finish_reason or [DONE] — marking as invalid for combo failover"
             );
+            void reader.cancel().catch(() => {});
             return { valid: false, reason: "streaming openai truncated without finish_reason" };
           }
 
@@ -601,6 +612,7 @@ export async function validateResponseQuality(
               "COMBO",
               "Streaming OpenAI-shape response reached finish_reason/[DONE] with no content, reasoning, or tool_calls — marking as invalid for combo failover"
             );
+            void reader.cancel().catch(() => {});
             return { valid: false, reason: "streaming openai terminated with empty completion" };
           }
 
@@ -654,6 +666,7 @@ export async function validateResponseQuality(
           errMsg.includes("disturbed") ||
           errMsg.includes("used already"))
       ) {
+        void reader.cancel().catch(() => {});
         return { valid: false, reason: "stream locked or disturbed" };
       }
       // Other read errors — pass through (stream readiness timeout will catch truly broken streams)

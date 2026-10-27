@@ -135,7 +135,9 @@ import { getCircuitBreaker, isLocalStreamLifecycleError } from "../../shared/uti
 import { markAccountExhaustedFrom429, markQuotaHealthy } from "../../domain/quotaCache";
 import { resolveQuotaHealthyScope } from "@omniroute/open-sse/services/quotaHealthyScope.ts";
 import {
+  clearSessionAffinityTimeoutStrikes,
   isTimeoutEvictionResult,
+  recordSessionAffinityTimeoutStrike,
   resolveForcedConnectionForCredentialPool,
 } from "../services/sessionAffinityPin.ts";
 import { RequestTelemetry, recordTelemetry } from "../../shared/utils/requestTelemetry";
@@ -919,11 +921,6 @@ async function handleChatImplementation(
 
     // Pre-check function used by combo routing. For explicit combo live tests,
     // avoid pre-skipping so each model gets a real execution attempt.
-    const comboPreselectedCredentials = new Map<string, any>();
-    const getComboCredentialCacheKey = (
-      modelString: string,
-      target?: { connectionId?: string | null; executionKey?: string | null }
-    ) => `${target?.executionKey || target?.connectionId || ""}:${modelString}`;
     const checkModelAvailable = async (
       modelString: string,
       target?: {
@@ -1012,22 +1009,15 @@ async function handleChatImplementation(
             : {}),
           ...(bypassProviderQuotaPolicy ? { bypassQuotaPolicy: true } : {}),
           ...(managedLease ? { lease: credentialLease(managedLease) } : {}),
+          // Read-only probe: the dispatch performs the single authoritative selection.
+          probeOnly: true,
         }
       );
-      if (
+      return !(
         !creds ||
         ("allRateLimited" in creds && creds.allRateLimited) ||
         ("waitingForCapacity" in creds && creds.waitingForCapacity)
-      )
-        return false;
-
-      // OAuth selection must happen atomically with occupancy reservation in the
-      // actual dispatch. Availability preflight may finish well before a combo
-      // target runs, so caching OAuth credentials here would reintroduce a race.
-      if ("authType" in creds && creds.authType !== "oauth") {
-        comboPreselectedCredentials.set(getComboCredentialCacheKey(modelString, target), creds);
-      }
-      return true;
+      );
     };
 
     const relayConfig =
@@ -1049,121 +1039,115 @@ async function handleChatImplementation(
     // because only this layer knows which connectionId was actually selected.
     const { defer: deferContextOverflowWhenCompressible, exclusions: compressionExclusions } =
       await resolveComboContextOverflowDeferral(log, apiKeyInfo);
-    const response = await (handleComboChat as any)({
-      body,
-      combo,
-      deferContextOverflowWhenCompressible,
-      compressionExclusions,
-      // #10503: same request-shape facts chatCore.ts resolves for itself
-      // (resolveChatCoreRequestFormat), so getKnownContextOverflow's target-aware
-      // deferral check can never drift from chatCore's own native-codex-passthrough
-      // decision. See knownContextOverflow.ts::KnownContextOverflowOptions.
-      sourceFormat,
-      endpointPath: new URL(request.url).pathname,
-      requestHeaders: request.headers,
-      clientManagedResponsesContext:
-        sourceFormat === "openai-responses" &&
-        new URL(request.url).pathname.split("/").includes("responses") &&
-        isVerifiedNativeCodexRequest(body, request.headers),
-      handleSingleModel: (
-        b: any,
-        m: string,
-        target?: {
-          allowRateLimitedConnection?: boolean;
-          connectionId?: string | null;
-          executionKey?: string | null;
-          stepId?: string | null;
-          allowedConnectionIds?: string[] | null;
-          failoverBeforeRetry?: boolean;
-          providerId?: string | null;
-          effectiveComboStrategy?: string | null;
-          modelAbortSignal?: AbortSignal | null;
-          /** #16438: connection that just returned a pre-output empty turn (prefer a sibling). */
-          emptyTurnConnectionId?: string | null;
-        }
-      ) =>
-        handleSingleModelChat(
-          b,
-          m,
-          clientRawRequest,
-          request,
-          combo.name,
-          apiKeyInfo,
-          telemetry,
-          {
-            sessionId,
-            sessionAffinityKey,
-            forceLiveComboTest: isComboLiveTest,
-            forcedConnectionId: target?.connectionId ?? null,
-            allowedConnectionIds: target?.allowedConnectionIds ?? null,
-            excludedConnectionIds: target?.excludedConnectionIds ?? null,
-            comboStepId: target?.stepId || null,
-            comboExecutionKey: target?.executionKey || target?.stepId || null,
-            skipUpstreamRetry: target?.failoverBeforeRetry ?? false,
-            allowRateLimitedConnection: target?.allowRateLimitedConnection === true,
-            preselectedCredentials: (() => {
-              const key = getComboCredentialCacheKey(m, target);
-              const credentials = comboPreselectedCredentials.get(key);
-              comboPreselectedCredentials.delete(key);
-              return credentials;
-            })(),
-            cachedSettings: settings,
-            providerId: target?.providerId ?? (target as any)?.provider ?? null,
-            correlationId: reqId,
-            conversationId,
-            modelPinned: (target as any)?.modelPinned ?? false,
-            emptyTurnConnectionId: target?.emptyTurnConnectionId ?? null,
-            reasoningTransportFallback,
-            reasoningDecision,
-            reasoningIntent,
-            reasoningRequestTags: requestRoutingTags.tags,
-            managedLease,
-            // #7360 follow-up: without this, a target dispatch abandoned by
-            // targetTimeoutRunner.ts's per-target timeout (comboTargetTimeoutMs)
-            // never learns it was abandoned — it only watches the ORIGINAL
-            // client's request.signal (see clientRawRequest below), which stays
-            // open for as long as the overall combo keeps retrying elsewhere.
-            // The abandoned dispatch then hangs forever inside withRateLimit/
-            // acquireAccountSemaphore, leaking a permanent "pending" dashboard
-            // entry (trackPendingRequest(false) never runs) — live incident,
-            // log id 1784418258231-14961a.
-            modelAbortSignal: target?.modelAbortSignal ?? null,
-          },
-          target?.effectiveComboStrategy ?? combo.strategy,
-          true
-        ).then(async (res: Response) => {
-          // Auto-promote the winning combo model to position #1 (opt-in flag).
-          if (res?.ok)
-            await promoteSuccessfulComboModel(
-              combo,
+    // Local pressure is process-wide: reject once here instead of cascading every combo target.
+    const comboPressureGuard = checkResourcePressureBeforeProviderWork();
+    const response: Response = comboPressureGuard
+      ? comboPressureGuard.response
+      : await (handleComboChat as any)({
+          body,
+          combo,
+          deferContextOverflowWhenCompressible,
+          compressionExclusions,
+          // #10503: same request-shape facts chatCore.ts resolves for itself
+          // (resolveChatCoreRequestFormat), so getKnownContextOverflow's target-aware
+          // deferral check can never drift from chatCore's own native-codex-passthrough
+          // decision. See knownContextOverflow.ts::KnownContextOverflowOptions.
+          sourceFormat,
+          endpointPath: new URL(request.url).pathname,
+          requestHeaders: request.headers,
+          clientManagedResponsesContext:
+            sourceFormat === "openai-responses" &&
+            new URL(request.url).pathname.split("/").includes("responses") &&
+            isVerifiedNativeCodexRequest(body, request.headers),
+          handleSingleModel: (
+            b: any,
+            m: string,
+            target?: {
+              allowRateLimitedConnection?: boolean;
+              connectionId?: string | null;
+              executionKey?: string | null;
+              stepId?: string | null;
+              allowedConnectionIds?: string[] | null;
+              failoverBeforeRetry?: boolean;
+              providerId?: string | null;
+              effectiveComboStrategy?: string | null;
+              modelAbortSignal?: AbortSignal | null;
+              /** #16438: connection that just returned a pre-output empty turn (prefer a sibling). */
+              emptyTurnConnectionId?: string | null;
+            }
+          ) =>
+            handleSingleModelChat(
+              b,
               m,
-              settings as Record<string, unknown>,
-              comboPromoteDeps
-            );
-          return res;
-        }),
-      isModelAvailable: checkModelAvailable,
-      log,
-      settings,
-      allCombos,
-      apiKeyAllowedConnections: apiKeyInfo?.allowedConnections ?? null,
-      relayOptions,
-      signal,
-      correlationId: reqId,
-      // #9654 Wave 2: per-target lane-aware admission probe for combo fan-out.
-      perTargetAdmission: admissionContext.createPerTargetAdmissionHook(apiKeyInfo?.id, { signal }),
-    });
-
-    for (const credentials of comboPreselectedCredentials.values()) {
-      credentials.releaseOAuthSession?.();
-    }
-    comboPreselectedCredentials.clear();
+              clientRawRequest,
+              request,
+              combo.name,
+              apiKeyInfo,
+              telemetry,
+              {
+                sessionId,
+                sessionAffinityKey,
+                forceLiveComboTest: isComboLiveTest,
+                forcedConnectionId: target?.connectionId ?? null,
+                allowedConnectionIds: target?.allowedConnectionIds ?? null,
+                excludedConnectionIds: target?.excludedConnectionIds ?? null,
+                comboStepId: target?.stepId || null,
+                comboExecutionKey: target?.executionKey || target?.stepId || null,
+                skipUpstreamRetry: target?.failoverBeforeRetry ?? false,
+                allowRateLimitedConnection: target?.allowRateLimitedConnection === true,
+                cachedSettings: settings,
+                providerId: target?.providerId ?? (target as any)?.provider ?? null,
+                correlationId: reqId,
+                conversationId,
+                modelPinned: (target as any)?.modelPinned ?? false,
+                emptyTurnConnectionId: target?.emptyTurnConnectionId ?? null,
+                reasoningTransportFallback,
+                reasoningDecision,
+                reasoningIntent,
+                reasoningRequestTags: requestRoutingTags.tags,
+                managedLease,
+                // #7360 follow-up: without this, a target dispatch abandoned by
+                // targetTimeoutRunner.ts's per-target timeout (comboTargetTimeoutMs)
+                // never learns it was abandoned — it only watches the ORIGINAL
+                // client's request.signal (see clientRawRequest below), which stays
+                // open for as long as the overall combo keeps retrying elsewhere.
+                // The abandoned dispatch then hangs forever inside withRateLimit/
+                // acquireAccountSemaphore, leaking a permanent "pending" dashboard
+                // entry (trackPendingRequest(false) never runs) — live incident,
+                // log id 1784418258231-14961a.
+                modelAbortSignal: target?.modelAbortSignal ?? null,
+              },
+              target?.effectiveComboStrategy ?? combo.strategy,
+              true
+            ).then(async (res: Response) => {
+              // Auto-promote the winning combo model to position #1 (opt-in flag).
+              if (res?.ok)
+                await promoteSuccessfulComboModel(
+                  combo,
+                  m,
+                  settings as Record<string, unknown>,
+                  comboPromoteDeps
+                );
+              return res;
+            }),
+          isModelAvailable: checkModelAvailable,
+          log,
+          settings,
+          allCombos,
+          apiKeyAllowedConnections: apiKeyInfo?.allowedConnections ?? null,
+          relayOptions,
+          signal,
+          correlationId: reqId,
+          // #9654 Wave 2: per-target lane-aware admission probe for combo fan-out.
+          perTargetAdmission: admissionContext.createPerTargetAdmissionHook(apiKeyInfo?.id, { signal }),
+      });
 
     // ── Global Fallback Provider (#689) ────────────────────────────────────
     // If combo exhausted all models, try the global fallback before giving up.
     if (
       !response.ok &&
       [502, 503].includes(response.status) &&
+      !checkResourcePressureBeforeProviderWork() &&
       typeof (settings as any)?.globalFallbackModel === "string" &&
       (settings as any).globalFallbackModel.trim()
     ) {
@@ -1949,6 +1933,8 @@ async function handleSingleModelChat(
 
       if (result.success) {
         clearModelLock(provider, credentials.connectionId, model);
+        const affinityKey = runtimeOptions.sessionAffinityKey;
+        clearSessionAffinityTimeoutStrikes(affinityKey, provider, credentials.connectionId);
         // #14359 — a real upstream success is authoritative for the quota bucket
         // it drew from: arm the healthy override for that scope only.
         markQuotaHealthy(credentials.connectionId, resolveQuotaHealthyScope(provider, model));
@@ -2372,14 +2358,13 @@ async function handleSingleModelChat(
         result.status,
         errorStr
       );
-      // #6219: transient 504/524 timeouts keep the sticky pin (per-request exclusion handles them).
-      if (shouldFallback && runtimeOptions.sessionAffinityKey && !isTimeoutEvictionResult(result)) {
+      // #6219: 1st transient 504/524 keeps the sticky pin; a 2nd consecutive one evicts it.
+      if (shouldFallback && runtimeOptions.sessionAffinityKey) {
         try {
-          evictSessionAccountAffinityForConnection(
-            runtimeOptions.sessionAffinityKey,
-            provider,
-            credentials.connectionId
-          );
+          const evictPin = isTimeoutEvictionResult(result)
+            ? recordSessionAffinityTimeoutStrike
+            : evictSessionAccountAffinityForConnection;
+          evictPin(runtimeOptions.sessionAffinityKey, provider, credentials.connectionId);
         } catch {
           // best-effort: selection also excludes this connection for the current retry.
         }

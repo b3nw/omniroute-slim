@@ -29,6 +29,10 @@ const pin = await import("../../src/sse/services/sessionAffinityPin.ts");
 const abortReasons = await import("../../open-sse/services/combo/comboAbortReasons.ts");
 const { applyComboTargetExhaustion } =
   await import("../../open-sse/services/combo/targetExhaustion.ts");
+const providersDb = await import("../../src/lib/db/providers.ts");
+const settingsDb = await import("../../src/lib/db/settings.ts");
+const apiKeysDb = await import("../../src/lib/db/apiKeys.ts");
+const auth = await import("../../src/sse/services/auth.ts");
 
 const PROVIDER = "codex";
 const SESSION = "session-combo-timeout";
@@ -46,6 +50,8 @@ const timedOutSignal = () => abortedWith(new Error(abortReasons.COMBO_PER_MODEL_
 
 test.beforeEach(() => {
   core.resetDbInstance();
+  apiKeysDb.resetApiKeyState();
+  pin.resetSessionAffinityTimeoutStrikesForTests();
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
 });
@@ -367,3 +373,156 @@ test("a brand-new session overrides a busy forcedConnectionId with the LRU conne
     "the existing session keeps its pin"
   );
 });
+
+// ── Opportunity 2: evict the pin after 2 consecutive first-byte/target timeouts ──
+
+const GEMINI = "gemini-cli";
+const FIRST_BYTE_504 = { status: 504, errorCode: "GEMINI_CLI_FIRST_BYTE_TIMEOUT" };
+
+test("1st first-byte 504 keeps the pin; a success on the same account resets its strikes", () => {
+  affinityDb.upsertSessionAccountAffinity(SESSION, GEMINI, STALLED, Date.now(), TTL);
+  assert.equal(pin.isTimeoutEvictionResult(FIRST_BYTE_504), true);
+
+  assert.deepEqual(pin.recordSessionAffinityTimeoutStrike(SESSION, GEMINI, STALLED), {
+    strikes: 1,
+    evicted: false,
+  });
+  assert.equal(
+    affinityDb.getSessionAccountAffinity(SESSION, GEMINI, TTL)?.connectionId,
+    STALLED,
+    "a single transient stall must keep the cross-turn prompt-cache pin"
+  );
+
+  // Next turn: the pinned account itself succeeds.
+  pin.clearSessionAffinityTimeoutStrikes(SESSION, GEMINI, STALLED);
+
+  assert.deepEqual(
+    pin.recordSessionAffinityTimeoutStrike(SESSION, GEMINI, STALLED),
+    { strikes: 1, evicted: false },
+    "a later 504 after a success is again only strike 1"
+  );
+  assert.equal(affinityDb.getSessionAccountAffinity(SESSION, GEMINI, TTL)?.connectionId, STALLED);
+});
+
+test("a fallback account's success does not clear the pinned account's strike; 2nd 504 evicts", async () => {
+  affinityDb.upsertSessionAccountAffinity(SESSION, GEMINI, STALLED, Date.now(), TTL);
+
+  // Turn 1: STALLED times out, fallback HEALTHY serves the request.
+  assert.deepEqual(pin.recordSessionAffinityTimeoutStrike(SESSION, GEMINI, STALLED), {
+    strikes: 1,
+    evicted: false,
+  });
+  pin.clearSessionAffinityTimeoutStrikes(SESSION, GEMINI, HEALTHY);
+  assert.equal(affinityDb.getSessionAccountAffinity(SESSION, GEMINI, TTL)?.connectionId, STALLED);
+
+  // Turn 2: the pin routes back to STALLED, which times out again.
+  assert.deepEqual(pin.recordSessionAffinityTimeoutStrike(SESSION, GEMINI, STALLED), {
+    strikes: 2,
+    evicted: true,
+  });
+  assert.equal(
+    affinityDb.getSessionAccountAffinity(SESSION, GEMINI, TTL),
+    null,
+    "two consecutive timeouts on the pinned account must evict the pin"
+  );
+
+  const selected = await pin.selectSessionAffinityConnection(
+    GEMINI,
+    SESSION,
+    [{ id: HEALTHY }],
+    TTL,
+    new Set([STALLED])
+  );
+  assert.equal(selected?.id, HEALTHY);
+  assert.equal(
+    affinityDb.getSessionAccountAffinity(SESSION, GEMINI, TTL)?.connectionId,
+    HEALTHY,
+    "the session re-pins to the healthy account"
+  );
+});
+
+test("timeout strikes reset when a different connection times out and never evict another pin", () => {
+  affinityDb.upsertSessionAccountAffinity(SESSION, GEMINI, HEALTHY, Date.now(), TTL);
+  assert.equal(pin.recordSessionAffinityTimeoutStrike(SESSION, GEMINI, STALLED).strikes, 1);
+  assert.equal(pin.recordSessionAffinityTimeoutStrike(SESSION, GEMINI, HEALTHY).strikes, 1);
+  assert.deepEqual(pin.recordSessionAffinityTimeoutStrike(null, GEMINI, STALLED), {
+    strikes: 0,
+    evicted: false,
+  });
+  const second = pin.recordSessionAffinityTimeoutStrike(SESSION, GEMINI, STALLED);
+  assert.deepEqual(second, { strikes: 1, evicted: false });
+  assert.equal(affinityDb.getSessionAccountAffinity(SESSION, GEMINI, TTL)?.connectionId, HEALTHY);
+});
+
+test("chat.ts records timeout strikes instead of skipping eviction, and clears them on success", () => {
+  const src = fs.readFileSync(new URL("../../src/sse/handlers/chat.ts", import.meta.url), "utf8");
+  assert.match(src, /isTimeoutEvictionResult\(result\)\s*\?\s*recordSessionAffinityTimeoutStrike/);
+  assert.match(
+    src,
+    /clearSessionAffinityTimeoutStrikes\(affinityKey, provider, credentials\.connectionId\)/
+  );
+  assert.match(src, /probeOnly: true/);
+});
+
+// ── Opportunity 1: read-only availability probing ──
+
+async function seedGlmConnection(name: string) {
+  return providersDb.createProviderConnection({
+    provider: "glm",
+    authType: "api_key",
+    name,
+    apiKey: `key-${name}`,
+    isActive: true,
+    testStatus: "active",
+    providerSpecificData: {},
+  });
+}
+
+for (const fallbackStrategy of ["round-robin", "least-used", "fill-first"]) {
+  test(`getProviderCredentials probeOnly does not pin or advance lastUsedAt (${fallbackStrategy})`, async () => {
+    await settingsDb.updateSettings({ sessionAffinityTtlMs: 60_000, fallbackStrategy });
+    const a = await seedGlmConnection("probe-a");
+    const b = await seedGlmConnection("probe-b");
+
+    // Without a session key the strategy's own lastUsedAt commit path is exercised.
+    await auth.getProviderCredentials("glm", null, null, "glm-4.6", { probeOnly: true });
+    const probe = await auth.getProviderCredentials("glm", null, null, "glm-4.6", {
+      sessionKey: "session-probe",
+      probeOnly: true,
+    });
+    assert.ok(probe && "connectionId" in probe && probe.connectionId, "probe reports availability");
+    assert.equal(
+      affinityDb.getSessionAccountAffinity("session-probe", "glm", 60_000),
+      null,
+      "a probe must not create a session affinity pin"
+    );
+    for (const conn of [a, b]) {
+      const row = (await providersDb.getProviderConnectionById(conn.id)) as Record<string, unknown>;
+      assert.ok(!row.lastUsedAt, "a probe must not stamp lastUsedAt");
+      assert.ok(!row.consecutiveUseCount, "a probe must not advance consecutiveUseCount");
+    }
+
+    // A real selection pins; a later probe must not touch that pin's account either.
+    const real = await auth.getProviderCredentials("glm", null, null, "glm-4.6", {
+      sessionKey: "session-probe",
+    });
+    const pinned = affinityDb.getSessionAccountAffinity("session-probe", "glm", 60_000);
+    assert.equal(pinned?.connectionId, (real as { connectionId: string }).connectionId);
+    const before = (await providersDb.getProviderConnectionById(pinned!.connectionId)) as Record<
+      string,
+      unknown
+    >;
+
+    const probe2 = await auth.getProviderCredentials("glm", null, null, "glm-4.6", {
+      sessionKey: "session-probe",
+      probeOnly: true,
+    });
+    assert.equal((probe2 as { connectionId: string }).connectionId, pinned!.connectionId);
+    const after = (await providersDb.getProviderConnectionById(pinned!.connectionId)) as Record<
+      string,
+      unknown
+    >;
+    assert.equal(after.lastUsedAt, before.lastUsedAt);
+    assert.equal(after.consecutiveUseCount, before.consecutiveUseCount);
+  });
+}

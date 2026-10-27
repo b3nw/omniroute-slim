@@ -301,7 +301,7 @@ export async function selectSessionAffinityConnection<T extends SessionAffinityC
       await touchConnectionLastUsed(connection.id, nextCount);
       connection.lastUsedAt = new Date().toISOString();
       connection.consecutiveUseCount = nextCount;
-      log.info(
+      log.debug(
         "AUTH",
         `session_key=${formatSessionKeyForLog(sessionKey)} -> connection ${connection.id.slice(
           0,
@@ -484,6 +484,69 @@ export function evictSessionAffinityOnComboTimeout(
   }
 }
 
+/** Consecutive first-byte/target timeouts on the pinned account before the pin is evicted. */
+export const SESSION_AFFINITY_TIMEOUT_EVICTION_STRIKES = 2;
+const MAX_TIMEOUT_STRIKE_ENTRIES = 2048;
+const timeoutStrikes = new Map<
+  string,
+  { connectionId: string; strikes: number; updatedAt: number }
+>();
+
+/**
+ * Record a transient timeout (504/524) against the session's pinned account. The
+ * first timeout keeps the persistent pin (per-request exclusion handles the retry);
+ * `threshold` consecutive timeouts on the same connection evict the pin so the
+ * session stops being handed back to a stalled account.
+ */
+export function recordSessionAffinityTimeoutStrike(
+  sessionKey: string | null | undefined,
+  provider: string,
+  connectionId: string | null | undefined,
+  threshold = SESSION_AFFINITY_TIMEOUT_EVICTION_STRIKES
+): { strikes: number; evicted: boolean } {
+  if (!sessionKey || !provider || !connectionId) return { strikes: 0, evicted: false };
+  const key = `${provider}:${sessionKey}`;
+  const existing = timeoutStrikes.get(key);
+  const strikes = existing?.connectionId === connectionId ? existing.strikes + 1 : 1;
+  // Re-insert so Map iteration order tracks recency for FIFO eviction.
+  timeoutStrikes.delete(key);
+  if (strikes < threshold) {
+    timeoutStrikes.set(key, { connectionId, strikes, updatedAt: Date.now() });
+    while (timeoutStrikes.size > MAX_TIMEOUT_STRIKE_ENTRIES) {
+      const oldest = timeoutStrikes.keys().next().value;
+      if (oldest === undefined) break;
+      timeoutStrikes.delete(oldest);
+    }
+    return { strikes, evicted: false };
+  }
+  evictSessionAccountAffinityForConnection(sessionKey, provider, connectionId);
+  log.warn(
+    "AUTH",
+    `session_key=${formatSessionKeyForLog(sessionKey)} pin on ${connectionId.slice(0, 8)} evicted after ${strikes} consecutive timeouts on ${provider}`
+  );
+  return { strikes, evicted: true };
+}
+
+/**
+ * Clear timeout strikes after a successful dispatch. With `connectionId`, only that
+ * connection's strikes are cleared, so a fallback account succeeding does not reset
+ * the stalled pinned account's count.
+ */
+export function clearSessionAffinityTimeoutStrikes(
+  sessionKey: string | null | undefined,
+  provider: string,
+  connectionId?: string | null
+): void {
+  if (!sessionKey || !provider) return;
+  const key = `${provider}:${sessionKey}`;
+  if (connectionId && timeoutStrikes.get(key)?.connectionId !== connectionId) return;
+  timeoutStrikes.delete(key);
+}
+
+export function resetSessionAffinityTimeoutStrikesForTests(): void {
+  timeoutStrikes.clear();
+}
+
 /** Subset of credential-selection options the pin resolution consults. */
 export interface AffinityPinOptions {
   sessionKey?: string | null;
@@ -647,7 +710,7 @@ export function applySessionAffinityPin(params: ApplySessionAffinityPinParams): 
     return null;
   }
 
-  log.info(
+  log.debug(
     "AUTH",
     `session affinity pin ${pinned.connectionId.slice(0, 8)}... overrides forcedConnectionId ${forcedConnectionId.slice(0, 8)}... (#5903)`
   );

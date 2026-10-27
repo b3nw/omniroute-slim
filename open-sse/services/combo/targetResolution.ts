@@ -764,9 +764,7 @@ export async function resolveComboTargetPipeline(
   // Parallel pre-screen: check provider profiles and model availability for all targets
   // Only runs for priority strategy where sequential checking causes latency
   const preScreenMap = traits.preScreensTargets
-    ? await preScreenTargets(orderedTargets, isModelAvailable).catch(
-        () => new Map<string, PreScreenResult>()
-      )
+    ? await preScreenTargets(orderedTargets).catch(() => new Map<string, PreScreenResult>())
     : new Map<string, PreScreenResult>();
 
   return {

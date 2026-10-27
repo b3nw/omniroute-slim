@@ -209,6 +209,8 @@ export interface CredentialSelectionOptions {
   lease?: CredentialLeaseSelectionContext;
   materializeCredentials?: boolean;
   deferLeaseClaim?: boolean;
+  /** Read-only availability probe: same eligibility filtering, no affinity/LRU/deck/lease/OAuth mutation. */
+  probeOnly?: boolean;
   /** Internal: a same-call UNIQUE retry already holds the provider/owner selection lock. */
   _leaseRetryWithLockHeld?: boolean;
   /** Internal: freeze the original policy-valid candidate set across lease race/preflight retry. */
@@ -1435,7 +1437,7 @@ export async function getProviderCredentials(
       if (allowedConnections?.length) {
         reasons.push(`allowedConnections=${allowedConnections.length}`);
       }
-      log.info("AUTH", `${provider} selection constrained: ${reasons.join(", ")}`);
+      log.debug("AUTH", `${provider} selection constrained: ${reasons.join(", ")}`);
     }
 
     if (connections.length === 0) {
@@ -1632,7 +1634,7 @@ export async function getProviderCredentials(
       `${provider} | available: ${availableConnections.length}/${connections.length}`
     );
     if (provider === "antigravity") {
-      log.info(
+      log.debug(
         "AUTH",
         `${provider} selection candidates model=${requestedModel || "none"}: active=${activeConnectionsCount}, excluded=${excludedConnectionIds.size}, modelLocked=${modelLockedCount}, familyLocked=${familyLockedCount}, eligible=${availableConnections.length}`
       );
@@ -2001,7 +2003,7 @@ export async function getProviderCredentials(
         )
       : undefined;
     const affinityPlan =
-      options.lease && !connection
+      (options.lease || options.probeOnly) && !connection
         ? planSessionAffinityConnection(
             provider,
             options.sessionKey,
@@ -2012,7 +2014,7 @@ export async function getProviderCredentials(
         : null;
     const affinityConnection = connection
       ? connection
-      : options.lease
+      : options.lease || options.probeOnly
         ? affinityPlan?.connection
         : await selectSessionAffinityConnection(
             provider,
@@ -2024,8 +2026,8 @@ export async function getProviderCredentials(
     if (affinityConnection) {
       connection = affinityConnection;
       if (options.lease) commitSelectionSideEffects = affinityPlan?.commit;
-      else syncSessionAffinityRuntimeFields(connectionsRaw, connection);
-    } else if (options.sessionKey) {
+      else if (!options.probeOnly) syncSessionAffinityRuntimeFields(connectionsRaw, connection);
+    } else if (options.sessionKey && !options.probeOnly) {
       log.info(
         "AUTH",
         `session_key=${formatSessionKeyForLog(options.sessionKey)} has no available affinity target`
@@ -2068,7 +2070,7 @@ export async function getProviderCredentials(
           const nextCount = (connection.consecutiveUseCount || 0) + 1;
           const commit = planLastUsedCommit(connection, connectionsRaw, nextCount);
           if (options.lease) commitSelectionSideEffects = commit;
-          else await commit();
+          else if (!options.probeOnly) await commit();
         } else {
           // Pick the least recently used (excluding current if possible)
           // Also penalize accounts with high backoffLevel (previously rate-limited)
@@ -2093,7 +2095,7 @@ export async function getProviderCredentials(
           // Update lastUsedAt and reset count to 1 (await to ensure persistence)
           const commit = planLastUsedCommit(connection, connectionsRaw, 1);
           if (options.lease) commitSelectionSideEffects = commit;
-          else await commit();
+          else if (!options.probeOnly) await commit();
         }
       } else {
         // Fallback scenario: excluded an account due to failure
@@ -2118,7 +2120,7 @@ export async function getProviderCredentials(
         // Update lastUsedAt and reset count to 1 (await to ensure persistence)
         const commit = planLastUsedCommit(connection, connectionsRaw, 1);
         if (options.lease) commitSelectionSideEffects = commit;
-        else await commit();
+        else if (!options.probeOnly) await commit();
       }
     } else if (strategy === "p2c") {
       const candidatePool = orderedConnections;
@@ -2161,7 +2163,7 @@ export async function getProviderCredentials(
       // always committed here; least-used now does the same.
       const commit = planLastUsedCommit(connection, connectionsRaw, 1);
       if (options.lease) commitSelectionSideEffects = commit;
-      else await commit();
+      else if (!options.probeOnly) await commit();
     } else if (strategy === "cost-optimized") {
       // Cost Optimized: sort by priority ascending (lower = cheaper/preferred)
       // Future: can be enhanced with actual cost data per provider
@@ -2172,11 +2174,11 @@ export async function getProviderCredentials(
     } else if (strategy === "strict-random") {
       // Strict Random: shuffle deck — uses each account once before reshuffling
       const ids = orderedConnections.map((c) => c.id);
-      if (options.lease) {
+      if (options.lease || options.probeOnly) {
         const plan = planNextFromDeckSync(`conn:${provider}`, ids);
         connection =
           orderedConnections.find((c) => c.id === plan.selectedId) || orderedConnections[0];
-        commitSelectionSideEffects = plan.commit;
+        if (options.lease) commitSelectionSideEffects = plan.commit;
       } else {
         const selectedId = getNextFromDeckSync(`conn:${provider}`, ids);
         connection = orderedConnections.find((c) => c.id === selectedId) || orderedConnections[0];
@@ -2207,7 +2209,7 @@ export async function getProviderCredentials(
     }
 
     let exclusiveLease: ExclusiveConnectionLease | undefined;
-    if (options.lease) {
+    if (options.lease && !options.probeOnly) {
       const candidateIds = orderedConnections.map((candidate) => candidate.id);
       const selectNextLeaseCandidate = (excludedConnectionId: string) =>
         getProviderCredentials(provider, null, allowedConnections, requestedModel, {
@@ -2244,13 +2246,17 @@ export async function getProviderCredentials(
     }
 
     if (provider === "antigravity" && connection) {
-      log.info(
+      log.debug(
         "AUTH",
         `${provider} selected account=${connection.id?.slice(0, 8)}... eligible=${orderedConnections.length} excluded=${excludedConnectionIds.size}`
       );
     }
 
-    return materializeConnection(connection, options, { exclusiveLease });
+    return materializeConnection(
+      connection,
+      { ...options, reserveOAuthSession: options.probeOnly ? false : options.reserveOAuthSession },
+      { exclusiveLease }
+    );
   } finally {
     selectionLock?.release();
   }
@@ -2311,7 +2317,7 @@ export async function getProviderCredentialsWithQuotaPreflight(
       (await getProviderCredentials(provider, null, allowedConnections, requestedModel, {
         ...options,
         excludeConnectionIds: Array.from(excludedConnectionIds),
-        ...(options.lease ? { deferLeaseClaim: true } : {}),
+        ...(options.lease && !options.probeOnly ? { deferLeaseClaim: true } : {}),
       }));
     pendingCredentialSelection = undefined;
 
@@ -2350,7 +2356,7 @@ export async function getProviderCredentialsWithQuotaPreflight(
       return credentials;
     }
     const commitLease = async () => {
-      if (!options.lease) return credentials;
+      if (!options.lease || options.probeOnly) return credentials;
       const activeLease = getActiveExclusiveConnectionLease(options.lease.context.leaseOwnerId);
       const claim = mutateExclusiveConnectionLease(
         selectedCredentials as unknown as ProviderConnectionView,

@@ -709,3 +709,12 @@ export function isModelScoped400(errorText: string | null | undefined): boolean 
     /\bdoes\s+not\s+support\s+(?:the\s+)?responses\s+api\b/i.test(text)
   );
 }
+
+/** Local memory/resource-pressure guard rejection is process-wide and must not cascade across combo targets. */
+export function isLocalResourcePressureErrorBody(errorBody: unknown): boolean {
+  if (!errorBody || typeof errorBody !== "object") return false;
+  const error = (errorBody as Record<string, unknown>).error;
+  if (!error || typeof error !== "object") return false;
+  const code = String((error as Record<string, unknown>).code || "").toLowerCase();
+  return code === "resource_pressure" || code === "heap_pressure";
+}

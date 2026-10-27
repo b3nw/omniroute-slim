@@ -177,6 +177,12 @@ export function classifyAdaptiveResourcePressure(
     best,
     ratioLevel(signals.v8.heapUsedBytes, signals.v8.heapLimitBytes, thresholds, "v8_heap_ratio")
   );
+  if (
+    thresholds.heapAbsoluteThresholdMb != null &&
+    signals.v8.heapUsedBytes > thresholds.heapAbsoluteThresholdMb * MB
+  ) {
+    best = maxLevel(best, { severity: "critical", reason: "v8_heap_absolute" });
+  }
   // memory.current includes reclaimable page cache; the kernel drops those
   // pages under allocation pressure (memory.events high/max stay 0). Ratio the
   // working set (current minus file cache) so cache-heavy-but-healthy hosts do
@@ -308,9 +314,11 @@ export function createResourcePressureTracker(
         : classifyAdaptiveResourcePressure(signals, thresholds);
       let { severity, reason, elevatedStreak, recoveryStreak } = state;
 
-      if (oomEvent) {
+      // OOM events and absolute-heap breaches mirror the immediate request-path
+      // shed (check()), so they escalate without waiting for sustained samples.
+      if (oomEvent || (raw.severity === "critical" && raw.reason === "v8_heap_absolute")) {
         severity = "critical";
-        reason = "oom_event";
+        reason = raw.reason;
         elevatedStreak = 0;
         recoveryStreak = 0;
         pending = null;

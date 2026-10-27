@@ -224,6 +224,7 @@ import {
   isStreamEarlyEofErrorBody,
   isTokenLimitBreachErrorBody,
   isLocalQueueCapacityErrorBody,
+  isLocalResourcePressureErrorBody,
   toRecordedTarget,
   getExhaustedTargetSkipReason,
   clampPercent,
@@ -2256,6 +2257,7 @@ async function handleComboChatInner({
           const isTokenLimitBreach =
             result.status === 429 && isTokenLimitBreachErrorBody(errorBody);
           const isLocalQueueCapacity = isLocalQueueCapacityErrorBody(errorBody);
+          const isLocalResourcePressure = isLocalResourcePressureErrorBody(errorBody);
 
           // Fix #1681: Status 499 means client disconnected — stop combo loop immediately.
           // There is no point trying fallback models when nobody is listening.
@@ -2278,6 +2280,22 @@ async function handleComboChatInner({
             log.info(
               "COMBO",
               `Local rate-limit queue capacity reached for ${modelStr} — returning without upstream fallback`
+            );
+            recordComboRequest(combo.name, modelStr, {
+              success: false,
+              latencyMs: Date.now() - startTime,
+              fallbackCount,
+              strategy,
+              target: toRecordedTarget(target),
+            });
+            recordedAttempts++;
+            if (i > 0) fallbackCount++;
+            return { ok: false, response: result };
+          }
+          if (isLocalResourcePressure) {
+            log.warn(
+              "COMBO",
+              `Local resource pressure guard tripped during ${modelStr} — stopping combo loop without fallback`
             );
             recordComboRequest(combo.name, modelStr, {
               success: false,
@@ -3953,10 +3971,10 @@ async function handleRoundRobinCombo({
             result.status === 429 && isTokenLimitBreachErrorBody(errorBody);
           const isLocalQueueCapacity = isLocalQueueCapacityErrorBody(errorBody);
 
-          if (isLocalQueueCapacity) {
+          if (isLocalQueueCapacity || isLocalResourcePressureErrorBody(errorBody)) {
             log.info(
               "COMBO-RR",
-              `Local rate-limit queue capacity reached for ${modelStr} — returning without upstream fallback`
+              `Local rate-limit queue or resource pressure guard tripped for ${modelStr} — returning without upstream fallback`
             );
             recordComboRequest(combo.name, modelStr, {
               success: false,
