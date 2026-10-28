@@ -1,32 +1,26 @@
 name: Build lab OmniRoute-Slim image
 
-concurrency:
-  group: build-lab-${{ github.ref }}
-  cancel-in-progress: true
+# Image identity is computed from git + UPSTREAM_BASE.json, never from free-text input:
+#   tag    {tier}.{upstream_base}.{seq}.{sha8}   e.g. dev.3.8.51.9.8087fd68  (immutable)
+#   alias  dev-current | prod-current + prod-previous                        (floating)
+#   labels org.opencontainers.image.{revision,ref.name,version,created} + io.ben.omniroute.*
+# seq = commits since the merge-base with the annotated upstream/v<upstream_base> tag.
 
 on:
   workflow_dispatch:
     inputs:
       git_ref:
-        description: "Internal Gitea ref (branch/tag/sha)"
-        required: false
-        default: "main"
-      short_sha:
-        description: "Immutable short sha for lab-<sha> tag (leave empty to derive from git_ref HEAD)"
+        description: "Internal Gitea ref to build (branch/tag/sha). Empty = the ref this run was dispatched on"
         required: false
         default: ""
-      also_lab_latest:
-        description: "Also push lab-latest (non-prod only)"
+      tier:
+        description: "Build tier: dev | prod. Empty = prod when git_ref starts with 'prod', else dev"
         required: false
-        default: "true"
+        default: ""
       platforms:
         description: "Build platforms (comma-separated). Default linux/amd64."
         required: false
         default: "linux/amd64"
-      tag_suffix:
-        description: "Optional tag suffix. Empty = lab-<sha> only"
-        required: false
-        default: ""
       docker_target:
         description: "Dockerfile target (runner-base | runner-web | runner-cli)"
         required: false
@@ -39,11 +33,24 @@ on:
         description: "Use Turbopack bundler (1 = Turbopack, 0 = Webpack)"
         required: false
         default: "0"
+      allow_overwrite:
+        description: "Allow overwriting an already-published immutable tag (emergency only)"
+        type: boolean
+        required: false
+        default: false
+
+# One lab build at a time for this image: serializes the prod-previous/prod-current
+# read-modify-write and the immutable-tag existence check against its own push.
+# Never cancel an in-flight run — a half-moved alias pair is worse than waiting.
+concurrency:
+  group: build-lab-omniroute-slim
+  cancel-in-progress: false
 
 env:
   REGISTRY: gitea.ext.ben.io
   IMAGE_PRIMARY: gitea.ext.ben.io/homelab/omniroute-slim
   DOCKERFILE: Dockerfile
+  DEFAULT_UPSTREAM_BASE: "3.8.51"
 
 jobs:
   build:
@@ -54,7 +61,10 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          ref: ${{ gitea.event.inputs.git_ref || 'main' }}
+          ref: ${{ gitea.event.inputs.git_ref || gitea.ref }}
+          # Full history + tags: seq is a merge-base/rev-list distance and a shallow
+          # clone silently yields a wrong count.
+          fetch-depth: 0
 
       - name: Login to Gitea Container Registry
         uses: docker/login-action@v2
@@ -74,31 +84,115 @@ jobs:
         with:
           driver: docker
 
-      - name: Resolve Image Tags & Build Flags
+      - name: Resolve build identity, tag & build flags
+        shell: bash
+        env:
+          INPUT_GIT_REF: ${{ gitea.event.inputs.git_ref }}
+          DISPATCH_REF: ${{ gitea.ref_name }}
+          INPUT_TIER: ${{ gitea.event.inputs.tier }}
+          INPUT_PLATFORMS: ${{ gitea.event.inputs.platforms }}
+          INPUT_DOCKER_TARGET: ${{ gitea.event.inputs.docker_target }}
+          INPUT_BUILD_WORKERS: ${{ gitea.event.inputs.build_workers }}
+          INPUT_USE_TURBOPACK: ${{ gitea.event.inputs.use_turbopack }}
         run: |
-          set -eu
-          SHORT="${{ gitea.event.inputs.short_sha }}"
-          if [ -z "$SHORT" ]; then
-            SHORT=$(git rev-parse --short=8 HEAD)
+          set -euo pipefail
+
+          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+            echo "::error::shallow checkout — seq cannot be computed (need fetch-depth: 0)"
+            exit 1
           fi
-          FULL=$(git rev-parse HEAD)
-          echo "SHORT_SHA=$SHORT" >> "$GITHUB_ENV"
-          echo "FULL_SHA=$FULL" >> "$GITHUB_ENV"
-          echo "PLATFORMS=${{ gitea.event.inputs.platforms || 'linux/amd64' }}" >> "$GITHUB_ENV"
-          echo "TAG_SUFFIX=${{ gitea.event.inputs.tag_suffix || '' }}" >> "$GITHUB_ENV"
-          echo "DOCKER_TARGET=${{ gitea.event.inputs.docker_target || 'runner-base' }}" >> "$GITHUB_ENV"
-          # API-dispatched runs without explicit inputs get gitea.event.inputs
-          # populated from main's workflow defaults (build_workers: "1"), so a
-          # bare `|| '4'` fallback never fires. Treat empty and "1" as unset.
-          BUILD_WORKERS="${{ gitea.event.inputs.build_workers }}"
-          if [ -z "$BUILD_WORKERS" ] || [ "$BUILD_WORKERS" = "1" ]; then
-            BUILD_WORKERS=4
+
+          GIT_REF="${INPUT_GIT_REF:-$DISPATCH_REF}"
+          GIT_REF="${GIT_REF#refs/heads/}"
+          if ! [[ "$GIT_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "::error::invalid git ref: ${GIT_REF}"
+            exit 1
           fi
-          echo "BUILD_WORKERS=$BUILD_WORKERS" >> "$GITHUB_ENV"
-          # The lab runner has 47 GiB; the Dockerfile default (5120) is sized
-          # for 16 GB GitHub runners.
-          echo "BUILD_MEMORY_MB=8192" >> "$GITHUB_ENV"
-          echo "USE_TURBOPACK=${{ gitea.event.inputs.use_turbopack || '0' }}" >> "$GITHUB_ENV"
+
+          FULL_SHA="$(git rev-parse HEAD)"
+          SHORT_SHA="${FULL_SHA:0:8}"
+
+          TIER="${INPUT_TIER:-}"
+          if [ -z "$TIER" ]; then
+            case "$GIT_REF" in
+              prod*) TIER=prod ;;
+              *) TIER=dev ;;
+            esac
+          fi
+          case "$TIER" in
+            dev | prod) ;;
+            *)
+              echo "::error::tier must be dev or prod (got: ${TIER})"
+              exit 1
+              ;;
+          esac
+
+          UPSTREAM_BASE="$(node -e '
+            try {
+              const tag = String(require("./UPSTREAM_BASE.json").upstream.tag || "");
+              process.stdout.write(tag.replace(/^v/, ""));
+            } catch {}
+          ' || true)"
+          if ! [[ "$UPSTREAM_BASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::warning::UPSTREAM_BASE.json missing/invalid upstream.tag — falling back to ${DEFAULT_UPSTREAM_BASE}"
+            UPSTREAM_BASE="$DEFAULT_UPSTREAM_BASE"
+          fi
+
+          BASE_REF="refs/tags/upstream/v${UPSTREAM_BASE}"
+          BASE_COMMIT=""
+          if git rev-parse -q --verify "${BASE_REF}^{commit}" >/dev/null; then
+            BASE_COMMIT="$(git merge-base HEAD "$BASE_REF" || true)"
+          fi
+          if [ -n "$BASE_COMMIT" ]; then
+            SEQ="$(git rev-list --count "${BASE_COMMIT}..HEAD")"
+          else
+            # No alignment tag reachable: count the whole history (safe with multiple roots).
+            echo "::warning::${BASE_REF} not found or unrelated to HEAD — seq counts full history"
+            SEQ="$(git rev-list --count HEAD)"
+          fi
+
+          IMAGE_TAG="${TIER}.${UPSTREAM_BASE}.${SEQ}.${SHORT_SHA}"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          {
+            echo "GIT_REF=$GIT_REF"
+            echo "FULL_SHA=$FULL_SHA"
+            echo "SHORT_SHA=$SHORT_SHA"
+            echo "TIER=$TIER"
+            echo "UPSTREAM_BASE=$UPSTREAM_BASE"
+            echo "SEQ=$SEQ"
+            echo "IMAGE_TAG=$IMAGE_TAG"
+            echo "BUILD_DATE=$BUILD_DATE"
+            echo "PLATFORMS=${INPUT_PLATFORMS:-linux/amd64}"
+            echo "DOCKER_TARGET=${INPUT_DOCKER_TARGET:-runner-base}"
+            echo "BUILD_WORKERS=${INPUT_BUILD_WORKERS:-1}"
+            echo "USE_TURBOPACK=${INPUT_USE_TURBOPACK:-0}"
+            echo "BUILD_MEMORY_MB=8192"
+          } >> "$GITHUB_ENV"
+          echo "Building ${IMAGE_PRIMARY}:${IMAGE_TAG} from ${GIT_REF} @ ${FULL_SHA}"
+
+      # The {tier}.{upstream}.{seq}.{sha8} tag is a deployment pin: refuse to republish it.
+      # Fails closed — only a definitive "not found" from the registry lets the push proceed.
+      - name: Guard immutable tag
+        shell: bash
+        env:
+          ALLOW_OVERWRITE: ${{ gitea.event.inputs.allow_overwrite }}
+        run: |
+          set -euo pipefail
+          TAG="${IMAGE_PRIMARY}:${IMAGE_TAG}"
+          if OUT="$(docker buildx imagetools inspect "$TAG" 2>&1)"; then
+            if [ "${ALLOW_OVERWRITE:-false}" != "true" ]; then
+              echo "::error::Immutable tag $TAG already exists in registry! Aborting to prevent corrupting deployment pin. Pass allow_overwrite=true if this is intentional."
+              exit 1
+            fi
+            echo "::warning::Overwriting existing tag $TAG because allow_overwrite=true was set."
+          elif printf '%s' "$OUT" | grep -qiE 'not found|manifest unknown|name unknown'; then
+            echo "$TAG not yet published — OK to push"
+          else
+            echo "::error::Could not determine whether $TAG exists (registry error); refusing to push."
+            printf '%s\n' "$OUT"
+            exit 1
+          fi
 
       - name: Build and push image
         id: push_image
@@ -115,21 +209,89 @@ jobs:
             OMNIROUTE_BUILD_WORKERS=${{ env.BUILD_WORKERS }}
             OMNIROUTE_BUILD_MEMORY_MB=${{ env.BUILD_MEMORY_MB }}
             OMNIROUTE_USE_TURBOPACK=${{ env.USE_TURBOPACK }}
+            OMNIROUTE_GIT_SHA=${{ env.FULL_SHA }}
+            OMNIROUTE_GIT_REF=${{ env.GIT_REF }}
+            OMNIROUTE_TIER=${{ env.TIER }}
+            OMNIROUTE_UPSTREAM_BASE=${{ env.UPSTREAM_BASE }}
+            OMNIROUTE_BUILD_SEQ=${{ env.SEQ }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
           tags: |
-            ${{ env.IMAGE_PRIMARY }}:lab-${{ env.SHORT_SHA }}${{ env.TAG_SUFFIX }}
-            ${{ env.IMAGE_PRIMARY }}:lab-${{ env.FULL_SHA }}${{ env.TAG_SUFFIX }}
+            ${{ env.IMAGE_PRIMARY }}:${{ env.IMAGE_TAG }}
 
-      - name: Optional lab-latest (non-prod)
-        if: (gitea.event.inputs.also_lab_latest || 'true') == 'true'
+      # Only the floating aliases are ever retargeted; the {tier}.{upstream}.{seq}.{sha8}
+      # tag above is immutable. prod keeps a prod-previous alias so rollback is a tag.
+      # Safe against concurrent runs only because of the workflow-level concurrency group.
+      - name: Move floating aliases (dev-current | prod-previous + prod-current)
+        shell: bash
+        env:
+          NEW_DIGEST: ${{ steps.push_image.outputs.digest }}
         run: |
-          set -eu
-          BASE="${{ env.IMAGE_PRIMARY }}"
-          docker buildx imagetools create -t "${BASE}:lab-latest" "${BASE}:lab-${{ env.SHORT_SHA }}${{ env.TAG_SUFFIX }}"
+          set -euo pipefail
+          BASE="$IMAGE_PRIMARY"
+          SOURCE="${BASE}:${IMAGE_TAG}"
+          if [ -n "${NEW_DIGEST:-}" ]; then
+            SOURCE="${BASE}@${NEW_DIGEST}"
+          fi
+
+          # Fail-closed manifest inspect. Prints the top-level (index) digest on stdout.
+          #   0 = resolved, 1 = definitively absent (tag/manifest not found),
+          #   2 = any other failure (auth, network, registry 5xx, unparseable output).
+          # Only rc=1 may be treated as "no prod-current"; anything else must abort so a
+          # transient registry error can never clobber prod-current without prod-previous.
+          inspect_manifest() {
+            local target="$1" out err rc=0 digest
+            err="$(mktemp)"
+            out="$(docker buildx imagetools inspect "$target" --format '{{json .Manifest}}' 2>"$err")" || rc=$?
+            if [ "$rc" -ne 0 ]; then
+              local msg
+              msg="$(cat "$err")"; rm -f "$err"
+              # buildx reports a missing tag as "ERROR: <ref>: not found"; match only that
+              # shape (or OCI MANIFEST_UNKNOWN/NAME_UNKNOWN) so DNS/auth errors stay fatal.
+              if grep -qiE '(^|: )not found[[:space:]]*$|manifest unknown|name unknown' <<< "$msg"; then
+                return 1
+              fi
+              echo "::error::Failed to inspect $target (rc=$rc): $msg" >&2
+              return 2
+            fi
+            rm -f "$err"
+            if ! digest="$(printf '%s' "$out" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const d=JSON.parse(s).digest;if(typeof d!=="string"||!/^sha256:[0-9a-f]{64}$/.test(d))process.exit(3);process.stdout.write(d)})')"; then
+              echo "::error::Failed to parse manifest digest for $target: $out" >&2
+              return 2
+            fi
+            printf '%s' "$digest"
+          }
+
+          if [ "$TIER" = "prod" ]; then
+            CURRENT_DIGEST=""
+            rc=0
+            CURRENT_DIGEST="$(inspect_manifest "${BASE}:prod-current")" || rc=$?
+            case "$rc" in
+              0) ;;
+              1) CURRENT_DIGEST="" ;;
+              *) echo "::error::Aborting alias move: prod-current state unknown; prod-previous left untouched" >&2; exit 1 ;;
+            esac
+            rc=0
+            NEW_RESOLVED="$(inspect_manifest "$SOURCE")" || rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::Aborting alias move: cannot resolve new image $SOURCE" >&2
+              exit 1
+            fi
+            if [ -z "$CURRENT_DIGEST" ]; then
+              echo "No existing prod-current — skipping prod-previous"
+            elif [ "$CURRENT_DIGEST" = "$NEW_RESOLVED" ]; then
+              echo "prod-current already points at this image — leaving prod-previous unchanged"
+            else
+              docker buildx imagetools create -t "${BASE}:prod-previous" "${BASE}@${CURRENT_DIGEST}"
+            fi
+            docker buildx imagetools create -t "${BASE}:prod-current" "$SOURCE"
+          else
+            docker buildx imagetools create -t "${BASE}:dev-current" "$SOURCE"
+          fi
 
       - name: Emit digests / platforms
+        shell: bash
         run: |
-          set -eu
-          BASE="${{ env.IMAGE_PRIMARY }}"
-          TAG="${BASE}:lab-${{ env.SHORT_SHA }}${{ env.TAG_SUFFIX }}"
+          set -euo pipefail
+          TAG="${IMAGE_PRIMARY}:${IMAGE_TAG}"
           echo "Inspecting $TAG"
           docker buildx imagetools inspect "$TAG"

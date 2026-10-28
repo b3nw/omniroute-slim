@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "$comment": "Expected runtime feature-flag profiles per tier, diffed against GET /api/settings/feature-flags by scripts/flags-drift.mjs. Only flags listed here are checked. INCOMPLETE: the 2026-10-18 audit measured 16 of 49 flags differing between lab-dev and prod but recorded only the values below; the remaining differing flags (and ONEPROXY_ENABLED for prod / OMNIROUTE_DISABLE_LOCAL_HEALTHCHECK for dev) are deliberately not guessed — capture them from the live instances before relying on this as a full gate.",
+  "prod": {
+    "INPUT_SANITIZER_ENABLED": false,
+    "OUTBOUND_SSRF_GUARD_ENABLED": false,
+    "ENABLE_TLS_FINGERPRINT": true,
+    "MODEL_ALIAS_COMPAT_ENABLED": true,
+    "OMNIROUTE_DISABLE_LOCAL_HEALTHCHECK": true
+  },
+  "dev": {
+    "INPUT_SANITIZER_ENABLED": true,
+    "OUTBOUND_SSRF_GUARD_ENABLED": true,
+    "ENABLE_TLS_FINGERPRINT": false,
+    "MODEL_ALIAS_COMPAT_ENABLED": false,
+    "ONEPROXY_ENABLED": true
+  }
+}

@@ -25,6 +25,7 @@ import {
 } from "@/lib/system/versionCheck";
 import { resolveGlobalOmniroutePath } from "@/lib/system/globalPackagePath";
 import { restartRunningServer } from "@/lib/system/processManagerRestart";
+import { getBuildInfo } from "@/lib/system/buildInfo";
 // #5542 — On Windows npm is `npm.cmd`; Node ≥24 refuses to execFile a `.cmd` without
 // a shell (nodejs/node#52554 → "spawn npm ENOENT"). buildNpmExecOptions enables the
 // shell on win32 only; SERVICE_VERSION_PATTERN keeps the shell-joined version safe.
@@ -94,6 +95,7 @@ export async function GET(req: NextRequest) {
     autoUpdateSupported: validation.supported,
     autoUpdateError: validation.reason,
     news,
+    build: getBuildInfo(),
   };
   const serialized = JSON.stringify(body);
   const etag = `"${createHash("sha256").update(serialized).digest("base64url")}"`;

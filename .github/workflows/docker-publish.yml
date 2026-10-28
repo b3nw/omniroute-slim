@@ -203,6 +203,11 @@ jobs:
           images: |
             ${{ env.REGISTRY }}/${{ steps.cfg.outputs.image_name }}
             name=docker.io/${{ env.DOCKERHUB_IMAGE }},enable=${{ steps.dockerhub.outputs.enabled == 'true' }}
+          # Disable metadata-action's implicit `latest=auto` (which tags :latest on every
+          # semver tag, even an older one). The explicit `type=raw,value=latest` below,
+          # gated on the highest-semver check, is the sole source of :latest.
+          flavor: |
+            latest=false
           # edge  → every push to main
           # 3.9.0 / 3.9 / v3.9.0 → v* tags
           # latest → only the highest semver tag
