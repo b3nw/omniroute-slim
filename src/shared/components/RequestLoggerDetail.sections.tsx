@@ -6,12 +6,107 @@ import { ChatBubble } from "@/shared/components/conversation/ChatBubble";
 import { buildRequestTurns, buildResponseTurns } from "@/shared/conversation/conversationNormalizer";
 import type { ConversationResponsePayload, NormalizedTurn } from "@/shared/conversation/types";
 
+// ─── Call log size-limit notices ────────────────────────────────────────────
+// Mirrors the markers src/lib/usage/callLogArtifacts.ts writes in place of (or
+// after a preview of) a payload that pushed its artifact over the size cap.
+// Strings are matched exactly, never by substring, so ordinary payload text
+// that merely mentions "omitted" is not mistaken for a notice.
+
+const SIZE_LIMIT_OMITTED_MARKERS = new Set([
+  "[omitted: call log artifact size limit exceeded]",
+  "[stream chunks omitted: call log artifact size limit exceeded]",
+]);
+const SIZE_LIMIT_TRUNCATED_SUFFIX = " [truncated: call log artifact size limit exceeded]";
+const SIZE_LIMIT_REASON = "call_log_artifact_size_limit_exceeded";
+
+export type SizeLimitNotice =
+  | { kind: "omitted" }
+  | { kind: "truncated"; preview: string; keptBytes: number; originalBytes: number | null };
+
+function utf8ByteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+function stripTruncatedSuffix(text: string): string {
+  return text.endsWith(SIZE_LIMIT_TRUNCATED_SUFFIX)
+    ? text.slice(0, -SIZE_LIMIT_TRUNCATED_SUFFIX.length)
+    : text;
+}
+
+export function getSizeLimitNotice(payload: unknown): SizeLimitNotice | null {
+  if (typeof payload === "string") {
+    if (SIZE_LIMIT_OMITTED_MARKERS.has(payload)) return { kind: "omitted" };
+    if (!payload.endsWith(SIZE_LIMIT_TRUNCATED_SUFFIX)) return null;
+    const preview = stripTruncatedSuffix(payload);
+    return { kind: "truncated", preview, keptBytes: utf8ByteLength(preview), originalBytes: null };
+  }
+
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const record = payload as Record<string, unknown>;
+  if (record._omniroute_truncated === true && typeof record.preview === "string") {
+    const preview = stripTruncatedSuffix(record.preview);
+    return {
+      kind: "truncated",
+      preview,
+      keptBytes: utf8ByteLength(preview),
+      originalBytes: typeof record._originalBytes === "number" ? record._originalBytes : null,
+    };
+  }
+  if (record._omniroute_truncated === true || record.reason === SIZE_LIMIT_REASON) {
+    return { kind: "omitted" };
+  }
+  return null;
+}
+
+export function isSizeLimitOmission(payload: unknown): boolean {
+  return getSizeLimitNotice(payload)?.kind === "omitted";
+}
+
+function formatKiB(bytes: number): string {
+  return `${(bytes / 1024).toFixed(1)} KiB`;
+}
+
+export function SizeLimitNoticeBanner({ notice }: { notice: SizeLimitNotice }) {
+  const t = useTranslations("requestLogger.detail.payload");
+
+  let message: string;
+  if (notice.kind === "omitted") {
+    message = t("omitted");
+  } else if (notice.originalBytes != null) {
+    message = t("truncated", {
+      kept: formatKiB(notice.keptBytes),
+      total: formatKiB(notice.originalBytes),
+    });
+  } else {
+    message = t("truncatedNoTotal", { kept: formatKiB(notice.keptBytes) });
+  }
+
+  return (
+    <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
+      <div className="text-[10px] text-amber-700 dark:text-amber-400 uppercase tracking-wider mb-1 font-bold">
+        {t("sizeLimitTitle")}
+      </div>
+      <div className="text-sm text-amber-700 dark:text-amber-200">{message}</div>
+    </div>
+  );
+}
+
 // ─── Payload Code Block ─────────────────────────────────────────────────────
 
-export function PayloadSection({ title, json, onCopy, collapsible = true, defaultOpen = true }) {
+// `payload` is the raw value behind `json`; when given, a size-limit omission
+// replaces the code block with a notice and a truncated preview is labelled.
+export function PayloadSection({
+  title,
+  json,
+  onCopy,
+  payload = undefined,
+  collapsible = true,
+  defaultOpen = true,
+}) {
   const t = useTranslations("requestLogger.detail");
   const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState(defaultOpen);
+  const sizeLimitNotice = payload === undefined ? null : getSizeLimitNotice(payload);
 
   const handleCopy = async () => {
     const success = await onCopy();
@@ -51,7 +146,12 @@ export function PayloadSection({ title, json, onCopy, collapsible = true, defaul
           {copied ? t("copied") : t("copy")}
         </button>
       </div>
-      {open && (
+      {open && sizeLimitNotice && (
+        <div className={sizeLimitNotice.kind === "truncated" ? "mb-2" : undefined}>
+          <SizeLimitNoticeBanner notice={sizeLimitNotice} />
+        </div>
+      )}
+      {open && sizeLimitNotice?.kind !== "omitted" && (
         <pre className="p-4 rounded-xl bg-black/5 dark:bg-black/30 border border-border overflow-x-auto text-xs font-mono text-text-main max-h-150 overflow-y-auto leading-relaxed whitespace-pre-wrap break-words">
           {json}
         </pre>

@@ -10571,7 +10571,13 @@
         "providerRequest": "Anbieteranfrage",
         "providerResponse": "Anbieterantwort",
         "clientResponse": "Kundenantwort",
-        "pipelineError": "Pipeline-Fehler"
+        "pipelineError": "Pipeline-Fehler",
+        "requestBody": "Anfrage-Body",
+        "responseBody": "Antwort-Body",
+        "sizeLimitTitle": "Größenlimit für Anrufprotokolle",
+        "omitted": "Payload ausgelassen — Größenlimit für Anrufprotokolle überschritten.",
+        "truncated": "Payload gekürzt — Größenlimit für Anrufprotokolle überschritten. {kept} von {total} behalten.",
+        "truncatedNoTotal": "Payload gekürzt — Größenlimit für Anrufprotokolle überschritten. Die ersten {kept} behalten."
       },
       "payloadMissing": "Das detaillierte Payload-Artefakt ist für diesen Protokolleintrag nicht mehr verfügbar.",
       "payloadCorrupt": "Detailliertes Payload-Artefakt konnte nicht analysiert werden.",

@@ -10571,7 +10571,13 @@
         "providerRequest": "プロバイダーリクエスト",
         "providerResponse": "プロバイダーの応答",
         "clientResponse": "クライアントの応答",
-        "pipelineError": "パイプラインエラー"
+        "pipelineError": "パイプラインエラー",
+        "requestBody": "リクエスト本文",
+        "responseBody": "レスポンス本文",
+        "sizeLimitTitle": "コールログのサイズ上限",
+        "omitted": "ペイロードを省略しました — コールログのサイズ上限を超えました。",
+        "truncated": "ペイロードを切り詰めました — コールログのサイズ上限を超えました。{total} のうち {kept} を保持しています。",
+        "truncatedNoTotal": "ペイロードを切り詰めました — コールログのサイズ上限を超えました。先頭の {kept} を保持しています。"
       },
       "payloadMissing": "このログエントリの詳細なペイロードアーティファクトはもはや利用できません。",
       "payloadCorrupt": "詳細なペイロードアーティファクトを解析できませんでした。",

@@ -10571,7 +10571,13 @@
         "providerRequest": "Provider Request",
         "providerResponse": "Provider Response",
         "clientResponse": "Client Response",
-        "pipelineError": "Pipeline Error"
+        "pipelineError": "Pipeline Error",
+        "requestBody": "Request Body",
+        "responseBody": "Response Body",
+        "sizeLimitTitle": "Call Log Size Limit",
+        "omitted": "Payload omitted — exceeded the call log size limit.",
+        "truncated": "Payload truncated — exceeded the call log size limit. Kept {kept} of {total}.",
+        "truncatedNoTotal": "Payload truncated — exceeded the call log size limit. Kept the first {kept}."
       },
       "payloadMissing": "Detailed payload artifact is no longer available for this log entry.",
       "payloadCorrupt": "Detailed payload artifact could not be parsed.",

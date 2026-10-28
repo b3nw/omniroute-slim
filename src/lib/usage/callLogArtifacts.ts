@@ -2,7 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import type { RequestPipelinePayloads } from "@omniroute/open-sse/utils/requestLogger.ts";
 import { resolveDataDir } from "../dataPaths";
-import { getCallLogPipelineMaxSizeBytes, isChatDebugFileEnabled } from "../logEnv";
+import {
+  getCallLogArtifactPreviewBytes,
+  getCallLogPipelineMaxSizeBytes,
+  isChatDebugFileEnabled,
+} from "../logEnv";
 
 const isCloud = typeof globalThis.caches === "object" && globalThis.caches !== null;
 const isBuildPhase =
@@ -16,6 +20,12 @@ const SIZE_LIMIT_EXCEEDED_REASON = "call_log_artifact_size_limit_exceeded";
 const OMITTED_FOR_SIZE_LIMIT = "[omitted: call log artifact size limit exceeded]";
 const STREAM_CHUNKS_OMITTED_FOR_SIZE_LIMIT =
   "[stream chunks omitted: call log artifact size limit exceeded]";
+const TRUNCATED_FOR_SIZE_LIMIT = "[truncated: call log artifact size limit exceeded]";
+// The error is usually the only field that says why a request failed, and it is tiny next
+// to the bodies that trip the cap — keep it verbatim up to this budget.
+const MAX_PRESERVED_ERROR_BYTES = 4 * 1024;
+// Fallback per-body preview budget tried when the configured one still overflows the cap.
+const DEGRADED_PREVIEW_BYTES = 2 * 1024;
 
 export type CallLogDetailState = "none" | "ready" | "missing" | "corrupt" | "legacy-inline";
 
@@ -127,13 +137,130 @@ function getArtifactMaxBytes(artifact: CallLogArtifact): number {
   return artifact.pipeline ? getCallLogPipelineMaxSizeBytes() : MAX_CALL_LOG_ARTIFACT_BYTES;
 }
 
+/**
+ * Cuts `text` to at most `maxBytes` of UTF-8 without splitting a multi-byte sequence, so the
+ * result never decodes to a U+FFFD replacement character.
+ */
+function truncateUtf8(text: string, maxBytes: number): string {
+  if (maxBytes <= 0) return "";
+  // Every UTF-16 code unit encodes to at least one byte, so the first `maxBytes` code units
+  // already cover the byte budget — only that prefix ever needs encoding.
+  let prefix = text.length > maxBytes ? text.slice(0, maxBytes) : text;
+  // Drop a high surrogate orphaned by the slice; it would encode as a replacement character.
+  const lastCode = prefix.charCodeAt(prefix.length - 1);
+  if (prefix !== text && lastCode >= 0xd800 && lastCode <= 0xdbff) {
+    prefix = prefix.slice(0, -1);
+  }
+
+  const bytes = Buffer.from(prefix, "utf8");
+  if (bytes.length <= maxBytes) return prefix;
+
+  // bytes[end] is the first byte cut off; while it is a continuation byte (10xxxxxx) the cut
+  // lands inside a sequence, so back up to that sequence's lead byte.
+  let end = maxBytes;
+  while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--;
+  return bytes.subarray(0, end).toString("utf8");
+}
+
+function preserveErrorForSizeLimit(error: unknown): unknown {
+  if (error === null || error === undefined) return null;
+
+  let text: string;
+  if (typeof error === "string") {
+    text = error;
+  } else {
+    try {
+      text = JSON.stringify(error) ?? String(error);
+    } catch {
+      text = String(error);
+    }
+  }
+
+  if (Buffer.byteLength(text, "utf8") <= MAX_PRESERVED_ERROR_BYTES) return error;
+  return `${truncateUtf8(text, MAX_PRESERVED_ERROR_BYTES)} ${TRUNCATED_FOR_SIZE_LIMIT}`;
+}
+
+type PreviewSource = {
+  body: unknown;
+  // UTF-8 text the preview is cut from: the string body itself, or the object body's JSON.
+  // null when there is nothing to preview (absent body, or one that cannot be serialized).
+  text: string | null;
+  bytes: number;
+};
+
+// Serializes a body once so every preview budget attempt can reuse the result.
+function preparePreviewSource(body: unknown): PreviewSource {
+  if (body === null || body === undefined) return { body, text: null, bytes: 0 };
+
+  let text: string | undefined;
+  if (typeof body === "string") {
+    text = body;
+  } else {
+    try {
+      text = JSON.stringify(body);
+    } catch {
+      return { body: OMITTED_FOR_SIZE_LIMIT, text: null, bytes: 0 };
+    }
+  }
+  if (text === undefined) return { body, text: null, bytes: 0 };
+  return { body, text, bytes: Buffer.byteLength(text, "utf8") };
+}
+
+function previewFromSource(source: PreviewSource, budgetBytes: number): unknown {
+  if (source.text === null || source.bytes <= budgetBytes) return source.body;
+
+  const preview = `${truncateUtf8(source.text, budgetBytes)} ${TRUNCATED_FOR_SIZE_LIMIT}`;
+  if (typeof source.body === "string") return preview;
+  return {
+    _omniroute_truncated: true,
+    _originalBytes: source.bytes,
+    preview,
+  };
+}
+
+export function truncateBodyForPreview(body: unknown, budgetBytes: number): unknown {
+  return previewFromSource(preparePreviewSource(body), budgetBytes);
+}
+
+/**
+ * Keeps the head of each oversized body instead of dropping it wholesale, so a size-limited
+ * row still shows what the prompt was. Tries the configured per-body budget, then a smaller
+ * one; returns null when neither fits so the caller falls through to the omitted shape.
+ */
+function serializePreviewForSizeLimit(artifact: CallLogArtifact, maxBytes: number): string | null {
+  const configuredBudget = getCallLogArtifactPreviewBytes();
+  const budgets =
+    configuredBudget > DEGRADED_PREVIEW_BYTES
+      ? [configuredBudget, DEGRADED_PREVIEW_BYTES]
+      : [configuredBudget];
+
+  const base = omitOversizedPipeline(artifact);
+  const error = preserveErrorForSizeLimit(artifact.error);
+  const requestSource = preparePreviewSource(artifact.requestBody);
+  const responseSource = preparePreviewSource(artifact.responseBody);
+
+  for (const budget of budgets) {
+    const candidate = JSON.stringify({
+      ...base,
+      requestBody: previewFromSource(requestSource, budget),
+      responseBody: previewFromSource(responseSource, budget),
+      error,
+    });
+    if (Buffer.byteLength(candidate) <= maxBytes) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 function buildMinimalArtifactForSizeLimit(artifact: CallLogArtifact) {
   return {
     schemaVersion: artifact.schemaVersion,
     summary: artifact.summary,
     requestBody: OMITTED_FOR_SIZE_LIMIT,
     responseBody: OMITTED_FOR_SIZE_LIMIT,
-    error: artifact.error ? OMITTED_FOR_SIZE_LIMIT : null,
+    error: preserveErrorForSizeLimit(artifact.error),
     pipeline: {
       error: {
         _omniroute_truncated: true,
@@ -182,11 +309,16 @@ function serializeArtifactForStorage(artifact: CallLogArtifact): string {
     return withoutPipeline;
   }
 
+  const preview = serializePreviewForSizeLimit(artifact, maxBytes);
+  if (preview !== null) {
+    return preview;
+  }
+
   const minimal = JSON.stringify({
     ...omitOversizedPipeline(artifact),
     requestBody: OMITTED_FOR_SIZE_LIMIT,
     responseBody: OMITTED_FOR_SIZE_LIMIT,
-    error: artifact.error ? OMITTED_FOR_SIZE_LIMIT : null,
+    error: preserveErrorForSizeLimit(artifact.error),
   });
   if (Buffer.byteLength(minimal) <= maxBytes) {
     return minimal;

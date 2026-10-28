@@ -8,6 +8,7 @@ const DEFAULT_APP_LOG_MAX_FILES = 20;
 const DEFAULT_CALL_LOG_MAX_ENTRIES = 10000;
 const DEFAULT_CALL_LOGS_TABLE_MAX_ROWS = 100000;
 const DEFAULT_CALL_LOG_PIPELINE_MAX_SIZE_KB = 512;
+const DEFAULT_CALL_LOG_ARTIFACT_PREVIEW_KB = 8;
 const DEFAULT_PROXY_LOGS_TABLE_MAX_ROWS = 100000;
 /**
  * Default app log path, anchored to DATA_DIR (never `process.cwd()`).
@@ -124,6 +125,20 @@ export function getCallLogPipelineMaxSizeBytes(): number {
     parsePositiveInt(
       process.env.CALL_LOG_PIPELINE_MAX_SIZE_KB,
       DEFAULT_CALL_LOG_PIPELINE_MAX_SIZE_KB
+    ) * 1024
+  );
+}
+
+/**
+ * Per-body byte budget for the prompt/response preview kept in a call log artifact
+ * whose bodies pushed it past the artifact size cap. Without it, an oversized row
+ * lost its whole request body to an `[omitted: ...]` marker.
+ */
+export function getCallLogArtifactPreviewBytes(): number {
+  return (
+    parsePositiveInt(
+      process.env.CALL_LOG_ARTIFACT_PREVIEW_KB,
+      DEFAULT_CALL_LOG_ARTIFACT_PREVIEW_KB
     ) * 1024
   );
 }
