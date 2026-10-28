@@ -178,6 +178,8 @@ const IGNORE_FROM_CODE = new Set([
   // Test-only opt-out: instructs bin/omniroute.mjs to skip auto-loading the
   // repository .env so isolation tests get a deterministic environment.
   "OMNIROUTE_CLI_SKIP_REPO_ENV",
+  // Script-only operator input: auth token/cookie for scripts/flags-drift.mjs.
+  "OMNIROUTE_ADMIN_COOKIE",
   // Eval-harness only: operator-supplied provider credentials JSON read by the
   // opt-in `npm run eval:compression` CLI (scripts/compression-eval/index.ts).
   // A dev/ops measurement tool, never OmniRoute runtime config.

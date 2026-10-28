@@ -853,6 +853,7 @@ The logging system writes to both stdout and rotated log files. All configuratio
 | `MAX_PENDING_REQUEST_AGE_MS`              | `3600000` (1 hour)         | Max age for orphaned active request log entries before in-memory cleanup.         |
 | `CALL_LOG_PIPELINE_CAPTURE_STREAM_CHUNKS` | `false`                    | Store stream chunks in pipeline artifacts when `call_log_pipeline_enabled=true`. Opt-in (`true`) — off by default to save disk. |
 | `CALL_LOG_PIPELINE_MAX_SIZE_KB`           | `512`                      | Max pipeline call log artifact size in KB when `call_log_pipeline_enabled=true`.  |
+| `CALL_LOG_ARTIFACT_PREVIEW_KB`            | `8`                        | Per-body byte budget (in KB) for prompt and response previews kept in oversized call log artifacts. |
 | `PROXY_LOGS_TABLE_MAX_ROWS`               | `100000`                   | Max rows in the `proxy_logs` SQLite table before pruning.                         |
 | `PROXY_LOG_INCLUDE_IPS`                   | `false`                    | Include client/egress IPs and account prefixes in `[ProxyEgress]` console logs. The dashboard/database proxy-log records retain full details. |
 | `APP_LOG_ROTATION_CHECK_INTERVAL_MS`      | `60000` (1 min)            | How often `src/lib/logRotation.ts` re-checks the active log file size.            |
