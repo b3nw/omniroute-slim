@@ -31,6 +31,13 @@ const {
 const ccrPath = "../../open-sse/services/compression/engines/ccr/index.ts";
 const ccr = await import(ccrPath);
 
+// The CCR store is anchored on globalThis (shared by every bundled copy of the module),
+// so a restart is simulated by dropping that anchor before importing a fresh instance.
+async function importRestarted(tag: string) {
+  delete (globalThis as Record<symbol, unknown>)[Symbol.for("omniroute.compression.ccrStore")];
+  return import(`${ccrPath}?restart=${tag}`);
+}
+
 const HOUR = 60 * 60 * 1000;
 
 function row(overrides: Record<string, unknown> = {}) {
@@ -111,7 +118,7 @@ describe("CCR engine survives losing its in-memory map (#9061)", () => {
 
     // A fresh instance of the engine module has its own empty Map, the same state the
     // process has after a restart, and the same state another instance starts in.
-    const restarted = await import(`${ccrPath}?restart=9061`);
+    const restarted = await importRestarted("9061");
     assert.equal(
       restarted.retrieveBlock(stored.hash, "principal-a"),
       text,
@@ -131,7 +138,7 @@ describe("CCR engine survives losing its in-memory map (#9061)", () => {
     assert.equal(stored.stored, true);
     await ccr.flushCcrDurableWrites();
 
-    const restarted = await import(`${ccrPath}?restart=9061-readmit`);
+    const restarted = await importRestarted("9061-readmit");
     assert.equal(
       restarted.getCcrStoreStats("principal-readmit").entries,
       0,
@@ -149,7 +156,7 @@ describe("CCR engine survives losing its in-memory map (#9061)", () => {
     const text = "y".repeat(2_000);
     const stored = ccr.tryStoreBlock(text, "principal-a");
     await ccr.flushCcrDurableWrites();
-    const restarted = await import(`${ccrPath}?restart=9061-scope`);
+    const restarted = await importRestarted("9061-scope");
     assert.equal(restarted.retrieveBlock(stored.hash, "principal-b"), null);
   });
 
@@ -184,7 +191,7 @@ describe("CCR engine survives losing its in-memory map (#9061)", () => {
     ccr.deleteCcrBlock(stored.hash, "principal-a");
     // Persist and delete share one FIFO queue; one flush covers both.
     await ccr.flushCcrDurableWrites();
-    const restarted = await import(`${ccrPath}?restart=9061-deleted`);
+    const restarted = await importRestarted("9061-deleted");
     assert.equal(restarted.retrieveBlock(stored.hash, "principal-a"), null);
   });
 });

@@ -282,6 +282,10 @@ const nextConfig = {
     "tls-client-node",
     "koffi",
     "tough-cookie",
+    // Externalized so every route chunk shares one module instance (one set of BPE rank
+    // tables / one dispatcher pool) instead of a bundled copy per chunk.
+    "js-tiktoken",
+    "undici",
     // copilot-m365-web.ts imports 'ws' as a client-side WebSocket. When bundled,
     // ws cannot resolve its 'bufferutil' native addon (frame masking) and throws
     // TypeError: b.mask is not a function on the first outgoing frame, causing

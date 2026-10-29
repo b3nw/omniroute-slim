@@ -46,6 +46,7 @@ import {
 import { createCompressionStats } from "../../stats.ts";
 import { queryBlock, type CcrQuery } from "./ccrQuery.ts";
 import { callerSupportsCcrRetrieve, injectCcrProtocolInstruction } from "./protocolInstruction.ts";
+import { addCcrEntry, clearCcrState, getCcrStoreState, setCcrLifecycle } from "./storeState.ts";
 import type {
   CompressionEngine,
   CompressionEngineApplyOptions,
@@ -148,12 +149,10 @@ export interface CcrStoreStats {
  * Store key = `${principalId ?? "__anon__"} ${contentHash}`.
  * Using a compound key scopes data to the principal that stored it.
  */
-const ccrStore = new Map<string, CcrEntry>();
-const retrievalCounts = new Map<string, number>();
-const principalBytesMap = new Map<string, number>();
-let ccrTotalBytes = 0;
 type CcrLifecycleCounters = CcrStoreStats["lifecycle"];
-const lifecycleByPrincipal = new Map<string, CcrLifecycleCounters>();
+// Anchored on globalThis (storeState.ts) so every route chunk shares one store + sweep.
+const S = getCcrStoreState<CcrEntry, CcrLifecycleCounters>(purgeExpired, removeEntry);
+const { ccrStore, retrievalCounts, principalBytesMap, lifecycleByPrincipal } = S;
 
 /** Sentinel used when no principalId is provided. */
 const ANON = "__anon__";
@@ -296,9 +295,7 @@ function rehydrateEntry(hash: string, principalId: string, now: number): CcrEntr
     enforceGlobalBudget(entry.principalId, entry.bytes)
   ) {
     const key = buildStoreKey(hash, principalId === ANON ? undefined : principalId);
-    ccrStore.set(key, entry);
-    ccrTotalBytes += entry.bytes;
-    principalBytesMap.set(entry.principalId, principalBytes(entry.principalId) + entry.bytes);
+    addCcrEntry(S, key, entry);
   }
 
   try {
@@ -323,7 +320,7 @@ function mutableLifecycleCounters(principalId: string): CcrLifecycleCounters {
   const existing = lifecycleByPrincipal.get(principalId);
   if (existing) return existing;
   const counters = { expiredEvictions: 0, capacityEvictions: 0, rejectedStores: 0 };
-  lifecycleByPrincipal.set(principalId, counters);
+  setCcrLifecycle(S, principalId, counters);
   return counters;
 }
 
@@ -348,7 +345,7 @@ function removeEntry(key: string, reason?: "expired" | "capacity"): boolean {
   const entry = ccrStore.get(key);
   if (!entry) return false;
   ccrStore.delete(key);
-  ccrTotalBytes = Math.max(0, ccrTotalBytes - entry.bytes);
+  S.globalBytes = Math.max(0, S.globalBytes - entry.bytes);
   const remainingPrincipalBytes = Math.max(
     0,
     (principalBytesMap.get(entry.principalId) ?? 0) - entry.bytes
@@ -444,14 +441,14 @@ function enforcePrincipalBudget(owner: string, bytes: number): boolean {
  */
 function enforceGlobalBudget(owner: string, bytes: number): boolean {
   const overBudget = () =>
-    ccrStore.size >= MAX_CCR_ENTRIES || ccrTotalBytes + bytes > MAX_CCR_GLOBAL_BYTES;
+    ccrStore.size >= MAX_CCR_ENTRIES || S.globalBytes + bytes > MAX_CCR_GLOBAL_BYTES;
 
   while (overBudget()) {
     if (evictOldestMatching((entry) => entry.principalId === owner)) continue;
     if (evictOldestMatching(() => true)) continue;
     break;
   }
-  return ccrTotalBytes + bytes <= MAX_CCR_GLOBAL_BYTES;
+  return S.globalBytes + bytes <= MAX_CCR_GLOBAL_BYTES;
 }
 
 /**
@@ -505,9 +502,7 @@ export function tryStoreBlock(
     lastAccessedAt: now,
     expiresAt: now + ttlSeconds * 1000,
   };
-  ccrStore.set(key, entry);
-  ccrTotalBytes += bytes;
-  principalBytesMap.set(owner, principalBytes(owner) + bytes);
+  addCcrEntry(S, key, entry);
   persistEntry(entry);
   return { stored: true, hash, metadata: publicMetadata(entry) };
 }
@@ -594,11 +589,7 @@ export function resolveRetrievalRampFactor(env: NodeJS.ProcessEnv = process.env)
  * Reset the CCR store and retrieval counts (for testing).
  */
 export function resetCcrStore(): void {
-  ccrStore.clear();
-  retrievalCounts.clear();
-  principalBytesMap.clear();
-  ccrTotalBytes = 0;
-  lifecycleByPrincipal.clear();
+  clearCcrState(S);
   // Through the same queue as persist/delete, so a reset cannot overtake a write it was
   // meant to clear.
   deferDurable("reset", deleteAllCcrBlocks);

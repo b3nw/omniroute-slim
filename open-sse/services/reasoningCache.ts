@@ -24,6 +24,7 @@ import {
   setReasoningCache,
 } from "../../src/lib/db/reasoningCache.ts";
 import { isInternalReasoningPlaceholder } from "../utils/reasoningPlaceholder.ts";
+import { registerMemoryPressureEvictor } from "../utils/heapPressure.ts";
 
 // ──────────────── Provider/Model Detection ────────────────
 
@@ -146,10 +147,24 @@ type ToolCallLike = {
   id?: unknown;
 };
 
-const memoryCache = new Map<string, MemoryCacheEntry>();
 const MAX_MEMORY_ENTRIES = 200;
 const MAX_ENTRY_BYTES = 10000;
 const TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+const MEMORY_SWEEP_INTERVAL_MS = 5 * 60_000;
+
+// Anchored on globalThis so every Next.js route chunk shares one hot reasoning cache.
+type ReasoningMemoryState = {
+  memoryCache: Map<string, MemoryCacheEntry>;
+  sweepTimer: ReturnType<typeof setInterval> | null;
+};
+const MEMORY_STATE_KEY = Symbol.for("omniroute.reasoningCache.memory");
+const memoryState: ReasoningMemoryState = ((globalThis as Record<symbol, unknown>)[
+  MEMORY_STATE_KEY
+] ??= {
+  memoryCache: new Map<string, MemoryCacheEntry>(),
+  sweepTimer: null,
+} satisfies ReasoningMemoryState) as ReasoningMemoryState;
+const memoryCache = memoryState.memoryCache;
 
 // ──────────────── Counters ────────────────
 
@@ -184,7 +199,28 @@ function purgeExpiredMemory(): void {
       memoryCache.delete(key);
     }
   }
+  if (memoryCache.size === 0) stopMemorySweep();
 }
+
+function stopMemorySweep(): void {
+  if (memoryState.sweepTimer) {
+    clearInterval(memoryState.sweepTimer);
+    memoryState.sweepTimer = null;
+  }
+}
+
+/** Self-stopping expiry sweep armed on every memory write. */
+function ensureMemorySweep(): void {
+  if (memoryState.sweepTimer || memoryCache.size === 0) return;
+  memoryState.sweepTimer = setInterval(purgeExpiredMemory, MEMORY_SWEEP_INTERVAL_MS);
+  memoryState.sweepTimer.unref?.();
+}
+
+// Memory pressure: drop the hot tier; lookups fall back to the SQLite tier.
+registerMemoryPressureEvictor("reasoningCache.memory", () => {
+  memoryCache.clear();
+  stopMemorySweep();
+});
 
 /**
  * Cache a reasoning_content string for one tool_call ID.
@@ -227,6 +263,7 @@ export function cacheReasoningByKey(
     expiresAt: now + TTL_MS,
     createdAt: now,
   });
+  ensureMemorySweep();
 
   try {
     setReasoningCache(key, provider, model, reasoning, TTL_MS);
@@ -429,6 +466,7 @@ export function lookupReasoning(toolCallId: string): string | null {
       expiresAt: persistedExpiresAt,
       createdAt: Date.now(),
     });
+    ensureMemorySweep();
     return promotedReasoning;
   }
 

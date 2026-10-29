@@ -115,6 +115,7 @@ export async function applyReasoningEffortRecovery(
     "REASONING_SANITIZE",
     `Upstream ${response.status} rejected reasoning_effort on ${url} — clamped to ${[...learned].join(",")} and retrying (learned for ${provider}/${model})`
   );
+  void response.body?.cancel().catch(() => {});
   const retriedResponse = await fetchFn(url, { ...fetchOptions, body: retryBody });
   return { response: retriedResponse, body: clampedBody, retried: true, attempted: true };
 }
@@ -147,6 +148,7 @@ async function probeOneTierDown(
     "REASONING_SANITIZE",
     `Upstream ${response.status} refused reasoning_effort on ${url} without naming the accepted set — probing one step down (${probe}) for ${provider}/${model}`
   );
+  void response.body?.cancel().catch(() => {});
   const probeResponse = await fetchFn(url, { ...fetchOptions, body: serialized });
   if (probeResponse.ok) {
     const learned = recordLearnedProbeReasoningEffort(provider, model, probe);

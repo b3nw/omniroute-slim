@@ -237,7 +237,7 @@ export async function testSingleProxy(
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     const dispatcher = createProxyDispatcher(proxyUrl);
-    await undiciFetch(targetUrl, {
+    const probeRes = await undiciFetch(targetUrl, {
       method: "HEAD",
       signal: controller.signal,
       dispatcher,
@@ -245,6 +245,8 @@ export async function testSingleProxy(
         "User-Agent": "OmniRoute/1.0",
       },
     });
+    // HEAD bodies are empty, but release the stream so the socket returns to the pool.
+    void probeRes.body?.cancel().catch(() => {});
 
     clearTimeout(timeout);
     const latencyMs = Date.now() - start;

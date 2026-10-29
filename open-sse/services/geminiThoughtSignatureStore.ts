@@ -1,8 +1,10 @@
 import { getDbInstance } from "../../src/lib/db/core.ts";
+import { registerMemoryPressureEvictor } from "../utils/heapPressure.ts";
 
 const MAX_SIGNATURES = 1000;
 const MAX_PERSISTED_SIGNATURES = 2_000;
 const MEMORY_TTL_MS = 1000 * 60 * 60;
+const MEMORY_SWEEP_INTERVAL_MS = 5 * 60_000;
 const PERSISTED_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const NAMESPACE = "gemini_thought_signatures";
 
@@ -17,11 +19,26 @@ type PersistedEntry = Entry & {
   createdAt: number;
 };
 
-const signatures = new Map<string, Entry>();
+type SignatureMemoryState = {
+  signatures: Map<string, Entry>;
+  loggedPersistenceErrors: Set<string>;
+  sweepTimer: ReturnType<typeof setInterval> | null;
+};
+
+// Anchored on globalThis so every Next.js route chunk shares one in-memory signature tier.
+const MEMORY_STATE_KEY = Symbol.for("omniroute.geminiThoughtSignatures");
+const memoryState: SignatureMemoryState = ((globalThis as Record<symbol, unknown>)[
+  MEMORY_STATE_KEY
+] ??= {
+  signatures: new Map<string, Entry>(),
+  loggedPersistenceErrors: new Set<string>(),
+  sweepTimer: null,
+} satisfies SignatureMemoryState) as SignatureMemoryState;
+const { signatures, loggedPersistenceErrors } = memoryState;
 let signatureCacheMode: SignatureCacheMode = "enabled";
 let persistedPruneCounter = 0;
+// FIFO-capped dedupe set of persistence operations already warned about.
 const MAX_LOGGED_ERRORS = 50;
-const loggedPersistenceErrors = new Set<string>();
 
 function warnPersistenceError(operation: string, error: unknown) {
   if (process.env.NODE_ENV === "test") return;
@@ -60,7 +77,28 @@ function pruneExpired() {
     if (!oldestKey) break;
     signatures.delete(oldestKey);
   }
+  if (signatures.size === 0) stopMemorySweep();
 }
+
+function stopMemorySweep() {
+  if (memoryState.sweepTimer) {
+    clearInterval(memoryState.sweepTimer);
+    memoryState.sweepTimer = null;
+  }
+}
+
+/** Self-stopping expiry sweep armed whenever a signature enters the memory tier. */
+function ensureMemorySweep() {
+  if (memoryState.sweepTimer || signatures.size === 0) return;
+  memoryState.sweepTimer = setInterval(pruneExpired, MEMORY_SWEEP_INTERVAL_MS);
+  memoryState.sweepTimer.unref?.();
+}
+
+// Memory pressure: drop the hot tier; lookups fall back to the persisted key_value rows.
+registerMemoryPressureEvictor("geminiThoughtSignatures.memory", () => {
+  signatures.clear();
+  stopMemorySweep();
+});
 
 function serializePersistedEntry(entry: PersistedEntry): string {
   return JSON.stringify(entry);
@@ -137,6 +175,7 @@ export function storeGeminiThoughtSignature(toolCallId: unknown, signature: unkn
     signature,
     expiresAt: now + MEMORY_TTL_MS,
   });
+  ensureMemorySweep();
 
   try {
     const db = getDbInstance();
@@ -178,6 +217,7 @@ export function getGeminiThoughtSignature(toolCallId: unknown) {
         signature: persisted.entry.signature,
         expiresAt: Date.now() + MEMORY_TTL_MS,
       });
+      ensureMemorySweep();
 
       if (persisted.shouldRewrite) {
         db.prepare("UPDATE key_value SET value = ? WHERE namespace = ? AND key = ?").run(
@@ -325,6 +365,7 @@ export function resolveGeminiThoughtSignature(
 
 export function clearGeminiThoughtSignatures() {
   signatures.clear();
+  stopMemorySweep();
   signatureCacheMode = "enabled";
   try {
     const db = getDbInstance();
@@ -336,6 +377,7 @@ export function clearGeminiThoughtSignatures() {
 
 export function clearGeminiThoughtSignatureMemoryForTests() {
   signatures.clear();
+  stopMemorySweep();
 }
 
 export function getGeminiThoughtSignatureMemorySizeForTests() {

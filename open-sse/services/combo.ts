@@ -187,6 +187,7 @@ import {
   validateResponseQuality,
   releaseQualityClone,
   releaseRejectedQualityResponse,
+  drainErrorResponse,
   toRetryAfterDisplayValue,
   handlePreContentStreamRetry,
 } from "./combo/validateQuality.ts";
@@ -1843,7 +1844,7 @@ async function handleComboChatInner({
               decision: "dispatched",
             });
           }
-          const result = await handleSingleModelWithTimeout(attemptBody, modelStr, {
+          let result = await handleSingleModelWithTimeout(attemptBody, modelStr, {
             ...targetForAttempt,
             emptyTurnConnectionId,
             effectiveComboStrategy: strategy,
@@ -2158,9 +2159,10 @@ async function handleComboChatInner({
           let errorBody: ComboErrorBody = null;
           let retryAfter: ComboRetryAfter | null = null;
           try {
-            const cloned = result.clone();
+            const drained = await drainErrorResponse(result);
+            result = drained.response;
             try {
-              const text = await cloned.text();
+              const text = drained.text;
               if (text) {
                 errorText = text.substring(0, 500);
                 errorBody = JSON.parse(text);
@@ -2194,9 +2196,7 @@ async function handleComboChatInner({
             } catch {
               /* Clone parse failed */
             }
-          } catch {
-            /* Clone failed */
-          }
+          } catch {}
 
           // Track earliest retryAfter
           if (
@@ -3693,7 +3693,7 @@ async function handleRoundRobinCombo({
             fingerprint: resolveTargetFingerprint(target) ?? "",
           });
 
-          const result = await Promise.race([
+          let result = await Promise.race([
             handleSingleModel(attemptBody, modelStr, {
               ...targetForAttempt,
               emptyTurnConnectionId,
@@ -3881,9 +3881,10 @@ async function handleRoundRobinCombo({
           let retryAfter: ComboRetryAfter | null = null;
           let errorBody: ComboErrorBody = null;
           try {
-            const cloned = result.clone();
+            const drained = await drainErrorResponse(result);
+            result = drained.response;
             try {
-              const text = await cloned.text();
+              const text = drained.text;
               if (text) {
                 errorText = text.substring(0, 500);
                 errorBody = JSON.parse(text);
@@ -3898,9 +3899,7 @@ async function handleRoundRobinCombo({
             } catch {
               /* Clone parse failed */
             }
-          } catch {
-            /* Clone failed */
-          }
+          } catch {}
 
           if (result.status === 499) {
             log.info(

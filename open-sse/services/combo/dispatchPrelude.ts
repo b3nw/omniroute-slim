@@ -255,6 +255,7 @@ async function evaluatePinnedResponse(args: {
     "COMBO",
     `Pinned model ${pinnedModel} failed (${pinnedStatus}), falling through to combo retry/fallback`
   );
+  void pinnedResult.body?.cancel().catch(() => {});
   return null;
 }
 

@@ -16,6 +16,7 @@ import { createHmac } from "node:crypto";
 
 import { after } from "next/server";
 
+import { registerMemoryPressureEvictor } from "@omniroute/open-sse/utils/heapPressure.ts";
 import { getModelCatalogCacheVersion } from "@/lib/db/readCache";
 import { extractApiKey } from "@/sse/services/auth";
 
@@ -165,7 +166,9 @@ type CatalogInFlight = {
   promise: Promise<CachedCatalog>;
 };
 
-const catalogCache = new Map<string, CachedCatalog>();
+/** Hard bound on memoized catalog bodies (each can be ~1.3 MB). */
+export const MAX_CATALOG_CACHE_ENTRIES = 16;
+const CATALOG_CACHE_SWEEP_INTERVAL_MS = 60_000;
 
 /**
  * An in-flight build is bound to the catalog-state generation it started from
@@ -176,9 +179,70 @@ const catalogCache = new Map<string, CachedCatalog>();
  * on it), just without being persisted.
  */
 type InFlightBuild = { generation: number; promise: Promise<CachedCatalog> };
-const catalogInFlight = new Map<string, InFlightBuild>();
 
-let _catalogBuilderRuns = 0;
+type CatalogCacheState = {
+  catalogCache: Map<string, CachedCatalog>;
+  catalogInFlight: Map<string, InFlightBuild>;
+  lastSeenCatalogCacheVersion: number;
+  catalogBuilderRuns: number;
+  sweepTimer: ReturnType<typeof setInterval> | null;
+};
+
+// Anchored on globalThis so every Next.js route chunk that bundles this module shares
+// one catalog cache, one in-flight coalescing map, and one sweep timer.
+const CATALOG_STATE_KEY = Symbol.for("omniroute.models.catalogCache");
+const catalogState: CatalogCacheState = ((globalThis as Record<symbol, unknown>)[
+  CATALOG_STATE_KEY
+] ??= {
+  catalogCache: new Map<string, CachedCatalog>(),
+  catalogInFlight: new Map<string, InFlightBuild>(),
+  lastSeenCatalogCacheVersion: getModelCatalogCacheVersion(),
+  catalogBuilderRuns: 0,
+  sweepTimer: null,
+} satisfies CatalogCacheState) as CatalogCacheState;
+const { catalogCache, catalogInFlight } = catalogState;
+
+function stopCatalogCacheSweep(): void {
+  if (catalogState.sweepTimer) {
+    clearInterval(catalogState.sweepTimer);
+    catalogState.sweepTimer = null;
+  }
+}
+
+/** Drop entries past their fresh TTL *and* the stale-while-revalidate window. */
+function pruneExpiredCatalogEntries(now = Date.now()): void {
+  for (const [key, entry] of catalogCache) {
+    if (now - entry.expiresAt > CATALOG_STALE_WHILE_REVALIDATE_MS) catalogCache.delete(key);
+  }
+  if (catalogCache.size === 0) stopCatalogCacheSweep();
+}
+
+function ensureCatalogCacheSweep(): void {
+  if (catalogState.sweepTimer || catalogCache.size === 0) return;
+  catalogState.sweepTimer = setInterval(
+    () => pruneExpiredCatalogEntries(),
+    CATALOG_CACHE_SWEEP_INTERVAL_MS
+  );
+  catalogState.sweepTimer.unref?.();
+}
+
+function setCatalogCacheEntry(cacheKey: string, entry: CachedCatalog): void {
+  if (!catalogCache.has(cacheKey) && catalogCache.size >= MAX_CATALOG_CACHE_ENTRIES) {
+    pruneExpiredCatalogEntries();
+    while (catalogCache.size >= MAX_CATALOG_CACHE_ENTRIES) {
+      const oldest = catalogCache.keys().next().value;
+      if (oldest === undefined) break;
+      catalogCache.delete(oldest);
+    }
+  }
+  catalogCache.set(cacheKey, entry);
+  ensureCatalogCacheSweep();
+}
+
+registerMemoryPressureEvictor("models.catalogCache", () => {
+  catalogCache.clear();
+  stopCatalogCacheSweep();
+});
 
 function buildCatalogCacheKey(request: Request, catalogSettings?: CatalogCacheOptions): string {
   const url = new URL(request.url);
@@ -196,11 +260,10 @@ function buildCatalogCacheKey(request: Request, catalogSettings?: CatalogCacheOp
 // combos/pricing write; when it moves on, every memoized entry here was built from
 // state that no longer holds, so drop them all rather than keying by version (which
 // would leak one Map entry per version forever instead of ever pruning old ones).
-let lastSeenCatalogCacheVersion = getModelCatalogCacheVersion();
 function dropCatalogCacheIfStateChanged(): void {
   const currentVersion = getModelCatalogCacheVersion();
-  if (currentVersion === lastSeenCatalogCacheVersion) return;
-  lastSeenCatalogCacheVersion = currentVersion;
+  if (currentVersion === catalogState.lastSeenCatalogCacheVersion) return;
+  catalogState.lastSeenCatalogCacheVersion = currentVersion;
   catalogCache.clear();
   // Deliberately NOT clearing catalogInFlight: an in-flight build bound to the
   // previous generation is left to finish for its original caller, but the
@@ -249,7 +312,7 @@ function storePayload(
     expiresAt: Date.now() + payload.cacheTTL,
   };
   if (buildGeneration === getModelCatalogCacheVersion()) {
-    catalogCache.set(cacheKey, entry);
+    setCatalogCacheEntry(cacheKey, entry);
   }
   return entry;
 }
@@ -314,7 +377,7 @@ function runBuilder(
   buildPayload: (request: Request) => Promise<CatalogPayload>,
   request: Request
 ): Promise<CatalogPayload> {
-  _catalogBuilderRuns++;
+  catalogState.catalogBuilderRuns++;
   return buildPayload(request);
 }
 
@@ -394,15 +457,16 @@ export async function resolveCachedCatalogResponse(
 
 /** Resets the builder counter and every cached/in-flight entry. */
 export function __resetCatalogBuilderRunsForTest(): void {
-  _catalogBuilderRuns = 0;
+  catalogState.catalogBuilderRuns = 0;
   catalogCache.clear();
   catalogInFlight.clear();
-  lastSeenCatalogCacheVersion = getModelCatalogCacheVersion();
+  stopCatalogCacheSweep();
+  catalogState.lastSeenCatalogCacheVersion = getModelCatalogCacheVersion();
 }
 
 /** Counts full builder executions — proves concurrent requests share one run (#6408). */
 export function __getCatalogBuilderRunsForTest(): number {
-  return _catalogBuilderRuns;
+  return catalogState.catalogBuilderRuns;
 }
 
 /**

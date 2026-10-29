@@ -3195,6 +3195,7 @@ export async function handleChatCore({
                   releaseAccountSemaphore();
                   await new Promise((r) => setTimeout(r, delay));
                   attempts++;
+                  void res.response.body?.cancel().catch(() => {});
                   continue;
                 }
               }
@@ -3278,20 +3279,18 @@ export async function handleChatCore({
                   "CODEX_FAILOVER",
                   `Rotating codex account: ${String(failedConnectionId).slice(0, 8)} → ${newConnectionId.slice(0, 8)} (attempt ${attempts + 2}/${maxAttempts})`
                 );
-
                 // Update credentials in-place so getExecutionCredentials() picks up the new account
                 Object.assign(credentials, nextCreds);
-
                 releaseAccountSemaphore();
                 attempts++;
+                void res.response.body?.cancel().catch(() => {});
                 continue;
               }
 
               // ── Antigravity BYOP 422 account rotation ───────────────────────
-              // GCP_PROJECT_REQUIRED (422, code gcp_project_required) means
-              // THIS Google account must Bring Its Own GCP Project. Mark the
-              // connection excluded (rateLimitedUntil, best-effort) and rotate
-              // to a sibling antigravity account so the request succeeds
+              // GCP_PROJECT_REQUIRED (422, code gcp_project_required) means THIS Google account
+              // must Bring Its Own GCP Project. Mark the connection excluded (rateLimitedUntil,
+              // best-effort) and rotate to a sibling antigravity account so the request succeeds
               // without user action. When no sibling exists (or all are BYOP),
               // fall through: the error-state block excludes the connection
               // and the actionable 422 is surfaced.
@@ -3332,6 +3331,7 @@ export async function handleChatCore({
                     releaseAccountSemaphore();
                     Object.assign(credentials, byopNextCreds);
                     antigravityByopRotationPending = true;
+                    void res.response.body?.cancel().catch(() => {});
                     continue;
                   }
                 }

@@ -28,16 +28,13 @@ import {
 // #9100: relay egress (Vercel / Deno / Cloudflare edge functions) used to go
 // through bare `originalFetch` — NO connection pooling, NO timeout, NO retry.
 // Every relay request opened a fresh TCP+TLS handshake and a throttled edge
-// relay serialized concurrent requests behind ~30s stalls. This module-level
-// singleton Agent gives the relay path the same pooling the HTTP-proxy path
-// gets from createProxyDispatcher: reused TCP connections per relay host.
-//
+// relay serialized concurrent requests behind ~30s stalls. This singleton Agent gives the
+// relay path the createProxyDispatcher pooling: reused TCP connections per relay host.
 // `connections: 4` removes head-of-line blocking on h1-only relays: undici never
 // pipelines POST (SSE is POST), so a single socket would serialize every
 // concurrent stream; 4 sockets give 4 parallel streams. h2 relays are
 // unaffected — streams multiplex over one socket, so the pool stays at a single
-// connection while streams drain. `allowH2: true` keeps that h2 fast path for
-// Vercel / Deno / Cloudflare.
+// connection while streams drain. `allowH2: true` keeps that h2 fast path (Vercel/Deno/CF).
 const RELAY_POOL_AGENT_OPTIONS = {
   keepAliveTimeout: 30_000,
   keepAliveMaxTimeout: 60_000,
@@ -45,23 +42,26 @@ const RELAY_POOL_AGENT_OPTIONS = {
   connections: 4,
   allowH2: true,
 } as const;
-const RELAY_POOL_AGENT = new Agent(RELAY_POOL_AGENT_OPTIONS);
-
-// Retry path for a relay that just failed with a transient socket error: a
-// FRESH socket (keep-alive disabled) so a stale pooled connection is recovered
-// instead of re-hitting the dead one (mirrors the proxy/direct retry paths).
-const RELAY_RETRY_AGENT = new Agent({
-  keepAliveTimeout: 1,
-  keepAliveMaxTimeout: 1,
-  pipelining: 0,
-  connections: 1,
-  allowH2: true,
-});
+// Anchored on globalThis so HMR / duplicate module instances reuse one pool pair.
+const relayAgents = ((globalThis as Record<symbol, unknown>)[
+  Symbol.for("omniroute.proxyFetch.relayAgents")
+] ??= {
+  pool: new Agent(RELAY_POOL_AGENT_OPTIONS),
+  // Retry after a transient socket error: FRESH socket (keep-alive off), like proxy/direct.
+  retry: new Agent({
+    keepAliveTimeout: 1,
+    keepAliveMaxTimeout: 1,
+    pipelining: 0,
+    connections: 1,
+    allowH2: true,
+  }),
+}) as { pool: Agent; retry: Agent };
+const RELAY_POOL_AGENT = relayAgents.pool;
+const RELAY_RETRY_AGENT = relayAgents.retry;
 
 // A hung relay must fail BEFORE the client/agent timeout (typically 30s) so the
-// caller sees a relay-specific failure instead of a generic upstream timeout.
-// Overridable via OMNIROUTE_RELAY_FETCH_TIMEOUT_MS (capped at 29s so the
-// relay-specific timeout always fires first).
+// caller sees a relay-specific failure instead of a generic upstream timeout. Overridable
+// via OMNIROUTE_RELAY_FETCH_TIMEOUT_MS (capped at 29s so it always fires first).
 function readRelayFetchTimeoutMs(): number {
   const raw = process.env.OMNIROUTE_RELAY_FETCH_TIMEOUT_MS;
   if (raw == null || raw.trim() === "") return 25_000;

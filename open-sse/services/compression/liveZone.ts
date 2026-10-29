@@ -1,6 +1,7 @@
 import { estimateCompressionTokens } from "./stats.ts";
 import type { CompressionResult, CompressionStats } from "./types.ts";
 import { jsonSha256 } from "../../utils/jsonHash.ts";
+import { registerMemoryPressureEvictor } from "../../utils/heapPressure.ts";
 
 export interface LiveZoneOptions {
   principalId?: string;
@@ -43,8 +44,39 @@ const STABLE_PREFIX_FIELDS = [
   "tool_choice",
 ] as const;
 
-const entries = new Map<string, LiveZoneEntry>();
-let totalBytes = 0;
+const SWEEP_INTERVAL_MS = 60_000;
+
+interface LiveZoneState {
+  entries: Map<string, LiveZoneEntry>;
+  totalBytes: number;
+  sweepTimer: ReturnType<typeof setInterval> | null;
+}
+
+// Anchored on globalThis so every Next.js route chunk shares one live-zone cache.
+const STATE_KEY = Symbol.for("omniroute.compression.liveZone");
+const state: LiveZoneState = ((globalThis as Record<symbol, unknown>)[STATE_KEY] ??= {
+  entries: new Map<string, LiveZoneEntry>(),
+  totalBytes: 0,
+  sweepTimer: null,
+} satisfies LiveZoneState) as LiveZoneState;
+const entries = state.entries;
+
+function stopSweep(): void {
+  if (state.sweepTimer) {
+    clearInterval(state.sweepTimer);
+    state.sweepTimer = null;
+  }
+}
+
+// Self-stopping sweep so cached prefixes are released once chat traffic stops.
+function ensureSweep(): void {
+  if (state.sweepTimer || entries.size === 0) return;
+  state.sweepTimer = setInterval(() => {
+    prune(Date.now());
+    if (entries.size === 0) stopSweep();
+  }, SWEEP_INTERVAL_MS);
+  state.sweepTimer.unref?.();
+}
 
 function serialize(value: unknown): string | null {
   try {
@@ -156,7 +188,7 @@ function makeKey(options: LiveZoneOptions, field: string): string | null {
 function deleteEntry(key: string): void {
   const existing = entries.get(key);
   if (!existing) return;
-  totalBytes -= existing.bytes;
+  state.totalBytes -= existing.bytes;
   entries.delete(key);
 }
 
@@ -164,7 +196,7 @@ function prune(now: number): void {
   for (const [key, entry] of entries) {
     if (now >= entry.expiresAt) deleteEntry(key);
   }
-  while (entries.size > MAX_ENTRIES || totalBytes > MAX_TOTAL_BYTES) {
+  while (entries.size > MAX_ENTRIES || state.totalBytes > MAX_TOTAL_BYTES) {
     const oldest = entries.keys().next().value as string | undefined;
     if (!oldest) break;
     deleteEntry(oldest);
@@ -203,8 +235,9 @@ function store(
     expiresAt: now + ttlMs,
     bytes,
   });
-  totalBytes += bytes;
+  state.totalBytes += bytes;
   prune(now);
+  ensureSweep();
 }
 
 function hasExactRawPrefix(rawItemDigests: string[], entry: LiveZoneEntry): boolean {
@@ -461,9 +494,12 @@ export async function applyLiveZoneCompression(
 
 export function resetLiveZoneCache(): void {
   entries.clear();
-  totalBytes = 0;
+  state.totalBytes = 0;
+  stopSweep();
 }
 
+registerMemoryPressureEvictor("compression.liveZone", resetLiveZoneCache);
+
 export function getLiveZoneCacheStats(): { entries: number; bytes: number } {
-  return { entries: entries.size, bytes: totalBytes };
+  return { entries: entries.size, bytes: state.totalBytes };
 }

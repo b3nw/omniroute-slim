@@ -12,6 +12,8 @@
  *   const settings = await dbCache.getSettings();
  */
 
+import { registerMemoryPressureEvictor } from "@omniroute/open-sse/utils/heapPressure.ts";
+
 type CacheEntry<T> = {
   value: T;
   expiresAt: number;
@@ -22,9 +24,16 @@ class TTLCache<T> {
   private readonly ttlMs: number;
   private readonly maxSize: number;
 
-  constructor(ttlMs: number, maxSize?: number) {
+  private readonly onInsert: (() => void) | undefined;
+
+  constructor(ttlMs: number, maxSize?: number, onInsert?: () => void) {
     this.ttlMs = ttlMs;
     this.maxSize = maxSize ?? 0;
+    this.onInsert = onInsert;
+  }
+
+  get size(): number {
+    return this.cache.size;
   }
 
   get(key: string): T | undefined {
@@ -47,6 +56,14 @@ class TTLCache<T> {
       if (oldest !== undefined) this.cache.delete(oldest);
     }
     this.cache.set(key, { value, expiresAt: Date.now() + this.ttlMs });
+    this.onInsert?.();
+  }
+
+  /** Drop every expired entry (entries are otherwise only evicted lazily on `get`). */
+  pruneExpired(now = Date.now()): void {
+    for (const [key, entry] of this.cache) {
+      if (now > entry.expiresAt) this.cache.delete(key);
+    }
   }
 
   invalidate(key?: string): void {
@@ -63,9 +80,95 @@ class TTLCache<T> {
 const SETTINGS_TTL_MS = 5_000;
 const PRICING_TTL_MS = 30_000;
 const CONNECTIONS_TTL_MS = 5_000;
-const settingsCache = new TTLCache<Record<string, unknown>>(SETTINGS_TTL_MS);
-const pricingCache = new TTLCache<Record<string, unknown>>(PRICING_TTL_MS);
-const connectionsCache = new TTLCache<unknown[]>(CONNECTIONS_TTL_MS, 500);
+const READ_CACHE_SWEEP_INTERVAL_MS = 60_000;
+
+interface LKGPRecordCache {
+  provider: string;
+  connectionId?: string;
+}
+
+function createReadCacheState() {
+  return {
+    settingsCache: new TTLCache<Record<string, unknown>>(SETTINGS_TTL_MS, 0, ensureReadCacheSweep),
+    pricingCache: new TTLCache<Record<string, unknown>>(PRICING_TTL_MS, 0, ensureReadCacheSweep),
+    connectionsCache: new TTLCache<unknown[]>(CONNECTIONS_TTL_MS, 500, ensureReadCacheSweep),
+    rawConnectionsCache: new TTLCache<unknown[]>(CONNECTIONS_TTL_MS, 500, ensureReadCacheSweep),
+    connectionByIdCache: new TTLCache<Record<string, unknown> | null>(
+      CONNECTIONS_TTL_MS,
+      2_000,
+      ensureReadCacheSweep
+    ),
+    nodesCache: new TTLCache<(Record<string, unknown> | null)[]>(
+      CONNECTIONS_TTL_MS,
+      500,
+      ensureReadCacheSweep
+    ),
+    lkgpCache: new TTLCache<LKGPRecordCache | null>(SETTINGS_TTL_MS, 2_000, ensureReadCacheSweep),
+    combosCacheVersion: 0,
+    modelCatalogCacheVersion: 0,
+    sweepTimer: null as ReturnType<typeof setInterval> | null,
+  };
+}
+
+// Anchored on globalThis so every Next.js route chunk shares one DB read cache and
+// `invalidateDbCache()` / the version signals below take effect across all chunks.
+const READ_CACHE_KEY = Symbol.for("omniroute.db.readCache");
+const state: ReturnType<typeof createReadCacheState> = ((globalThis as Record<symbol, unknown>)[
+  READ_CACHE_KEY
+] ??= createReadCacheState()) as ReturnType<typeof createReadCacheState>;
+const {
+  settingsCache,
+  pricingCache,
+  connectionsCache,
+  rawConnectionsCache,
+  connectionByIdCache,
+  nodesCache,
+  lkgpCache,
+} = state;
+
+function allReadCaches(): TTLCache<unknown>[] {
+  return [
+    settingsCache,
+    pricingCache,
+    connectionsCache,
+    rawConnectionsCache,
+    connectionByIdCache,
+    nodesCache,
+    lkgpCache,
+  ] as TTLCache<unknown>[];
+}
+
+function stopReadCacheSweep(): void {
+  if (state.sweepTimer) {
+    clearInterval(state.sweepTimer);
+    state.sweepTimer = null;
+  }
+}
+
+// Self-stopping sweep so expired rows are released even when no reader touches the key again.
+function ensureReadCacheSweep(): void {
+  // Called from TTLCache.set — may run while `state` is still being constructed.
+  const shared = (globalThis as Record<symbol, unknown>)[READ_CACHE_KEY] as
+    ReturnType<typeof createReadCacheState> | undefined;
+  if (!shared || shared.sweepTimer) return;
+  shared.sweepTimer = setInterval(() => {
+    const now = Date.now();
+    let remaining = 0;
+    for (const cache of allReadCaches()) {
+      cache.pruneExpired(now);
+      remaining += cache.size;
+    }
+    if (remaining === 0) stopReadCacheSweep();
+  }, READ_CACHE_SWEEP_INTERVAL_MS);
+  shared.sweepTimer.unref?.();
+}
+
+// Memory pressure: drop cached rows (they are re-read from SQLite on demand). The
+// version counters are left untouched — dropping data does not change the DB.
+registerMemoryPressureEvictor("db.readCache", () => {
+  for (const cache of allReadCaches()) cache.invalidate();
+  stopReadCacheSweep();
+});
 
 /**
  * Cached wrapper for getSettings.
@@ -113,8 +216,6 @@ export async function getCachedProviderConnections(
   return value;
 }
 
-const rawConnectionsCache = new TTLCache<unknown[]>(CONNECTIONS_TTL_MS, 500);
-
 /**
  * Cached wrapper for getRawProviderConnections.
  * Same 5s TTL as the encrypted variant but preserves ciphertext fields
@@ -133,12 +234,6 @@ export async function getCachedRawProviderConnections(
   rawConnectionsCache.set(key, rows);
   return rows;
 }
-
-const connectionByIdCache = new TTLCache<Record<string, unknown> | null>(
-  CONNECTIONS_TTL_MS,
-  10_000
-);
-const nodesCache = new TTLCache<(Record<string, unknown> | null)[]>(CONNECTIONS_TTL_MS);
 
 /**
  * Cached wrapper for getProviderConnectionById.
@@ -177,13 +272,6 @@ export async function getCachedProviderNodes(
 }
 
 // ──────────────── LKGP Cache Wrappers ────────────────
-
-interface LKGPRecordCache {
-  provider: string;
-  connectionId?: string;
-}
-
-const lkgpCache = new TTLCache<LKGPRecordCache | null>(SETTINGS_TTL_MS);
 
 export async function getCachedLKGP(
   comboName: string,
@@ -232,15 +320,13 @@ export function invalidateCachedLKGP(pinKey?: string): void {
 // the handlers compare the version they were populated at against the current
 // one and treat a mismatch as a cache miss — so combo edits take effect
 // immediately instead of after the 10s window (#3147).
-let combosCacheVersion = 0;
-
 /**
  * Current combo-cache version. Cache layers snapshot this when they populate
  * and re-read it on every access; a change means the underlying combos were
  * written and the cached expansion must be refreshed.
  */
 export function getCombosCacheVersion(): number {
-  return combosCacheVersion;
+  return state.combosCacheVersion;
 }
 
 // ──────────────── Model Catalog Cache Invalidation Signal ────────────────
@@ -253,19 +339,17 @@ export function getCombosCacheVersion(): number {
 // constraint as combosCacheVersion above (a db module must not import the route
 // module): catalogCache.ts compares this version on every access and builder
 // completion, then hard-invalidates snapshots and old-generation work when it moves.
-let modelCatalogCacheVersion = 0;
-
 /**
  * Current model-catalog-cache version. A change means catalog-backed state was
  * written and the next read must synchronously build the new generation.
  */
 export function getModelCatalogCacheVersion(): number {
-  return modelCatalogCacheVersion;
+  return state.modelCatalogCacheVersion;
 }
 
 /** Invalidate only the unified model catalog response cache. */
 export function invalidateModelCatalogCache(): void {
-  modelCatalogCacheVersion++;
+  state.modelCatalogCacheVersion++;
 }
 
 /**
@@ -293,7 +377,7 @@ export function invalidateDbCache(
     }
   }
   if (!scope || scope === "nodes") nodesCache.invalidate();
-  if (!scope || scope === "combos") combosCacheVersion++;
+  if (!scope || scope === "combos") state.combosCacheVersion++;
   // Settings/connections/combos all feed the unified model catalog builder
   // (blockedProviders + hidePaidModels, provider connections + excludedModels,
   // combo definitions, respectively) — pricing does too, via isFreeModel().

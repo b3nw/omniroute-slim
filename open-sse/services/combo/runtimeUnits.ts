@@ -11,7 +11,11 @@ import { recordComboRequest } from "../comboMetrics.ts";
 import { resolveDelayMs } from "./comboPredicates.ts";
 import { isRuntimeUnitAtConcurrencyCap } from "./runtimeUnitCapacity.ts";
 import { isQuotaExhaustionResponse, withQuotaExhaustionClassification } from "./quotaExhaustion.ts";
-import { validateResponseQuality, releaseQualityClone } from "./validateQuality.ts";
+import {
+  validateResponseQuality,
+  releaseQualityClone,
+  releaseRejectedQualityResponse,
+} from "./validateQuality.ts";
 import type { ResponseValidationConfig } from "./responseValidation.ts";
 import { getStrategyTraits } from "./strategyRegistry.ts";
 import type {
@@ -293,6 +297,10 @@ export async function executeRuntimeUnitCombo(args: {
         failoverBeforeRetry: args.config.failoverBeforeRetry,
         effectiveComboStrategy: effectiveStrategy,
       });
+      // Release a superseded failure body that will never reach the caller.
+      if (lastResponse && lastResponse !== response) {
+        void lastResponse.body?.cancel().catch(() => {});
+      }
       lastResponse = response;
       if (response.ok) {
         if (unit.kind === "combo-ref") {
@@ -328,6 +336,7 @@ export async function executeRuntimeUnitCombo(args: {
           });
           return { response, unit };
         }
+        releaseRejectedQualityResponse(unitClone, response);
         lastResponse = errorResponse(502, "Upstream response failed quality validation");
       }
       if (lastResponse) {

@@ -78,6 +78,53 @@ function flattenSingleRowEmbedding(item: unknown): void {
   }
 }
 
+const EMBEDDING_LOG_STRING_MAX_CHARS = 128;
+
+/** Count numbers in a (possibly nested) number array; returns null if non-numeric content. */
+function countEmbeddingFloats(value: unknown[]): number | null {
+  let count = 0;
+  const stack: unknown[] = [value];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (typeof current === "number") {
+      count++;
+    } else if (Array.isArray(current)) {
+      for (let i = 0; i < current.length; i++) stack.push(current[i]);
+    } else {
+      return null;
+    }
+  }
+  return count;
+}
+
+function summarizeEmbeddingItemForLog(item: unknown): unknown {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+  const clone: Record<string, unknown> = { ...(item as Record<string, unknown>) };
+  const embedding = clone.embedding;
+  if (Array.isArray(embedding)) {
+    const floats = countEmbeddingFloats(embedding);
+    if (floats !== null) clone.embedding = `[embedding: ${floats} floats]`;
+  } else if (typeof embedding === "string" && embedding.length > EMBEDDING_LOG_STRING_MAX_CHARS) {
+    clone.embedding = `[embedding_base64: ${embedding.length} chars]`;
+  }
+  return clone;
+}
+
+/**
+ * Produce a log-safe copy of an embeddings payload: vectors are replaced by short
+ * summaries so request logs / call-log artifacts don't retain multi-KB float arrays.
+ * Never mutates the input; the client response must keep the full vectors.
+ */
+export function summarizeEmbeddingsPayloadForLog(payload: unknown): unknown {
+  if (!payload || typeof payload !== "object") return payload;
+  if (Array.isArray(payload)) return payload.map(summarizeEmbeddingItemForLog);
+  const envelope: Record<string, unknown> = { ...(payload as Record<string, unknown>) };
+  if (Array.isArray(envelope.data)) {
+    envelope.data = envelope.data.map(summarizeEmbeddingItemForLog);
+  }
+  return envelope;
+}
+
 /**
  * Handle embedding request.
  * Supports both hardcoded cloud providers and dynamic local provider_nodes.
@@ -482,7 +529,12 @@ export async function handleEmbedding({
     };
 
     // Log provider response
-    reqLogger.logProviderResponse(response.status, "", response.headers, data);
+    reqLogger.logProviderResponse(
+      response.status,
+      "",
+      response.headers,
+      summarizeEmbeddingsPayloadForLog(data)
+    );
 
     // OpenAI-spec compliance (#9089): each item's `embedding` must be a flat number[].
     // Some OpenAI-compatible backends (e.g. a llama.cpp `llama-server --embedding`
@@ -506,7 +558,7 @@ export async function handleEmbedding({
     };
 
     // Log client response
-    reqLogger.logConvertedResponse(normalizedResponse);
+    reqLogger.logConvertedResponse(summarizeEmbeddingsPayloadForLog(normalizedResponse));
 
     const pipelinePayloads = detailedLoggingEnabled ? reqLogger.getPipelinePayloads() : null;
 

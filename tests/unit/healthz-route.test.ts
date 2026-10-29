@@ -10,6 +10,8 @@ import {
 } from "../../src/lib/serverLifecycle.ts";
 
 const routeModule = await import("../../src/app/healthz/route.ts");
+const { reloadResourcePressureRuntime, checkResourcePressureGuard } =
+  await import("../../open-sse/utils/resourcePressure.ts");
 const require = createRequire(import.meta.url);
 const { getMiddlewareMatchers } = require("next/dist/build/analysis/get-page-static-info.js");
 const {
@@ -39,6 +41,8 @@ test("/healthz follows the native server lifecycle without static caching", asyn
   assert.equal(readyHead.status, 200);
   assert.equal(readyHead.headers.get("Content-Length"), "3");
   assert.equal(await readyHead.text(), "");
+
+  await assertResourcePressureHealth();
 
   markServerStopping();
   const stopping = await routeModule.GET(new Request("http://localhost/healthz"));
@@ -90,3 +94,44 @@ test("/healthz bypasses the centralized auth proxy matcher", () => {
   assert.equal(matcher("/healthz", { headers: {} }), false);
   assert.equal(matcher("/api/system/version", { headers: {} }), true);
 });
+
+// Runs inside the lifecycle test while the (one-way) phase is "ready".
+async function assertResourcePressureHealth() {
+  let heapUsedMb = 999;
+  reloadResourcePressureRuntime({
+    heapThresholdMb: 100,
+    immediateHeapUsedMb: () => heapUsedMb,
+    emergencyGc: () => true,
+    schedule: () => {},
+    sample: async () => {
+      throw new Error("sampler must not run from /healthz");
+    },
+  });
+  try {
+    // Latch the critical state the way a shed request would.
+    assert.ok(checkResourcePressureGuard());
+
+    const unhealthy = await routeModule.GET(new Request("http://localhost/healthz"));
+    assert.equal(unhealthy.status, 503);
+    assert.equal(unhealthy.headers.get("Cache-Control"), "no-store");
+    assert.equal(unhealthy.headers.get("Content-Type"), "text/plain; charset=utf-8");
+    assert.equal(unhealthy.headers.get("Content-Length"), "29");
+    assert.equal(await unhealthy.text(), "unhealthy: resource_pressure\n");
+
+    const unhealthyHead = await routeModule.HEAD(
+      new Request("http://localhost/healthz", { method: "HEAD" })
+    );
+    assert.equal(unhealthyHead.status, 503);
+    assert.equal(unhealthyHead.headers.get("Content-Length"), "29");
+    assert.equal(await unhealthyHead.text(), "");
+
+    // Emergency GC + evictors recover the heap below threshold: healthy immediately.
+    heapUsedMb = 1;
+    const recovered = await routeModule.GET(new Request("http://localhost/healthz"));
+    assert.equal(recovered.status, 200);
+    assert.equal(recovered.headers.get("Content-Length"), "3");
+    assert.equal(await recovered.text(), "ok\n");
+  } finally {
+    reloadResourcePressureRuntime({ heapThresholdMb: null, schedule: () => {} });
+  }
+}

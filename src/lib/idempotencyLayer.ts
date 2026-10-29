@@ -13,25 +13,49 @@
 import { getSettings } from "@/lib/db/settings";
 
 const DEFAULT_WINDOW_MS = 5000;
+export const MAX_IDEMPOTENCY_ENTRIES = 500;
 
-/** @type {Map<string, { response: object, status: number, expiresAt: number }>} */
-const idempotencyStore = new Map();
+type IdempotencyEntry = { response: unknown; status: number; expiresAt: number };
+type IdempotencyState = {
+  idempotencyStore: Map<string, IdempotencyEntry>;
+  cleanupInterval: ReturnType<typeof setInterval> | null;
+};
 
-// Periodic cleanup every 30s
-let cleanupInterval;
+// Anchored on globalThis so every Next.js route chunk shares one dedup store.
+const IDEMPOTENCY_STATE_KEY = Symbol.for("omniroute.idempotency.store");
+const idempotencyState: IdempotencyState = ((globalThis as Record<symbol, unknown>)[
+  IDEMPOTENCY_STATE_KEY
+] ??= {
+  idempotencyStore: new Map<string, IdempotencyEntry>(),
+  cleanupInterval: null,
+} satisfies IdempotencyState) as IdempotencyState;
+const idempotencyStore = idempotencyState.idempotencyStore;
 
-function ensureCleanup() {
-  if (cleanupInterval) return;
-  cleanupInterval = setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of idempotencyStore) {
-      if (now >= entry.expiresAt) {
-        idempotencyStore.delete(key);
-      }
+function pruneExpiredIdempotency(now = Date.now()) {
+  for (const [key, entry] of idempotencyStore) {
+    if (now >= entry.expiresAt) {
+      idempotencyStore.delete(key);
     }
+  }
+}
+
+function stopCleanup() {
+  if (idempotencyState.cleanupInterval) {
+    clearInterval(idempotencyState.cleanupInterval);
+    idempotencyState.cleanupInterval = null;
+  }
+}
+
+// Periodic cleanup every 30s; stops itself once the store drains.
+function ensureCleanup() {
+  if (idempotencyState.cleanupInterval) return;
+  const interval = setInterval(() => {
+    pruneExpiredIdempotency();
+    if (idempotencyStore.size === 0) stopCleanup();
   }, 30000);
   // Don't prevent process exit
-  if (cleanupInterval.unref) cleanupInterval.unref();
+  if (interval.unref) interval.unref();
+  idempotencyState.cleanupInterval = interval;
 }
 
 /**
@@ -70,12 +94,20 @@ export function checkIdempotency(key) {
  */
 export function saveIdempotency(key, response, status, windowMs = DEFAULT_WINDOW_MS) {
   if (!key) return;
-  ensureCleanup();
+  if (!idempotencyStore.has(key) && idempotencyStore.size >= MAX_IDEMPOTENCY_ENTRIES) {
+    pruneExpiredIdempotency();
+    while (idempotencyStore.size >= MAX_IDEMPOTENCY_ENTRIES) {
+      const oldest = idempotencyStore.keys().next().value;
+      if (oldest === undefined) break;
+      idempotencyStore.delete(oldest);
+    }
+  }
   idempotencyStore.set(key, {
     response,
     status,
     expiresAt: Date.now() + windowMs,
   });
+  ensureCleanup();
 }
 
 /**
@@ -102,4 +134,5 @@ export async function getIdempotencyStats() {
  */
 export function clearIdempotency() {
   idempotencyStore.clear();
+  stopCleanup();
 }

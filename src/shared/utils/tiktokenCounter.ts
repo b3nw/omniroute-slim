@@ -19,7 +19,12 @@ export function tokenizerContextFromBody(body: unknown): TokenizerContext {
   };
 }
 
-const encoders = new Map<TokenizerEncoding, Tiktoken>();
+// Anchored on globalThis so the ~90–115 MiB BPE rank tables are built at most once per
+// process, not once per Next.js route chunk that bundles this module.
+const ENCODERS_KEY = Symbol.for("omniroute.tiktoken.encoders");
+const encoders: Map<TokenizerEncoding, Tiktoken> = ((globalThis as Record<symbol, unknown>)[
+  ENCODERS_KEY
+] ??= new Map<TokenizerEncoding, Tiktoken>()) as Map<TokenizerEncoding, Tiktoken>;
 
 /**
  * Above this many characters the exact tokenizer is skipped in favor of the

@@ -1538,6 +1538,7 @@ export class BaseExecutor {
               "CONTEXT_EDITING",
               `Upstream 400 rejected context_management on ${url} — retrying without it`
             );
+            void response.body?.cancel().catch(() => {});
             response = await fetchWithStartTimeout(url, { ...fetchOptions, body: retryBody });
           }
         }
@@ -1577,19 +1578,14 @@ export class BaseExecutor {
                 "THINKING_BUDGET",
                 `Upstream 400 rejected thinking_budget on ${url} — clamped to ${upstreamMax} and retrying (learned for ${this.provider}/${model})`
               );
+              void response.body?.cancel().catch(() => {});
               response = await fetchWithStartTimeout(url, { ...fetchOptions, body: retryBody });
             }
           }
         }
 
-        // Reasoning-effort enum 4xx clamp-and-retry (any provider/model without a
-        // declared reasoning_effort capability — custom OpenAI-compatible
-        // connections, or a registered provider the registry hasn't caught up
-        // with). Mirrors the thinking_budget clamp-and-retry above: parse the
-        // upstream-advertised accepted values, record them process-wide (so
-        // FUTURE requests clamp proactively via sanitizeReasoningEffortForProvider
-        // → getLearnedReasoningEffort), clamp the live transformedBody by
-        // re-running the sanitizer, and retry the same URL once.
+        // Reasoning-effort enum 4xx clamp-and-retry (mirrors thinking_budget above): learn the
+        // accepted values process-wide, clamp transformedBody, and retry the same URL once.
         if (
           (response.status === HTTP_STATUS.BAD_REQUEST ||
             response.status === HTTP_STATUS.UNPROCESSABLE_ENTITY) &&
@@ -1645,6 +1641,7 @@ export class BaseExecutor {
               "FIELD_400",
               `Upstream 400 rejected ${offending} on ${url} — retrying without it`
             );
+            void response.body?.cancel().catch(() => {});
             response = await fetchWithStartTimeout(url, { ...fetchOptions, body: retryBody });
           } else {
             // Auto-learn: detect "Unsupported parameter" errors and persist to DB
@@ -1670,6 +1667,7 @@ export class BaseExecutor {
                     "AUTO_LEARN",
                     `Auto-learned "${autoLearned}" for provider ${this.provider} (model: ${model}) from 400 on ${url} — retrying`
                   );
+                  void response.body?.cancel().catch(() => {});
                   response = await fetchWithStartTimeout(url, { ...fetchOptions, body: retryBody });
                 }
               } catch (learnError) {
@@ -1682,9 +1680,8 @@ export class BaseExecutor {
           }
         }
 
-        // Intra-URL retry: agentrouter.org WAF returns 400 content-blocked
-        // intermittently (burst-sensitive, recovers after cooldown). Retry the
-        // same URL with exponential backoff before falling through to the
+        // Intra-URL retry: agentrouter.org WAF returns 400 content-blocked intermittently
+        // (burst-sensitive, recovers after cooldown). Retry the same URL with backoff before the
         // 429/401/fallback chain. See docs/security/AGENTROUTER_WAF.md.
         if (
           !skipUpstreamRetry &&
@@ -1707,6 +1704,7 @@ export class BaseExecutor {
             );
             await new Promise((resolve) => setTimeout(resolve, wafBackoff));
             urlIndex--; // re-run this urlIndex on the next loop iteration
+            void response.body?.cancel().catch(() => {});
             continue;
           }
         }
@@ -1725,6 +1723,7 @@ export class BaseExecutor {
           );
           await new Promise((resolve) => setTimeout(resolve, BaseExecutor.RETRY_CONFIG.delayMs));
           urlIndex--; // re-run this urlIndex on the next loop iteration
+          void response.body?.cancel().catch(() => {});
           continue;
         }
 
@@ -1736,6 +1735,7 @@ export class BaseExecutor {
         if (!skipUpstreamRetry && this.shouldRetry(response.status, urlIndex)) {
           log?.debug?.("RETRY", `${response.status} on ${url}, trying fallback ${urlIndex + 1}`);
           lastStatus = response.status;
+          void response.body?.cancel().catch(() => {});
           continue;
         }
 

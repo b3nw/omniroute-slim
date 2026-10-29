@@ -9,6 +9,7 @@
  */
 
 import crypto from "crypto";
+import { registerMemoryPressureEvictor } from "@omniroute/open-sse/utils/heapPressure.ts";
 
 /**
  * @typedef {Object} CacheEntry
@@ -175,6 +176,18 @@ export class LRUCache {
     return false;
   }
 
+  /** Drop every expired entry. Returns the number removed. */
+  pruneExpired(now = Date.now()) {
+    let removed = 0;
+    for (const [key, entry] of this.#cache) {
+      if (now - entry.createdAt > entry.ttl) {
+        this.#deleteEntry(key, entry);
+        removed++;
+      }
+    }
+    return removed;
+  }
+
   /** Clear the entire cache. */
   clear() {
     this.#cache.clear();
@@ -198,7 +211,41 @@ export class LRUCache {
 
 // ─── Prompt Cache Singleton ─────────────────
 
-let promptCache: LRUCache | null = null;
+const PROMPT_CACHE_SWEEP_INTERVAL_MS = 60_000;
+
+type PromptCacheState = {
+  promptCache: LRUCache | null;
+  sweepTimer: ReturnType<typeof setInterval> | null;
+};
+
+// Anchored on globalThis so every Next.js route chunk shares one prompt cache.
+const PROMPT_CACHE_KEY = Symbol.for("omniroute.cacheLayer.promptCache");
+const promptCacheState: PromptCacheState = ((globalThis as Record<symbol, unknown>)[
+  PROMPT_CACHE_KEY
+] ??= { promptCache: null, sweepTimer: null } satisfies PromptCacheState) as PromptCacheState;
+
+function stopPromptCacheSweep() {
+  if (promptCacheState.sweepTimer) {
+    clearInterval(promptCacheState.sweepTimer);
+    promptCacheState.sweepTimer = null;
+  }
+}
+
+/** Self-stopping expiry sweep; stops once the prompt cache is empty. */
+function ensurePromptCacheSweep() {
+  if (promptCacheState.sweepTimer) return;
+  promptCacheState.sweepTimer = setInterval(() => {
+    const cache = promptCacheState.promptCache;
+    cache?.pruneExpired();
+    if (!cache || cache.getStats().size === 0) stopPromptCacheSweep();
+  }, PROMPT_CACHE_SWEEP_INTERVAL_MS);
+  promptCacheState.sweepTimer.unref?.();
+}
+
+registerMemoryPressureEvictor("cacheLayer.promptCache", () => {
+  promptCacheState.promptCache?.clear();
+  stopPromptCacheSweep();
+});
 
 /**
  * Get the global prompt cache instance.
@@ -208,13 +255,14 @@ let promptCache: LRUCache | null = null;
 export function getPromptCache(
   options?: { maxSize?: number; maxBytes?: number; defaultTTL?: number } & Record<string, unknown>
 ) {
-  if (!promptCache) {
-    promptCache = new LRUCache({
+  if (!promptCacheState.promptCache) {
+    promptCacheState.promptCache = new LRUCache({
       maxSize: parseInt(process.env.PROMPT_CACHE_MAX_SIZE || "50", 10),
       maxBytes: parseInt(process.env.PROMPT_CACHE_MAX_BYTES || String(2 * 1024 * 1024), 10),
       defaultTTL: parseInt(process.env.PROMPT_CACHE_TTL_MS || "300000", 10),
       ...options,
     });
   }
-  return promptCache;
+  ensurePromptCacheSweep();
+  return promptCacheState.promptCache;
 }

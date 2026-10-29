@@ -190,19 +190,55 @@ export function sanitizeColorEnv(env = {}) {
   return sanitized;
 }
 
+function resolveShutdownTimeoutMs(value, fallback = 10_000) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export function spawnWithForwardedSignals(command, args, options = {}) {
-  const child = spawn(command, args, options);
+  const { shutdownTimeoutMs: shutdownTimeoutOption, ...spawnOptions } = options ?? {};
+  const shutdownTimeoutMs =
+    shutdownTimeoutOption !== undefined
+      ? Number(shutdownTimeoutOption)
+      : resolveShutdownTimeoutMs(process.env.OMNIROUTE_SHUTDOWN_TIMEOUT_MS);
+  const child = spawn(command, args, spawnOptions);
+
+  let shutdownTimer = null;
+  let exited = false;
+
+  const forwardSignal = (signal) => {
+    child.kill(signal);
+    if (!shutdownTimer && shutdownTimeoutMs > 0) {
+      // Watchdog: if the child ignores the forwarded signal, escalate so the
+      // container does not hang in a half-dead state.
+      shutdownTimer = setTimeout(() => {
+        if (!exited) child.kill("SIGKILL");
+      }, shutdownTimeoutMs);
+      shutdownTimer.unref?.();
+    }
+  };
+  const onSigInt = () => forwardSignal("SIGINT");
+  const onSigTerm = () => forwardSignal("SIGTERM");
+
+  const removeListener = (signal, handler) => {
+    if (typeof process.off === "function") process.off(signal, handler);
+    else if (typeof process.removeListener === "function") process.removeListener(signal, handler);
+  };
 
   child.on("exit", (code, signal) => {
-    if (signal) {
-      process.kill(process.pid, signal);
-      return;
-    }
-    process.exit(code ?? 0);
+    if (exited) return;
+    exited = true;
+    if (shutdownTimer) clearTimeout(shutdownTimer);
+    shutdownTimer = null;
+    removeListener("SIGINT", onSigInt);
+    removeListener("SIGTERM", onSigTerm);
+    // Never re-raise the signal on ourselves (process.kill(process.pid, …)):
+    // as PID 1 in a container that is ignored and leaves the launcher hanging.
+    process.exit(code ?? (signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 1));
   });
 
-  process.on("SIGINT", () => child.kill("SIGINT"));
-  process.on("SIGTERM", () => child.kill("SIGTERM"));
+  process.on("SIGINT", onSigInt);
+  process.on("SIGTERM", onSigTerm);
 
   return child;
 }

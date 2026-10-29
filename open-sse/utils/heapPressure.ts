@@ -60,6 +60,47 @@ export const EMERGENCY_GC_MIN_INTERVAL_MS = 5_000;
 type GcFunction = () => void;
 
 let resolvedGc: GcFunction | null | undefined;
+
+// Process-wide registry of disposable-cache evictors. Anchored on globalThis so every
+// Next.js standalone route chunk (each with its own copy of this module) shares one map.
+const EVICTORS_KEY = Symbol.for("omniroute.heapPressure.evictors");
+
+function getEvictors(): Map<string, () => void> {
+  const g = globalThis as Record<symbol, unknown>;
+  let map = g[EVICTORS_KEY] as Map<string, () => void> | undefined;
+  if (!map) {
+    map = new Map();
+    g[EVICTORS_KEY] = map;
+  }
+  return map;
+}
+
+/**
+ * Register a callback that drops strong references to a disposable cache when the
+ * heap-pressure guard forces an emergency GC. Re-registering `name` overwrites the
+ * previous callback. Returns an unregister function (no-op if `name` was re-bound).
+ */
+export function registerMemoryPressureEvictor(name: string, evict: () => void): () => void {
+  const evictors = getEvictors();
+  evictors.set(name, evict);
+  return () => {
+    if (evictors.get(name) === evict) evictors.delete(name);
+  };
+}
+
+/** Invoke every registered evictor (errors swallowed). Returns the count invoked. */
+export function runMemoryPressureEvictors(): number {
+  let count = 0;
+  for (const fn of getEvictors().values()) {
+    count++;
+    try {
+      fn();
+    } catch {
+      // A failing evictor must never block the emergency GC.
+    }
+  }
+  return count;
+}
 let lastEmergencyGcAtMs = Number.NEGATIVE_INFINITY;
 
 function resolveGc(): GcFunction | null {
@@ -90,6 +131,8 @@ export function tryEmergencyGc(nowMs: number = Date.now()): boolean {
   lastEmergencyGcAtMs = nowMs;
   const gc = resolveGc();
   if (!gc) return false;
+  // Drop cached object graphs first so the GC below can reclaim them in the same tick.
+  runMemoryPressureEvictors();
   try {
     gc();
     return true;

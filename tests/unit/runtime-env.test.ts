@@ -11,6 +11,7 @@ const modulePath = path.join(process.cwd(), "scripts/build/runtime-env.mjs");
 
 const originalSpawn = childProcess.spawn;
 const originalProcessOn = process.on;
+const originalProcessOff = process.off;
 const originalProcessExit = process.exit;
 const originalProcessKill = process.kill;
 
@@ -21,6 +22,7 @@ async function loadRuntimeEnv(label) {
 test.afterEach(() => {
   childProcess.spawn = originalSpawn;
   process.on = originalProcessOn;
+  process.off = originalProcessOff;
   process.exit = originalProcessExit;
   process.kill = originalProcessKill;
   syncBuiltinESMExports();
@@ -53,40 +55,52 @@ test("runtime env helpers normalize runtime ports and conflicting color flags", 
   assert.deepEqual(runtimeEnv.sanitizeColorEnv({ FORCE_COLOR: "1" }), { FORCE_COLOR: "1" });
 });
 
-test("spawnWithForwardedSignals forwards process signals and exit status", async () => {
-  const signalHandlers = new Map();
-  const childKillSignals = [];
-  const processKills = [];
-  const processExits = [];
-  const spawnCalls = [];
-  let child;
-
+function installSpawnHarness() {
+  const h = {
+    signalHandlers: new Map(),
+    removedHandlers: [],
+    childKillSignals: [],
+    processKills: [],
+    processExits: [],
+    spawnCalls: [],
+    child: null,
+  };
   childProcess.spawn = (command, args, options) => {
-    spawnCalls.push({ command, args, options });
-    child = new EventEmitter();
-    child.kill = (signal) => childKillSignals.push(signal);
-    return child;
+    h.spawnCalls.push({ command, args, options });
+    h.child = new EventEmitter();
+    h.child.kill = (signal) => h.childKillSignals.push(signal);
+    return h.child;
   };
   process.on = (signal, handler) => {
-    signalHandlers.set(signal, handler);
+    h.signalHandlers.set(signal, handler);
+    return process;
+  };
+  process.off = (signal, handler) => {
+    h.removedHandlers.push(signal);
+    if (h.signalHandlers.get(signal) === handler) h.signalHandlers.delete(signal);
     return process;
   };
   process.exit = (code) => {
-    processExits.push(code);
+    h.processExits.push(code);
   };
   process.kill = (pid, signal) => {
-    processKills.push({ pid, signal });
+    h.processKills.push({ pid, signal });
     return true;
   };
   syncBuiltinESMExports();
+  return h;
+}
 
+test("spawnWithForwardedSignals forwards process signals and exit status", async () => {
+  const h = installSpawnHarness();
   const runtimeEnv = await loadRuntimeEnv("spawn");
   const returnedChild = runtimeEnv.spawnWithForwardedSignals("node", ["server.js"], {
     stdio: "inherit",
+    shutdownTimeoutMs: 0,
   });
 
-  assert.equal(returnedChild, child);
-  assert.deepEqual(spawnCalls, [
+  assert.equal(returnedChild, h.child);
+  assert.deepEqual(h.spawnCalls, [
     {
       command: "node",
       args: ["server.js"],
@@ -94,13 +108,63 @@ test("spawnWithForwardedSignals forwards process signals and exit status", async
     },
   ]);
 
-  signalHandlers.get("SIGINT")();
-  signalHandlers.get("SIGTERM")();
-  assert.deepEqual(childKillSignals, ["SIGINT", "SIGTERM"]);
+  h.signalHandlers.get("SIGINT")();
+  h.signalHandlers.get("SIGTERM")();
+  assert.deepEqual(h.childKillSignals, ["SIGINT", "SIGTERM"]);
 
-  child.emit("exit", 3, null);
-  child.emit("exit", null, "SIGTERM");
+  h.child.emit("exit", 3, null);
+  // Second exit event is ignored (idempotent).
+  h.child.emit("exit", null, "SIGTERM");
 
-  assert.deepEqual(processExits, [3]);
-  assert.deepEqual(processKills, [{ pid: process.pid, signal: "SIGTERM" }]);
+  assert.deepEqual(h.processExits, [3]);
+  assert.deepEqual(h.processKills, []);
+  assert.deepEqual(h.removedHandlers.sort(), ["SIGINT", "SIGTERM"]);
+  assert.equal(h.signalHandlers.size, 0);
+});
+
+test("spawnWithForwardedSignals maps signal exits to 143/130 without self-kill", async () => {
+  for (const [signal, expected] of [
+    ["SIGTERM", 143],
+    ["SIGINT", 130],
+    ["SIGHUP", 1],
+  ] as const) {
+    const h = installSpawnHarness();
+    const runtimeEnv = await loadRuntimeEnv(`signal-${signal}`);
+    runtimeEnv.spawnWithForwardedSignals("node", ["server.js"], { shutdownTimeoutMs: 0 });
+    h.child.emit("exit", null, signal);
+    assert.deepEqual(h.processExits, [expected], signal);
+    assert.deepEqual(h.processKills, [], signal);
+  }
+});
+
+test("spawnWithForwardedSignals escalates to SIGKILL when child ignores SIGTERM", async () => {
+  const h = installSpawnHarness();
+  const runtimeEnv = await loadRuntimeEnv("watchdog");
+  runtimeEnv.spawnWithForwardedSignals("node", ["server.js"], {
+    stdio: "inherit",
+    shutdownTimeoutMs: 20,
+  });
+  assert.deepEqual(h.spawnCalls[0].options, { stdio: "inherit" });
+
+  h.signalHandlers.get("SIGTERM")();
+  // Repeated signal must not schedule a second watchdog.
+  h.signalHandlers.get("SIGTERM")();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.deepEqual(h.childKillSignals, ["SIGTERM", "SIGTERM", "SIGKILL"]);
+
+  h.child.emit("exit", null, "SIGKILL");
+  assert.deepEqual(h.processExits, [1]);
+  assert.deepEqual(h.processKills, []);
+});
+
+test("spawnWithForwardedSignals watchdog is cancelled when child exits in time", async () => {
+  const h = installSpawnHarness();
+  const runtimeEnv = await loadRuntimeEnv("watchdog-cancel");
+  runtimeEnv.spawnWithForwardedSignals("node", ["server.js"], { shutdownTimeoutMs: 20 });
+
+  h.signalHandlers.get("SIGTERM")();
+  h.child.emit("exit", 0, null);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.deepEqual(h.childKillSignals, ["SIGTERM"]);
+  assert.deepEqual(h.processExits, [0]);
 });

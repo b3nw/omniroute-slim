@@ -29,7 +29,9 @@
  */
 
 import { pathToFileURL } from "node:url";
-import { networkInterfaces } from "node:os";
+import os, { networkInterfaces } from "node:os";
+import fs from "node:fs";
+import path from "node:path";
 
 const DEFAULT_HOSTS = ["127.0.0.1", "localhost", "::1"];
 const DEFAULT_TIMEOUT_MS = 4000;
@@ -126,18 +128,149 @@ export async function probeHealth({
   healthPath = DEFAULT_HEALTH_PATH,
 } = {}) {
   let lastError = new Error("no hosts to probe");
+  // A later host's transport error (e.g. `::1` ECONNREFUSED when the server
+  // binds IPv4 only) must not mask an earlier HTTP response whose status/body
+  // drives the lifecycle-aware self-restart logic.
+  let lastHttpError = null;
   for (const host of hosts) {
     try {
       const res = await fetchImpl(healthUrl(host, port, healthPath), {
         signal: AbortSignal.timeout(timeoutMs),
       });
+      // Always drain the body so the socket is released and the lifecycle
+      // payload ("starting", "unhealthy: ...") is available for diagnostics.
+      const bodyText =
+        typeof res.text === "function" ? (await res.text().catch(() => "")).trim() : "";
       if (res.ok) return host;
-      lastError = new Error(`${host}: HTTP ${res.status}`);
+      const httpError = new Error(
+        `${host}: HTTP ${res.status}${bodyText ? ` (${bodyText.slice(0, 80)})` : ""}`
+      );
+      httpError.status = res.status;
+      httpError.body = bodyText;
+      lastHttpError = httpError;
+      lastError = httpError;
     } catch (err) {
       lastError = new Error(`${host}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  throw lastError;
+  throw lastHttpError ?? lastError;
+}
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readHealthState(stateFilePath) {
+  const fallback = { armed: false, consecutiveFailures: 0, updatedAt: 0 };
+  try {
+    const parsed = JSON.parse(fs.readFileSync(stateFilePath, "utf8"));
+    if (!parsed || typeof parsed !== "object") return fallback;
+    return {
+      armed: parsed.armed === true,
+      consecutiveFailures:
+        Number.isFinite(parsed.consecutiveFailures) && parsed.consecutiveFailures > 0
+          ? Math.floor(parsed.consecutiveFailures)
+          : 0,
+      updatedAt: Number.isFinite(parsed.updatedAt) ? parsed.updatedAt : 0,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function writeHealthState(stateFilePath, state) {
+  try {
+    fs.writeFileSync(stateFilePath, JSON.stringify(state));
+  } catch {
+    // best effort — a read-only tmp must never fail the healthcheck itself
+  }
+}
+
+/**
+ * Track consecutive healthcheck outcomes across invocations (each Docker
+ * HEALTHCHECK run is a fresh process, so state lives in a small JSON file) and
+ * self-restart the server when it stays unhealthy. Docker itself never
+ * restarts an `unhealthy` container without an orchestrator, so after
+ * OMNIROUTE_HEALTHCHECK_RESTART_RETRIES consecutive failures we signal PID 1
+ * (SIGTERM, escalating to SIGKILL two probes later) so the restart policy kicks in.
+ *
+ * The counter only "arms" after the server has been seen healthy once (or
+ * explicitly reports itself unhealthy), so a slow cold start / graceful
+ * shutdown is never killed.
+ */
+export function handleHealthcheckOutcome({
+  ok,
+  error,
+  env = process.env,
+  stateFilePath,
+  killFn = process.kill,
+  nowMs = Date.now,
+  stderr = process.stderr,
+} = {}) {
+  const statePath =
+    stateFilePath ||
+    env.OMNIROUTE_HEALTHCHECK_STATE_FILE ||
+    path.join(os.tmpdir(), "omniroute-healthcheck-state.json");
+  const prior = readHealthState(statePath);
+
+  if (ok === true) {
+    writeHealthState(statePath, { armed: true, consecutiveFailures: 0, updatedAt: nowMs() });
+    return { action: "healthy", consecutiveFailures: 0, armed: true };
+  }
+
+  const status = error?.status ?? null;
+  const body = String(error?.body ?? "")
+    .trim()
+    .toLowerCase();
+
+  const isLifecycleTransient =
+    status === 503 &&
+    (body === "starting" ||
+      body.startsWith("starting\n") ||
+      body === "stopping" ||
+      body.startsWith("stopping\n"));
+  if (isLifecycleTransient) {
+    writeHealthState(statePath, { armed: false, consecutiveFailures: 0, updatedAt: nowMs() });
+    return { action: "transient_lifecycle", consecutiveFailures: 0, armed: false };
+  }
+
+  const explicitUnhealthy =
+    body.startsWith("unhealthy") || (status === 503 && body.includes('"unhealthy"'));
+  if (!prior.armed && !explicitUnhealthy) {
+    writeHealthState(statePath, { armed: false, consecutiveFailures: 0, updatedAt: nowMs() });
+    return { action: "cold_start_unarmed", consecutiveFailures: 0, armed: false };
+  }
+
+  const armed = true;
+  const consecutiveFailures = (prior.consecutiveFailures || 0) + 1;
+  writeHealthState(statePath, { armed, consecutiveFailures, updatedAt: nowMs() });
+
+  const selfRestartFlag = String(env.OMNIROUTE_HEALTHCHECK_SELF_RESTART ?? "")
+    .trim()
+    .toLowerCase();
+  const selfRestartEnabled = selfRestartFlag !== "0" && selfRestartFlag !== "false";
+  const restartRetries = parsePositiveInt(env.OMNIROUTE_HEALTHCHECK_RESTART_RETRIES, 3);
+  const targetPid = parsePositiveInt(env.OMNIROUTE_HEALTHCHECK_RESTART_PID, 1);
+
+  if (selfRestartEnabled && consecutiveFailures >= restartRetries) {
+    const signal = consecutiveFailures >= restartRetries + 2 ? "SIGKILL" : "SIGTERM";
+    stderr.write(
+      `healthcheck self-restart: ${consecutiveFailures} consecutive unhealthy probes (threshold=${restartRetries}); sending ${signal} to PID ${targetPid}\n`
+    );
+    try {
+      killFn(targetPid, signal);
+    } catch (killErr) {
+      stderr.write(
+        `healthcheck self-restart: failed to send ${signal} to PID ${targetPid}: ${
+          killErr instanceof Error ? killErr.message : String(killErr)
+        }\n`
+      );
+    }
+    return { action: "restart_triggered", signal, targetPid, consecutiveFailures, armed };
+  }
+
+  return { action: "unhealthy_counted", consecutiveFailures, armed };
 }
 
 async function main() {
@@ -156,10 +289,12 @@ async function main() {
       process.env.OMNIROUTE_HEALTHCHECK_PATH
     );
     await probeHealth({ port, hosts, healthPath });
+    handleHealthcheckOutcome({ ok: true });
     process.exit(0);
   } catch (err) {
     // Surface the failure so `docker inspect ... .State.Health[].Output` is
     // diagnostic instead of empty (#3151).
+    handleHealthcheckOutcome({ ok: false, error: err });
     process.stderr.write(`healthcheck failed: ${err instanceof Error ? err.message : err}\n`);
     process.exit(1);
   }

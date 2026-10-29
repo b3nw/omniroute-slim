@@ -670,6 +670,7 @@ export async function validateResponseQuality(
         return { valid: false, reason: "stream locked or disturbed" };
       }
       // Other read errors — pass through (stream readiness timeout will catch truly broken streams)
+      void reader.cancel().catch(() => {});
       return { valid: true };
     }
   }
@@ -876,6 +877,29 @@ export function releaseQualityClone(
 ): void {
   if (clone === original) return;
   void quality.clonedResponse?.body?.cancel().catch(() => {});
+  void clone.body?.cancel().catch(() => {});
+}
+
+/**
+ * Drain a failed upstream response directly (instead of `clone()`-teeing it) so the
+ * socket buffers are released even when the caller abandons the response, and
+ * return an equivalent unread `Response` for downstream branches that return it.
+ */
+export async function drainErrorResponse(
+  res: Response
+): Promise<{ response: Response; text: string }> {
+  let text = "";
+  try {
+    text = res.body ? await res.text() : "";
+  } catch {
+    text = "";
+  }
+  try {
+    const { status, statusText, headers } = res;
+    return { response: new Response(text, { status, statusText, headers }), text };
+  } catch {
+    return { response: res, text };
+  }
 }
 
 /**
