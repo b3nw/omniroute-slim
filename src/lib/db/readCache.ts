@@ -106,6 +106,7 @@ function createReadCacheState() {
     lkgpCache: new TTLCache<LKGPRecordCache | null>(SETTINGS_TTL_MS, 2_000, ensureReadCacheSweep),
     combosCacheVersion: 0,
     modelCatalogCacheVersion: 0,
+    providerNodesCacheVersion: 0,
     sweepTimer: null as ReturnType<typeof setInterval> | null,
   };
 }
@@ -352,6 +353,16 @@ export function invalidateModelCatalogCache(): void {
   state.modelCatalogCacheVersion++;
 }
 
+// ──────────────── Provider Nodes Invalidation Signal ────────────────
+//
+// Out-of-module caches derived from provider_nodes (e.g. the log label map in
+// src/lib/display/providerLogLabel.ts) compare this version on access; it is
+// bumped by every `invalidateDbCache("nodes")` so node edits apply immediately.
+/** Current provider-nodes cache version. */
+export function getProviderNodesCacheVersion(): number {
+  return state.providerNodesCacheVersion ?? 0;
+}
+
 /**
  * Invalidate caches (call after writes to any of: settings, pricing,
  * connections, combos, nodes, model capability/context metadata).
@@ -376,7 +387,10 @@ export function invalidateDbCache(
       connectionByIdCache.invalidate();
     }
   }
-  if (!scope || scope === "nodes") nodesCache.invalidate();
+  if (!scope || scope === "nodes") {
+    nodesCache.invalidate();
+    state.providerNodesCacheVersion = (state.providerNodesCacheVersion ?? 0) + 1;
+  }
   if (!scope || scope === "combos") state.combosCacheVersion++;
   // Settings/connections/combos all feed the unified model catalog builder
   // (blockedProviders + hidePaidModels, provider connections + excludedModels,

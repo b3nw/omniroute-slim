@@ -3,6 +3,7 @@
  */
 
 import { appendRequestLog } from "@/lib/usageDb";
+import { formatProviderUpperLabel } from "@/lib/display/providerLogLabel";
 import {
   getLoggedInputTokens,
   getLoggedOutputTokens,
@@ -936,7 +937,7 @@ export function logUsage(
 ) {
   if (!usage || typeof usage !== "object") return;
 
-  const p = provider?.toUpperCase() || "UNKNOWN";
+  const p = formatProviderUpperLabel(provider, "UNKNOWN");
 
   // Support both formats:
   // - OpenAI: prompt_tokens, completion_tokens

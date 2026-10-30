@@ -9,6 +9,7 @@ import {
 } from "@/shared/constants/colors";
 import { formatDuration, formatApiKeyLabel, maskAccount } from "@/shared/utils/formatting";
 import { formatErrorForDisplay } from "@/shared/utils/formatting";
+import { getProviderDisplayLabel } from "@/shared/utils/providerDisplayLabel";
 import {
   PayloadSection,
   ConversationContextSection,
@@ -201,6 +202,7 @@ export default function RequestLoggerDetail({
   onNext,
   relatedLogs = [],
   onSelectRelated,
+  providerNodes = [],
 }) {
   const t = useTranslations("requestLogger.detail");
   const locale = useLocale();
@@ -216,12 +218,13 @@ export default function RequestLoggerDetail({
   const statusStyle = getStatusStyle(log.status);
   const protocolKey = log.sourceFormat || log.provider;
   const protocol = getProtocolColor(protocolKey, log.provider);
+  const compatLabel = getProviderDisplayLabel(log.provider, providerNodes);
   const providerColor = PROVIDER_COLORS[log.provider] || {
     bg: "#374151",
     text: "#fff",
-    label: (log.provider || "-").toUpperCase(),
+    label: compatLabel || (log.provider || "-").toUpperCase(),
   };
-  const providerLabel = log.providerDisplay || providerColor.label;
+  const providerLabel = log.providerDisplay || compatLabel || providerColor.label;
 
   const [unblocking, setUnblocking] = useState(false);
   const [cleared, setCleared] = useState(false);
@@ -236,9 +239,7 @@ export default function RequestLoggerDetail({
   // was; the summary row's error is still real then, so prefer it, and never style the
   // marker itself as an error.
   const rawError =
-    detail?.error && !isSizeLimitOmission(detail.error)
-      ? detail.error
-      : log.error || detail?.error;
+    detail?.error && !isSizeLimitOmission(detail.error) ? detail.error : log.error || detail?.error;
   const errorOmitted = isSizeLimitOmission(rawError);
   const errorText = errorOmitted ? "" : (formatErrorForDisplay(rawError) ?? "");
   const isCombo503 =
@@ -778,9 +779,7 @@ export default function RequestLoggerDetail({
           )}
 
           {/* Error Message */}
-          {rawError && errorOmitted && (
-            <SizeLimitNoticeBanner notice={{ kind: "omitted" }} />
-          )}
+          {rawError && errorOmitted && <SizeLimitNoticeBanner notice={{ kind: "omitted" }} />}
           {rawError && !errorOmitted && (
             <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30">
               <div className="flex items-center justify-between mb-1">

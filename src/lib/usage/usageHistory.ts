@@ -8,6 +8,7 @@
  */
 
 import { getDbInstance } from "../db/core";
+import { formatProviderUpperLabel } from "../display/providerLogLabel";
 import { protectPayloadForLog } from "../logPayloads";
 import {
   resolveOrphanedUsageAccountIdentity,
@@ -970,7 +971,10 @@ export async function getRecentLogs(limit = 200) {
     return rows.map((row) => {
       const timestamp =
         typeof row.timestamp === "string" ? row.timestamp : new Date().toISOString();
-      const provider = typeof row.provider === "string" ? row.provider.toUpperCase() : "-";
+      const provider = formatProviderUpperLabel(
+        typeof row.provider === "string" ? row.provider : null,
+        "-"
+      );
       const model = typeof row.model === "string" ? row.model : "-";
       const account = typeof row.account === "string" ? row.account : "-";
       const tokensIn = toNumber(row.tokens_in);

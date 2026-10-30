@@ -12,6 +12,7 @@
 
 import { saveRequestUsage } from "@/lib/usageDb";
 import { formatUsageLog } from "@/lib/usage/tokenAccounting";
+import { formatProviderUpperLabel } from "@/lib/display/providerLogLabel";
 import { COLORS } from "../../utils/stream.ts";
 import { recordTokenUsage } from "../../services/tokenLimitCounter.ts";
 import { computeBillableTokens } from "./upstreamTimeouts.ts";
@@ -35,7 +36,7 @@ function logUsageTrace(
   provider: string | null | undefined,
   connectionId: string | null | undefined
 ): void {
-  const msg = `[${new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" })}] 📊 [USAGE] ${provider?.toUpperCase()} | ${formatUsageLog(usage)}${connectionId ? ` | account=${connectionId.slice(0, 8)}...` : ""}`;
+  const msg = `[${new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" })}] 📊 [USAGE] ${formatProviderUpperLabel(provider, "UNKNOWN")} | ${formatUsageLog(usage)}${connectionId ? ` | account=${connectionId.slice(0, 8)}...` : ""}`;
   console.log(`${COLORS.green}${msg}${COLORS.reset}`);
 }
 

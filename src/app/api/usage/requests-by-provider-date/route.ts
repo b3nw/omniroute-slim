@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { buildUnifiedSource, getProviderDailyUsageRows } from "@/lib/db/usageAnalytics";
+import { buildProviderDailyDisplayRows } from "@/lib/usage/providerDisplayNames";
 
 /**
  * GET /api/usage/requests-by-provider-date — #4009
@@ -87,9 +88,12 @@ function errorResponse(error: unknown): Promise<Response> {
   console.error("Error computing requests-by-provider-date:", error);
   const message = error instanceof Error ? error.message : String(error);
   return import("@omniroute/open-sse/utils/error").then(({ buildErrorBody }) =>
-    NextResponse.json(buildErrorBody(500, message || "Failed to compute requests-by-provider-date"), {
-      status: 500,
-    })
+    NextResponse.json(
+      buildErrorBody(500, message || "Failed to compute requests-by-provider-date"),
+      {
+        status: 500,
+      }
+    )
   );
 }
 
@@ -112,7 +116,9 @@ export async function GET(request: Request) {
       apiKeyParams: {},
     });
 
-    const rows = getProviderDailyUsageRows(unifiedSource, unifiedParams);
+    const rows = await buildProviderDailyDisplayRows(
+      getProviderDailyUsageRows(unifiedSource, unifiedParams)
+    );
 
     return NextResponse.json({ rows, range, date: singleDate ?? null });
   } catch (error) {

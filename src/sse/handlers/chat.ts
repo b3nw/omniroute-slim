@@ -5,6 +5,7 @@ import { buildClientRawRequest, resolveDispatchClientRawRequest } from "./chat/c
 export { buildClientRawRequest, resolveDispatchClientRawRequest };
 import { normalizeReasoningRequest } from "@/shared/reasoning/effortStandardization";
 import { isDetailedLoggingEnabled } from "@/lib/db/detailedLogs";
+import { resolveProviderLogLabel } from "@/lib/display/providerLogLabel";
 import { resolvePreviousResponseState } from "@/lib/db/responsesContinuationStore";
 import { normalizeResponsesPreviousResponseIdMode } from "@omniroute/open-sse/utils/responsesStatePolicy.ts";
 import { FORMATS } from "@omniroute/open-sse/translator/formats.ts";
@@ -1139,8 +1140,10 @@ async function handleChatImplementation(
           signal,
           correlationId: reqId,
           // #9654 Wave 2: per-target lane-aware admission probe for combo fan-out.
-          perTargetAdmission: admissionContext.createPerTargetAdmissionHook(apiKeyInfo?.id, { signal }),
-      });
+          perTargetAdmission: admissionContext.createPerTargetAdmissionHook(apiKeyInfo?.id, {
+            signal,
+          }),
+        });
 
     // ── Global Fallback Provider (#689) ────────────────────────────────────
     // If combo exhausted all models, try the global fallback before giving up.
@@ -1541,7 +1544,10 @@ async function handleSingleModelChat(
   let requestRetryBudgetLeftMs = retrySettings.budgetMs;
 
   if (Array.isArray(effectiveAllowedConnections) && effectiveAllowedConnections.length === 0) {
-    log.debug("AUTH", `${provider}/${model} filtered out by connection-level routing constraints`);
+    log.debug(
+      "AUTH",
+      `${resolveProviderLogLabel(provider)}/${model} filtered out by connection-level routing constraints`
+    );
     return errorResponse(
       HTTP_STATUS.SERVICE_UNAVAILABLE,
       "No eligible connections matched the requested routing constraints"
@@ -1665,14 +1671,14 @@ async function handleSingleModelChat(
             const waitSec = Math.max(Math.ceil(retryDecision.waitMs / 1000), 0);
             log.info(
               "COOLDOWN_RETRY",
-              `${provider}/${model} all connections cooling down (${retryDecision.retryAfterHuman || `retry in ${waitSec}s`}) — waiting ${waitSec}s before retry ${requestRetryAttempt + 1}/${retrySettings.maxRetries}`
+              `${resolveProviderLogLabel(provider)}/${model} all connections cooling down (${retryDecision.retryAfterHuman || `retry in ${waitSec}s`}) — waiting ${waitSec}s before retry ${requestRetryAttempt + 1}/${retrySettings.maxRetries}`
             );
 
             const completed = await waitForCooldownAwareRetry(retryDecision.waitMs, requestSignal);
             if (!completed) {
               log.info(
                 "COOLDOWN_RETRY",
-                `${provider}/${model} retry wait aborted by client disconnect`
+                `${resolveProviderLogLabel(provider)}/${model} retry wait aborted by client disconnect`
               );
               return errorResponse(499, "Request aborted");
             }
@@ -1681,7 +1687,7 @@ async function handleSingleModelChat(
             requestRetryBudgetLeftMs = Math.max(0, requestRetryBudgetLeftMs - retryDecision.waitMs);
             log.info(
               "COOLDOWN_RETRY",
-              `${provider}/${model} cooldown elapsed — restarting request attempt ${requestRetryAttempt + 1}/${retrySettings.maxRetries}`
+              `${resolveProviderLogLabel(provider)}/${model} cooldown elapsed — restarting request attempt ${requestRetryAttempt + 1}/${retrySettings.maxRetries}`
             );
             continue requestAttemptLoop;
           }
@@ -1751,7 +1757,10 @@ async function handleSingleModelChat(
       } catch {
         includeAccountId = false;
       }
-      log.info("AUTH", `Using ${provider} account: ${includeAccountId ? accountId : "***"}...`);
+      log.info(
+        "AUTH",
+        `Using ${resolveProviderLogLabel(provider)} account: ${includeAccountId ? accountId : "***"}...`
+      );
       // #474: when the request used a bare model name (no "/" — e.g. an alias
       // that resolved to "auto") and the selected connection declares a
       // defaultModel, resolve the bare name to that real model ID before the
@@ -2000,7 +2009,7 @@ async function handleSingleModelChat(
           streamEarlyEofRetries += 1;
           log.warn(
             "STREAM",
-            `${provider}/${model} closed the stream early before useful content — retrying once (attempt ${streamEarlyEofRetries})`
+            `${resolveProviderLogLabel(provider)}/${model} closed the stream early before useful content — retrying once (attempt ${streamEarlyEofRetries})`
           );
           // Plain re-attempt of the same request: no markAccountUnavailable, no
           // excludedConnectionIds mutation (an early close is not a bad connection).
@@ -2304,7 +2313,7 @@ async function handleSingleModelChat(
         const waitMs = sameAccountTransportRetryDelayMs();
         log.warn(
           "RETRY",
-          `${provider}/${model} retryable pre-output ${result.status} — retrying same account once after ${waitMs}ms`
+          `${resolveProviderLogLabel(provider)}/${model} retryable pre-output ${result.status} — retrying same account once after ${waitMs}ms`
         );
         const completed = await waitForCooldownAwareRetry(waitMs, requestSignal);
         if (!completed) {

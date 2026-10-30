@@ -79,3 +79,30 @@ test("matched node name wins over fallback for anthropic-compatible UUID", () =>
   );
   assert.equal(result, "My Custom ANT");
 });
+
+test("matches node id case-insensitively for upper-cased compatible ids", () => {
+  const providerNodes = [
+    { id: "openai-compatible-chat-ea7d9940-2279-48c8-ab33-8b56cb06e1a9", name: "inferx" },
+  ];
+  const result = getProviderDisplayLabel(
+    "OPENAI-COMPATIBLE-CHAT-EA7D9940-2279-48C8-AB33-8B56CB06E1A9",
+    providerNodes
+  );
+  assert.equal(result, "inferx");
+});
+
+test("matches node prefix case-insensitively", () => {
+  const providerNodes = [{ id: "x", prefix: "anthropic-compatible-MySvc", name: "My Svc" }];
+  assert.equal(getProviderDisplayLabel("ANTHROPIC-COMPATIBLE-mysvc", providerNodes), "My Svc");
+});
+
+test("returns generic compat labels for upper-cased ids without a matching node", () => {
+  assert.equal(
+    getProviderDisplayLabel("OPENAI-COMPATIBLE-CHAT-EA7D9940-2279-48C8-AB33-8B56CB06E1A9", []),
+    "OAI-COMPAT"
+  );
+  assert.equal(
+    getProviderDisplayLabel("ANTHROPIC-COMPATIBLE-MSG-EA7D9940-2279-48C8-AB33-8B56CB06E1A9"),
+    "ANT-COMPAT"
+  );
+});

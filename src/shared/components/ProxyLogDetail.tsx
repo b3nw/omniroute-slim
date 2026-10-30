@@ -9,12 +9,13 @@ import {
   getProxyStatusStyle as getStatusStyle,
 } from "@/shared/constants/colors";
 import { formatDuration as formatLatency } from "@/shared/utils/formatting";
+import { getProviderDisplayLabel } from "@/shared/utils/providerDisplayLabel";
 
 /**
  * Proxy log detail modal — shows full proxy event metadata, error info, and config.
  * Extracted from ProxyLogger.js for maintainability.
  */
-export default function ProxyLogDetail({ log, onClose }) {
+export default function ProxyLogDetail({ log, onClose, providerNodes = [] }) {
   const t = useTranslations("proxyLog");
   useEffect(() => {
     const handler = (e) => {
@@ -31,10 +32,12 @@ export default function ProxyLogDetail({ log, onClose }) {
     label: log.proxy?.type || "-",
   };
   const levelColor = LEVEL_COLORS[log.level] || LEVEL_COLORS.direct;
+  const resolvedProviderLabel =
+    getProviderDisplayLabel(log.provider, providerNodes) || (log.provider || "-").toUpperCase();
   const providerColor = PROVIDER_COLORS[log.provider] || {
     bg: "#374151",
     text: "#fff",
-    label: (log.provider || "-").toUpperCase(),
+    label: resolvedProviderLabel,
   };
 
   const formatDate = (iso) => {

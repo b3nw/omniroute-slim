@@ -1,5 +1,6 @@
 import type { StreamControllerOptions } from "./streamControllerTypes.ts";
 import { trackPendingRequest } from "@/lib/usageDb";
+import { formatProviderUpperLabel } from "@/lib/display/providerLogLabel";
 import { STREAM_IDLE_TIMEOUT_MS } from "../config/constants.ts";
 import { FORMATS } from "../translator/formats.ts";
 import { PENDING_REQUEST_CLEARED_MARKER } from "./stream.ts";
@@ -18,7 +19,6 @@ import { propagateComboTargetTimeoutDisarm } from "../services/combo/comboAbortR
 // the watchdog must track upstream byte activity instead. Ported from
 // decolua/9router#1243.
 const DEFAULT_STREAM_STALL_TIMEOUT_MS = STREAM_IDLE_TIMEOUT_MS;
-
 
 type StreamController = ReturnType<typeof createStreamController>;
 
@@ -234,7 +234,7 @@ export function createStreamController({
 
   const logStream = (status) => {
     const duration = Date.now() - startTime;
-    const p = provider?.toUpperCase() || "UNKNOWN";
+    const p = formatProviderUpperLabel(provider, "UNKNOWN");
     console.log(
       `[${getTimeString()}] 🌊 [STREAM] ${p} | ${model || "unknown"} | ${duration}ms | ${status}`
     );

@@ -1,6 +1,7 @@
 import { translateResponse, initState } from "../translator/index.ts";
 import { FORMATS } from "../translator/formats.ts";
 import { trackPendingRequest, finalizePendingRequestById, appendRequestLog } from "@/lib/usageDb";
+import { resolveProviderLogLabel } from "@/lib/display/providerLogLabel";
 import {
   extractUsage,
   hasValidUsage,
@@ -2641,7 +2642,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                 // for observability — helps diagnose Copilot "Sorry, no response was returned"
                 if (passthroughHasToolCalls && !content.trim() && !reasoning.trim()) {
                   console.warn(
-                    `[STREAM] Empty assistant response after tool_calls completion (${provider || "provider"}:${model || "unknown"}) — sessionId=${sessionId}`
+                    `[STREAM] Empty assistant response after tool_calls completion (${resolveProviderLogLabel(provider, "provider")}:${model || "unknown"}) — sessionId=${sessionId}`
                   );
                 } else if (passthroughHasToolCalls && !content.trim() && reasoning.trim()) {
                   message.content = "";

@@ -42,6 +42,7 @@ import {
 import { LimiterWedgeWatchdog, WATCHDOG_INTERVAL_MS } from "./rateLimitManager/wedgeWatchdog";
 import { toNumber } from "@/shared/utils/numeric";
 import { boundedMap } from "../../src/lib/quota/boundedMap.ts";
+import { resolveProviderLogLabel } from "../../src/lib/display/providerLogLabel.ts";
 
 interface LearnedLimitEntry {
   provider: string;
@@ -209,7 +210,7 @@ function capSettingsWithinBudget(
   const queueBudgetMs = resolveRequestQueueMaxWaitMs(provider, undefined, connectionId);
   if (settings.minTime > queueBudgetMs) {
     warnRateLimit(
-      `[RATE-LIMIT] ${provider}:${connectionId.slice(0, 8)} — ignoring ${source} cap of ${cap.requests} request(s) per ${Math.ceil(cap.windowMs / 1000)}s: ${settings.minTime}ms between requests exceeds the ${queueBudgetMs}ms queue budget (raise the request queue maxWaitMs to honour it)`
+      `[RATE-LIMIT] ${resolveProviderLogLabel(provider)}:${connectionId.slice(0, 8)} — ignoring ${source} cap of ${cap.requests} request(s) per ${Math.ceil(cap.windowMs / 1000)}s: ${settings.minTime}ms between requests exceeds the ${queueBudgetMs}ms queue budget (raise the request queue maxWaitMs to honour it)`
     );
     return null;
   }
@@ -820,7 +821,7 @@ export function updateFromHeaders(provider, connectionId, headers, status, model
     const counts = limiter.counts();
     const limiterKey = getLimiterKey(provider, connectionId, model);
     logRateLimit(
-      `🚫 [RATE-LIMIT] ${provider}:${connectionId.slice(0, 8)} — 429 received, pausing for ${Math.ceil(retryAfterMs / 1000)}s, dropping ${counts.QUEUED} queued request(s)`
+      `🚫 [RATE-LIMIT] ${resolveProviderLogLabel(provider)}:${connectionId.slice(0, 8)} — 429 received, pausing for ${Math.ceil(retryAfterMs / 1000)}s, dropping ${counts.QUEUED} queued request(s)`
     );
 
     // Evict from the cache so follow-up learning from the same error body
@@ -840,7 +841,7 @@ export function updateFromHeaders(provider, connectionId, headers, status, model
   // Handle "over limit" soft warning (Fireworks)
   if (overLimit === "yes") {
     logRateLimit(
-      `⚠️ [RATE-LIMIT] ${provider}:${connectionId.slice(0, 8)} — near capacity, slowing down`
+      `⚠️ [RATE-LIMIT] ${resolveProviderLogLabel(provider)}:${connectionId.slice(0, 8)} — near capacity, slowing down`
     );
     updateLimiterSettings(limiter, {
       minTime: 200, // Add 200ms between requests
@@ -892,7 +893,7 @@ export function updateFromHeaders(provider, connectionId, headers, status, model
           ? activeLearnedCap.reservoirRefreshInterval
           : resetMs;
         logRateLimit(
-          `⚠️ [RATE-LIMIT] ${provider}:${connectionId.slice(0, 8)} — ${remaining}/${limit} remaining, throttling`
+          `⚠️ [RATE-LIMIT] ${resolveProviderLogLabel(provider)}:${connectionId.slice(0, 8)} — ${remaining}/${limit} remaining, throttling`
         );
       } else if (remaining > limit * 0.5) {
         // Plenty of headroom — relax the limiter unless a learned cap is active
@@ -1180,7 +1181,7 @@ export function updateFromResponseBody(provider, connectionId, responseBody, sta
   if (retryAfterMs && retryAfterMs > 0) {
     const limiter = getLimiter(provider, connectionId, model);
     logRateLimit(
-      `🚫 [RATE-LIMIT] ${provider}:${connectionId.slice(0, 8)} — body-parsed retry: ${Math.ceil(retryAfterMs / 1000)}s (${reason})`
+      `🚫 [RATE-LIMIT] ${resolveProviderLogLabel(provider)}:${connectionId.slice(0, 8)} — body-parsed retry: ${Math.ceil(retryAfterMs / 1000)}s (${reason})`
     );
 
     updateLimiterSettings(limiter, {
@@ -1227,7 +1228,7 @@ export function updateFromResponseBody(provider, connectionId, responseBody, sta
     return;
   }
   logRateLimit(
-    `🚫 [RATE-LIMIT] ${provider}:${connectionId.slice(0, 8)} — body-stated cap: ${cap.requests} request(s) per ${Math.ceil(cap.windowMs / 1000)}s, pacing at ${settings.minTime}ms`
+    `🚫 [RATE-LIMIT] ${resolveProviderLogLabel(provider)}:${connectionId.slice(0, 8)} — body-stated cap: ${cap.requests} request(s) per ${Math.ceil(cap.windowMs / 1000)}s, pacing at ${settings.minTime}ms`
   );
   updateLimiterSettings(limiter, { reservoir: 0, ...settings });
 }

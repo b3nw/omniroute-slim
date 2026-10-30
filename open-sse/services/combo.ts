@@ -106,6 +106,10 @@ import { acquireQuotaShareConcurrencySlot } from "./combo/quotaShareConcurrency.
 import { canAffordRequest } from "../../src/lib/quota/quotaScheduler.ts";
 import { resolveConnectionTimeoutMs } from "../handlers/chatCore/upstreamTimeouts.ts";
 import { getCachedProviderConnectionById } from "../../src/lib/db/readCache.ts";
+import {
+  formatModelTargetLogLabel,
+  resolveProviderLogLabel,
+} from "../../src/lib/display/providerLogLabel.ts";
 import { orderTargetsByEvalScores } from "./evalRouting.ts";
 import { isProviderSafetyStopsEnabled } from "../utils/providerSafety.ts";
 import { runComboWithSafetyLatch } from "./combo/safetyStopLatch.ts";
@@ -1344,15 +1348,17 @@ async function handleComboChatInner({
       ): Promise<{ ok: boolean; response?: Response } | null> => {
         const target = orderedTargets[i];
         const modelStr = target.modelStr;
+        const modelLogLabel = formatModelTargetLogLabel(modelStr);
         if (rejectedModelKeys.has(requestScopedReplayKey(modelStr))) {
           log.info(
             "COMBO",
-            `Skipping ${modelStr} — same request already refused as request-scoped`
+            `Skipping ${modelLogLabel} — same request already refused as request-scoped`
           );
           return null;
         }
         const rawModel = parseModel(modelStr).model || modelStr;
         const provider = target.provider;
+        const providerLogLabel = resolveProviderLogLabel(provider);
         const protectedPriorityTarget =
           strategyTraits.honorsFallbackOnlyTargets && target.fallbackOnlyOnQuotaExhaustion === true;
         const stopProtectedPriorityTarget = (message: string) => {
@@ -1379,8 +1385,8 @@ async function handleComboChatInner({
           log.info(
             "COMBO",
             providerOpen
-              ? `Skipping ${modelStr} — circuit breaker OPEN for ${provider}`
-              : `Skipping ${modelStr} — circuit breaker OPEN for connection ${scopedConnectionId}`
+              ? `Skipping ${modelLogLabel} — circuit breaker OPEN for ${providerLogLabel}`
+              : `Skipping ${modelLogLabel} — circuit breaker OPEN for connection ${scopedConnectionId}`
           );
           recordComboDecision(traceInvocationId, {
             step: target.executionKey,
@@ -1397,7 +1403,10 @@ async function handleComboChatInner({
           Boolean(provider && provider !== "unknown") &&
           isProviderInCooldown(provider, target.connectionId ?? undefined, resilienceSettings)
         ) {
-          log.info("COMBO", `Skipping ${modelStr} — provider ${provider} in global cooldown`);
+          log.info(
+            "COMBO",
+            `Skipping ${modelLogLabel} — provider ${providerLogLabel} in global cooldown`
+          );
           recordComboDecision(traceInvocationId, {
             step: target.executionKey,
             target: modelStr,
@@ -1464,7 +1473,10 @@ async function handleComboChatInner({
 
         // Pre-check: skip models locked by the resilience system (model-level lockout)
         if (provider && rawModel && isModelLocked(provider, target.connectionId || "", rawModel)) {
-          log.info("COMBO", `Skipping ${modelStr} — model locked by resilience (cooldown active)`);
+          log.info(
+            "COMBO",
+            `Skipping ${modelLogLabel} — model locked by resilience (cooldown active)`
+          );
           recordComboDecision(traceInvocationId, {
             step: target.executionKey,
             target: modelStr,
@@ -1502,7 +1514,7 @@ async function handleComboChatInner({
           if (quotaCutoff.blocked) {
             log.info(
               "COMBO",
-              `Skipping ${modelStr} — quota exhaustion cutoff (${quotaCutoff.reason || "quota_exhausted"})`
+              `Skipping ${modelLogLabel} — quota exhaustion cutoff (${quotaCutoff.reason || "quota_exhausted"})`
             );
             clearStaleLKGP(combo.name, target.executionKey, combo.id, log, "COMBO");
             recordComboDecision(traceInvocationId, {
@@ -1540,7 +1552,7 @@ async function handleComboChatInner({
           if (!quotaDecision.affordable) {
             log.info(
               "COMBO",
-              `Skipping ${modelStr} — quota budget ${quotaDecision.reason} (remaining ${quotaDecision.tokensRemaining ?? 0}, cost ${quotaDecision.estimatedCost ?? 0})`
+              `Skipping ${modelLogLabel} — quota budget ${quotaDecision.reason} (remaining ${quotaDecision.tokensRemaining ?? 0}, cost ${quotaDecision.estimatedCost ?? 0})`
             );
             clearStaleLKGP(combo.name, target.executionKey, combo.id, log, "COMBO");
             if (i > 0) fallbackCount++;
@@ -1558,7 +1570,7 @@ async function handleComboChatInner({
           if (!available) {
             log.debug?.(
               "COMBO",
-              `Skipping ${modelStr} — no credentials available or model excluded`
+              `Skipping ${modelLogLabel} — no credentials available or model excluded`
             );
             clearStaleLKGP(combo.name, target.executionKey, combo.id, log, "COMBO");
             recordComboDecision(traceInvocationId, {
@@ -1596,7 +1608,7 @@ async function handleComboChatInner({
           ) {
             log.info(
               "COMBO",
-              `Skipping ${modelStr} — connection ${connectionId} is at max concurrency cap (${maxConcurrentCap})`
+              `Skipping ${modelLogLabel} — connection ${connectionId} is at max concurrency cap (${maxConcurrentCap})`
             );
             recordComboDecision(traceInvocationId, {
               step: target.executionKey,
@@ -1618,7 +1630,7 @@ async function handleComboChatInner({
           perTargetAdmission &&
           !(await perTargetAdmission({ modelStr, executionKey: target.executionKey, body }))
         ) {
-          log.info("COMBO", `Skipping ${modelStr} — admission lane full (#9654)`);
+          log.info("COMBO", `Skipping ${modelLogLabel} — admission lane full (#9654)`);
           recordComboDecision(traceInvocationId, {
             step: target.executionKey,
             target: modelStr,
@@ -1637,7 +1649,10 @@ async function handleComboChatInner({
         for (let retry = 0; retry <= maxRetries; retry++) {
           // Fix #1681: Bail out immediately if the client has disconnected
           if (signal?.aborted) {
-            log.info("COMBO", `Client disconnected — aborting combo loop before model ${modelStr}`);
+            log.info(
+              "COMBO",
+              `Client disconnected — aborting combo loop before model ${modelLogLabel}`
+            );
             return { ok: false, response: errorResponse(499, "Client disconnected") };
           }
           globalAttempts++;
@@ -1682,7 +1697,7 @@ async function handleComboChatInner({
               if (shouldSkipForPredictedTtft(m, config.predictiveTtftMs)) {
                 log.warn(
                   "COMBO",
-                  `Predictive TTFT Circuit Breaker: skipping ${modelStr} (avg ${m.avgLatencyMs}ms > max ${config.predictiveTtftMs}ms)`
+                  `Predictive TTFT Circuit Breaker: skipping ${modelLogLabel} (avg ${m.avgLatencyMs}ms > max ${config.predictiveTtftMs}ms)`
                 );
                 recordComboDecision(traceInvocationId, {
                   step: target.executionKey,
@@ -1698,7 +1713,7 @@ async function handleComboChatInner({
           if (retry > 0) {
             log.info(
               "COMBO",
-              `Retrying ${modelStr} in ${retryDelayMs}ms (attempt ${retry + 1}/${maxRetries + 1})`
+              `Retrying ${modelLogLabel} in ${retryDelayMs}ms (attempt ${retry + 1}/${maxRetries + 1})`
             );
             await new Promise((resolve) => {
               const timer = setTimeout(resolve, retryDelayMs);
@@ -1734,7 +1749,7 @@ async function handleComboChatInner({
 
           log.info(
             "COMBO",
-            `Trying model ${i + 1}/${orderedTargets.length}: ${modelStr}${retry > 0 ? ` (retry ${retry})` : ""}`
+            `Trying model ${i + 1}/${orderedTargets.length}: ${modelLogLabel}${retry > 0 ? ` (retry ${retry})` : ""}`
           );
           emit("combo.target.attempt", {
             comboName: combo.name,
@@ -1818,7 +1833,7 @@ async function handleComboChatInner({
               if (bufferedMaxTokens !== currentMaxTokens) {
                 log.info(
                   "COMBO",
-                  `Reasoning model ${modelStr}: adjusted max_tokens ${currentMaxTokens} -> ${bufferedMaxTokens}`
+                  `Reasoning model ${modelLogLabel}: adjusted max_tokens ${currentMaxTokens} -> ${bufferedMaxTokens}`
                 );
               }
             }
@@ -1879,7 +1894,7 @@ async function handleComboChatInner({
               releaseRejectedQualityResponse(qualityClone, result);
               log.warn(
                 "COMBO",
-                `Model ${modelStr} returned 200 but failed quality check: ${quality.reason}`
+                `Model ${modelLogLabel} returned 200 but failed quality check: ${quality.reason}`
               );
               // #6692: a quality-rejected 200 never marks the connection row
               // unhealthy, so the sticky pin's lazy headroom recheck would never
@@ -1979,11 +1994,11 @@ async function handleComboChatInner({
             if (provider && rawModel) {
               const dcResult = decayModelFailureCount(provider, effectiveConnectionId, rawModel);
               if (dcResult.cleared) {
-                log.info("COMBO", `Model ${modelStr} fully recovered — lockout cleared`);
+                log.info("COMBO", `Model ${modelLogLabel} fully recovered — lockout cleared`);
               } else if (dcResult.newFailureCount > 0) {
                 log.debug(
                   "COMBO",
-                  `Model ${modelStr} decayed to failureCount=${dcResult.newFailureCount}`
+                  `Model ${modelLogLabel} decayed to failureCount=${dcResult.newFailureCount}`
                 );
               }
             }
@@ -1998,7 +2013,7 @@ async function handleComboChatInner({
             });
             log.info(
               "COMBO",
-              `Model ${modelStr} succeeded (${latencyMs}ms, ${fallbackCount} fallbacks)`
+              `Model ${modelLogLabel} succeeded (${latencyMs}ms, ${fallbackCount} fallbacks)`
             );
             recordComboRequest(combo.name, modelStr, {
               success: true,
@@ -2262,7 +2277,10 @@ async function handleComboChatInner({
           // Fix #1681: Status 499 means client disconnected — stop combo loop immediately.
           // There is no point trying fallback models when nobody is listening.
           if (result.status === 499) {
-            log.info("COMBO", `Client disconnected (499) during ${modelStr} — stopping combo loop`);
+            log.info(
+              "COMBO",
+              `Client disconnected (499) during ${modelLogLabel} — stopping combo loop`
+            );
             recordComboRequest(combo.name, modelStr, {
               success: false,
               latencyMs: Date.now() - startTime,
@@ -2279,7 +2297,7 @@ async function handleComboChatInner({
           if (isLocalQueueCapacity) {
             log.info(
               "COMBO",
-              `Local rate-limit queue capacity reached for ${modelStr} — returning without upstream fallback`
+              `Local rate-limit queue capacity reached for ${modelLogLabel} — returning without upstream fallback`
             );
             recordComboRequest(combo.name, modelStr, {
               success: false,
@@ -2295,7 +2313,7 @@ async function handleComboChatInner({
           if (isLocalResourcePressure) {
             log.warn(
               "COMBO",
-              `Local resource pressure guard tripped during ${modelStr} — stopping combo loop without fallback`
+              `Local resource pressure guard tripped during ${modelLogLabel} — stopping combo loop without fallback`
             );
             recordComboRequest(combo.name, modelStr, {
               success: false,
@@ -2353,7 +2371,7 @@ async function handleComboChatInner({
           if (isInputBoundFailure) {
             log.warn(
               "COMBO",
-              `Input-bound request failure from ${modelStr} — aborting combo (same input will fail identically on every account)`
+              `Input-bound request failure from ${modelLogLabel} — aborting combo (same input will fail identically on every account)`
             );
             recordComboRequest(combo.name, modelStr, {
               success: false,
@@ -2457,7 +2475,7 @@ async function handleComboChatInner({
           ) {
             log.warn(
               "COMBO",
-              `400 Bad Request with body-specific error detected on ${modelStr} — skipping fallback to other targets to prevent infinite loop`
+              `400 Bad Request with body-specific error detected on ${modelLogLabel} — skipping fallback to other targets to prevent infinite loop`
             );
             // Record the failure and break to avoid trying other targets with the same bad request
             recordComboRequest(combo.name, modelStr, {
@@ -2477,7 +2495,10 @@ async function handleComboChatInner({
             });
             lastStatus = result.status;
             if (i > 0) fallbackCount++;
-            log.warn("COMBO", `Model ${modelStr} failed with body-specific error, stopping combo`);
+            log.warn(
+              "COMBO",
+              `Model ${modelLogLabel} failed with body-specific error, stopping combo`
+            );
             clearStaleLKGP(combo.name, target.executionKey, combo.id, log, "COMBO");
             // #4279: surface the 400 via the {ok,response} contract so the OUTER
             // target loop resolves the combo and stops. A bare `break` here only
@@ -2583,7 +2604,7 @@ async function handleComboChatInner({
               rawModel &&
               isModelLocked(provider, targetWithConnection.connectionId || "", rawModel)
             ) {
-              log.info("COMBO", `Skipping retry for ${modelStr} — model lockout active`);
+              log.info("COMBO", `Skipping retry for ${modelLogLabel} — model lockout active`);
               // Live incident (log id 1784457764961-73): earliestRetryAfter is already
               // captured above from THIS dispatch's own response, but lastStatus was
               // never recorded on this bail-out path — so once every target in the set
@@ -2627,7 +2648,7 @@ async function handleComboChatInner({
               }
             }
             if (lockoutRecorded) {
-              log.info("COMBO", `Skipping retry for ${modelStr} — model lockout active`);
+              log.info("COMBO", `Skipping retry for ${modelLogLabel} — model lockout active`);
               // Same fix as the already-locked branch above — this is the
               // first-failure lockout path, so lastStatus needs recording here too.
               lastError = errorText || String(result.status);
@@ -2703,7 +2724,7 @@ async function handleComboChatInner({
               );
             }
           }
-          log.warn("COMBO", `Model ${modelStr} failed, trying next`, {
+          log.warn("COMBO", `Model ${modelLogLabel} failed, trying next`, {
             status: result.status,
             errorBody: redactConnectionLabel(errorText),
           });
@@ -3499,9 +3520,14 @@ async function handleRoundRobinCombo({
       const modelIndex = (rrStartIndex + offset) % modelCount;
       const target = filteredTargets[modelIndex];
       const modelStr = target.modelStr;
+      const modelLogLabel = formatModelTargetLogLabel(modelStr);
       const provider = target.provider;
+      const providerLogLabel = resolveProviderLogLabel(provider);
       if (rejectedModelKeys.has(requestScopedReplayKey(modelStr))) {
-        log.info("COMBO-RR", `Skipping ${modelStr} — same request already refused request-scoped`);
+        log.info(
+          "COMBO-RR",
+          `Skipping ${modelLogLabel} — same request already refused request-scoped`
+        );
         if (offset > 0) fallbackCount++;
         continue;
       }
@@ -3528,7 +3554,7 @@ async function handleRoundRobinCombo({
         if (!available) {
           log.debug?.(
             "COMBO-RR",
-            `Skipping ${modelStr} — no credentials available or model excluded`
+            `Skipping ${modelLogLabel} — no credentials available or model excluded`
           );
           clearStaleLKGP(combo.name, target.executionKey, combo.id, log, "COMBO-RR");
           if (offset > 0) fallbackCount++;
@@ -3545,7 +3571,10 @@ async function handleRoundRobinCombo({
           resilienceSettings
         )
       ) {
-        log.info("COMBO-RR", `Skipping ${modelStr} — provider ${provider} in global cooldown`);
+        log.info(
+          "COMBO-RR",
+          `Skipping ${modelLogLabel} — provider ${providerLogLabel} in global cooldown`
+        );
         clearStaleLKGP(combo.name, target.executionKey, combo.id, log, "COMBO-RR");
         if (offset > 0) fallbackCount++;
         continue;
@@ -3570,7 +3599,7 @@ async function handleRoundRobinCombo({
         perTargetAdmission &&
         !(await perTargetAdmission({ modelStr, executionKey: target.executionKey, body }))
       ) {
-        log.info("COMBO-RR", `Skipping ${modelStr} — admission lane full (#9654)`);
+        log.info("COMBO-RR", `Skipping ${modelLogLabel} — admission lane full (#9654)`);
         if (offset > 0) fallbackCount++;
         continue;
       }
@@ -3590,7 +3619,7 @@ async function handleRoundRobinCombo({
         if (errCode === "SEMAPHORE_TIMEOUT" || errCode === "SEMAPHORE_QUEUE_FULL") {
           log.warn(
             "COMBO-RR",
-            `Semaphore ${errCode === "SEMAPHORE_QUEUE_FULL" ? "queue full" : "timeout"} for ${modelStr}, trying next model`
+            `Semaphore ${errCode === "SEMAPHORE_QUEUE_FULL" ? "queue full" : "timeout"} for ${modelLogLabel}, trying next model`
           );
           if (offset > 0) fallbackCount++;
           continue;
@@ -3629,7 +3658,7 @@ async function handleRoundRobinCombo({
           if (retry > 0) {
             log.info(
               "COMBO-RR",
-              `Retrying ${modelStr} in ${retryDelayMs}ms (attempt ${retry + 1}/${maxRetries + 1})`
+              `Retrying ${modelLogLabel} in ${retryDelayMs}ms (attempt ${retry + 1}/${maxRetries + 1})`
             );
             if (emptyStreamSiblingRecovery) {
               await new Promise<void>((resolve) => {
@@ -3650,7 +3679,7 @@ async function handleRoundRobinCombo({
 
           log.info(
             "COMBO-RR",
-            `[RR #${counter}] → ${modelStr}${offset > 0 ? ` (fallback +${offset})` : ""}${retry > 0 ? ` (retry ${retry})` : ""}`
+            `[RR #${counter}] → ${modelLogLabel}${offset > 0 ? ` (fallback +${offset})` : ""}${retry > 0 ? ` (retry ${retry})` : ""}`
           );
 
           // Issue #3587: Reasoning models can spend the whole output budget on
@@ -3676,7 +3705,7 @@ async function handleRoundRobinCombo({
               bodyRecord.max_tokens = bufferedMaxTokens;
               log.info(
                 "COMBO-RR",
-                `Reasoning model ${modelStr}: adjusted max_tokens ${currentMaxTokens} -> ${bufferedMaxTokens}`
+                `Reasoning model ${modelLogLabel}: adjusted max_tokens ${currentMaxTokens} -> ${bufferedMaxTokens}`
               );
             }
           }
@@ -3742,7 +3771,7 @@ async function handleRoundRobinCombo({
               releaseRejectedQualityResponse(rrClone, result);
               log.warn(
                 "COMBO-RR",
-                `${modelStr} returned 200 but failed quality check: ${quality.reason}`
+                `${modelLogLabel} returned 200 but failed quality check: ${quality.reason}`
               );
               // #6692: same rationale as handleComboChat's quality-fail branch —
               // a quality-rejected 200 never marks the connection row unhealthy,
@@ -3799,7 +3828,7 @@ async function handleRoundRobinCombo({
             const latencyMs = Date.now() - startTime;
             log.info(
               "COMBO-RR",
-              `${modelStr} succeeded (${latencyMs}ms, ${fallbackCount} fallbacks)`
+              `${modelLogLabel} succeeded (${latencyMs}ms, ${fallbackCount} fallbacks)`
             );
             recordComboRequest(combo.name, modelStr, {
               success: true,
@@ -3820,11 +3849,11 @@ async function handleRoundRobinCombo({
             if (provider && rawModel) {
               const dcResult = decayModelFailureCount(provider, effectiveConnectionId, rawModel);
               if (dcResult.cleared) {
-                log.info("COMBO-RR", `Model ${modelStr} fully recovered — lockout cleared`);
+                log.info("COMBO-RR", `Model ${modelLogLabel} fully recovered — lockout cleared`);
               } else if (dcResult.newFailureCount > 0) {
                 log.debug?.(
                   "COMBO-RR",
-                  `Model ${modelStr} decayed to failureCount=${dcResult.newFailureCount}`
+                  `Model ${modelLogLabel} decayed to failureCount=${dcResult.newFailureCount}`
                 );
               }
             }
@@ -3904,7 +3933,7 @@ async function handleRoundRobinCombo({
           if (result.status === 499) {
             log.info(
               "COMBO-RR",
-              `Client disconnected (499) during ${modelStr} — stopping combo loop`
+              `Client disconnected (499) during ${modelLogLabel} — stopping combo loop`
             );
             recordComboRequest(combo.name, modelStr, {
               success: false,
@@ -3973,7 +4002,7 @@ async function handleRoundRobinCombo({
           if (isLocalQueueCapacity || isLocalResourcePressureErrorBody(errorBody)) {
             log.info(
               "COMBO-RR",
-              `Local rate-limit queue or resource pressure guard tripped for ${modelStr} — returning without upstream fallback`
+              `Local rate-limit queue or resource pressure guard tripped for ${modelLogLabel} — returning without upstream fallback`
             );
             recordComboRequest(combo.name, modelStr, {
               success: false,
@@ -4030,7 +4059,10 @@ async function handleRoundRobinCombo({
             : target;
           restoreDisplacedConnectionOnLaterTarget(
             filteredTargets,
-            Array.from({ length: modelCount - offset - 1 }, (_, k) => (modelIndex + k + 1) % modelCount),
+            Array.from(
+              { length: modelCount - offset - 1 },
+              (_, k) => (modelIndex + k + 1) % modelCount
+            ),
             target,
             selectedConnectionId
           );
@@ -4083,13 +4115,16 @@ async function handleRoundRobinCombo({
             cooldownMs > 0
           ) {
             semaphore.markRateLimited(semaphoreKey, cooldownMs);
-            log.warn("COMBO-RR", `${modelStr} error ${result.status}, cooldown ${cooldownMs}ms`);
+            log.warn(
+              "COMBO-RR",
+              `${modelLogLabel} error ${result.status}, cooldown ${cooldownMs}ms`
+            );
           }
 
           if (isAllAccountsRateLimited) {
             log.info(
               "COMBO-RR",
-              `All accounts rate-limited for ${modelStr}, falling back to next model`
+              `All accounts rate-limited for ${modelLogLabel}, falling back to next model`
             );
           }
 
@@ -4139,7 +4174,7 @@ async function handleRoundRobinCombo({
             kind: classifyComboOutcome(result.status, errorText),
           });
           if (offset > 0) fallbackCount++;
-          log.warn("COMBO-RR", `${modelStr} failed, trying next model`, {
+          log.warn("COMBO-RR", `${modelLogLabel} failed, trying next model`, {
             status: result.status,
             errorBody: redactConnectionLabel(errorText),
           });

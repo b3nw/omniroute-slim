@@ -1304,7 +1304,9 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, { initialSelectedId?: 
                       <th
                         className={`${LOG_TABLE_HEADER_CELL_RIGHT_CLASS} cursor-pointer select-none`}
                         onClick={() => toggleSort("ttft")}
-                        title={t("columns.ttftTitle") || "Time to first token (client-side estimate)"}
+                        title={
+                          t("columns.ttftTitle") || "Time to first token (client-side estimate)"
+                        }
                       >
                         {t("columns.ttft")}
                         {getSortIndicator("ttft")}
@@ -1622,7 +1624,8 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, { initialSelectedId?: 
                                       className="text-sky-700 dark:text-sky-400"
                                       title={tCache("cachedTokensCol")}
                                     >
-                                      {log.tokens.cacheRead.toLocaleString()} ({formatCachePercentage(log.tokens.in, log.tokens.cacheRead)}%)
+                                      {log.tokens.cacheRead.toLocaleString()} (
+                                      {formatCachePercentage(log.tokens.in, log.tokens.cacheRead)}%)
                                     </span>
                                   </>
                                 )}
@@ -1745,6 +1748,7 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, { initialSelectedId?: 
             loading={detailLoading}
             debugEnabled={selectedLog.active ? true : detailLoggingEnabled}
             emailsVisible={emailsVisible}
+            providerNodes={providerNodes}
             onClose={closeDetail}
             onCopy={copyToClipboard}
             onPrevious={handlePrev}

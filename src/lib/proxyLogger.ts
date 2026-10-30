@@ -9,6 +9,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { getDbInstance, isCloud, isBuildPhase } from "./db/core";
 import { ensureProxyLogsColumns } from "./db/schemaColumns";
+import { resolveProviderLogLabel } from "./display/providerLogLabel";
 
 const shouldPersistToDisk = !isCloud && !isBuildPhase;
 
@@ -136,7 +137,7 @@ export function formatProxyEgressConsoleLine(params: {
   status: string;
   includeDetails?: boolean;
 }): string {
-  const provider = params.provider || "-";
+  const provider = resolveProviderLogLabel(params.provider, "-");
   const status = params.status;
   if (!params.includeDetails) {
     return `[ProxyEgress] ${provider} status=${status}`;

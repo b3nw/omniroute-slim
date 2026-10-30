@@ -567,7 +567,13 @@ export default function ProxyLogger() {
       </Card>
 
       {/* Detail Panel */}
-      {selectedLog && <ProxyLogDetail log={selectedLog} onClose={() => setSelectedLog(null)} />}
+      {selectedLog && (
+        <ProxyLogDetail
+          log={selectedLog}
+          providerNodes={providerNodes}
+          onClose={() => setSelectedLog(null)}
+        />
+      )}
     </div>
   );
 }

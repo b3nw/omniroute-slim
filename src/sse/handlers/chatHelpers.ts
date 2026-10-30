@@ -33,6 +33,7 @@ import {
 } from "@omniroute/open-sse/utils/proxyFetch.ts";
 import { resolveProxyForConnection } from "@/lib/db/settings";
 import { hasBlockingProxyAssignment } from "@/lib/db/proxies";
+import { resolveProviderLogLabel } from "@/lib/display/providerLogLabel";
 import {
   CircuitBreakerOpenError,
   getCircuitBreaker,
@@ -173,7 +174,10 @@ export async function resolveModelOrError(
     );
     const rerouted = await getModelInfo(modelInfo.model);
     if (rerouted.provider && rerouted.provider !== "codex") {
-      log.info("ROUTING", `codex/${modelInfo.model} → ${rerouted.provider}/${rerouted.model}`);
+      log.info(
+        "ROUTING",
+        `codex/${modelInfo.model} → ${resolveProviderLogLabel(rerouted.provider)}/${rerouted.model}`
+      );
       Object.assign(modelInfo, rerouted);
     } else if ((rerouted as any).errorType === "ambiguous_model") {
       const candidates: string[] = (rerouted as any).candidateProviders || [];
@@ -328,9 +332,9 @@ export async function resolveModelOrError(
 
   const ctxTag = extendedContext && providerAlias === "claude" ? " [1m]" : "";
   if (modelStr !== `${provider}/${model}`) {
-    log.info("ROUTING", `${modelStr} → ${provider}/${model}${ctxTag}`);
+    log.info("ROUTING", `${modelStr} → ${resolveProviderLogLabel(provider)}/${model}${ctxTag}`);
   } else {
-    log.info("ROUTING", `Provider: ${provider}, Model: ${model}${ctxTag}`);
+    log.info("ROUTING", `Provider: ${resolveProviderLogLabel(provider)}, Model: ${model}${ctxTag}`);
   }
 
   return { provider, model, sourceFormat, targetFormat, extendedContext, apiFormat };
@@ -379,11 +383,17 @@ export async function checkPipelineGates(
       : {}),
   });
   if (options.ignoreCircuitBreaker && !breaker.canExecute()) {
-    log.info("CIRCUIT", `Bypassing OPEN circuit breaker for ${provider} (${bypassReason})`);
+    log.info(
+      "CIRCUIT",
+      `Bypassing OPEN circuit breaker for ${resolveProviderLogLabel(provider)} (${bypassReason})`
+    );
   } else if (!breaker.canExecute()) {
     const retryAfterMs = breaker.getRetryAfterMs();
     const retryAfterSec = Math.max(Math.ceil(retryAfterMs / 1000), 1);
-    log.warn("CIRCUIT", `Circuit breaker OPEN for ${provider}, rejecting request`);
+    log.warn(
+      "CIRCUIT",
+      `Circuit breaker OPEN for ${resolveProviderLogLabel(provider)}, rejecting request`
+    );
     return providerCircuitOpenResponse(provider, retryAfterSec);
   }
 
@@ -602,7 +612,10 @@ export async function executeChatWithBreaker({
     return { result, tlsFingerprintUsed: false };
   } catch (cbErr: any) {
     if (cbErr instanceof CircuitBreakerOpenError) {
-      log.warn("CIRCUIT", `${provider} circuit open during retry: ${cbErr.message}`);
+      log.warn(
+        "CIRCUIT",
+        `${resolveProviderLogLabel(provider)} circuit open during retry: ${cbErr.message}`
+      );
       return {
         result: {
           success: false,
@@ -666,7 +679,10 @@ export function handleNoCredentials(
       });
     }
 
-    log.warn("CHAT", `[${provider}/${model}] ${errorMsg} (${credentials.retryAfterHuman})`);
+    log.warn(
+      "CHAT",
+      `[${resolveProviderLogLabel(provider)}/${model}] ${errorMsg} (${credentials.retryAfterHuman})`
+    );
     return unavailableResponse(
       status,
       `[${provider}/${model}] ${errorMsg}`,
@@ -711,7 +727,7 @@ export function handleNoCredentials(
     // `antigravity/opus → github/opus` skip a provider whose credentials are
     // all disabled. log level is `warn` rather than `error` because zero active
     // credentials is an expected operator-driven state, not a server fault.
-    log.warn("AUTH", `No active credentials for provider: ${provider}`);
+    log.warn("AUTH", `No active credentials for provider: ${resolveProviderLogLabel(provider)}`);
     // #FIX: surface the candidate aliases (from resolveModelOrError) so the
     // operator can pick a working provider/model prefix instead of guessing.
     // Without this, "No active credentials for provider: byNara" leaves the
@@ -749,7 +765,9 @@ export function handleNoCredentials(
       `No active credentials for provider: ${provider}.${hint}`
     );
   }
-  log.warn("CHAT", "No more accounts available", { provider });
+  log.warn("CHAT", "No more accounts available", {
+    provider: resolveProviderLogLabel(provider),
+  });
   return errorResponse(
     lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE,
     lastError || "All accounts unavailable"

@@ -287,6 +287,7 @@ import {
   getCallLogPipelineMaxSizeBytes,
 } from "@/lib/logEnv";
 import { emit } from "@/lib/events/eventBus";
+import { formatProviderUpperLabel } from "@/lib/display/providerLogLabel";
 import { adaptBodyForCompression } from "../services/compression/bodyAdapter.ts";
 import { ensureEngineBreakdown } from "../services/compression/engineBreakdown.ts";
 import { handleBypassRequest } from "../utils/bypassHandler.ts";
@@ -3619,7 +3620,7 @@ export async function handleChatCore({
     (translatedBody.conversationState?.history?.length ?? 0) +
       (translatedBody.conversationState?.currentMessage ? 1 : 0) ||
     0;
-  log?.debug?.("REQUEST", `${provider?.toUpperCase()} | ${model} | ${msgCount} msgs`);
+  log?.debug?.("REQUEST", `${formatProviderUpperLabel(provider)} | ${model} | ${msgCount} msgs`);
 
   // ── Tier 2: Authoritative per-model/provider token-limit check (provider now resolved) ──
   if (apiKeyInfo?.id) {
@@ -3953,7 +3954,7 @@ export async function handleChatCore({
     };
 
     if (newCredentials?.accessToken || newCredentials?.copilotToken) {
-      log?.info?.("TOKEN", `${provider?.toUpperCase()} | refreshed`);
+      log?.info?.("TOKEN", `${formatProviderUpperLabel(provider)} | refreshed`);
 
       // Fall back to post-mutex mutation only for executors that don't route
       // through getAccessToken (and therefore never fire onPersist). For
@@ -4015,11 +4016,11 @@ export async function handleChatCore({
         // than the original 401 alone. Surface at error level with sanitization.
         log?.error?.(
           "TOKEN",
-          `${provider?.toUpperCase()} | retry after refresh failed: ${sanitizeErrorMessage(retryErr)}`
+          `${formatProviderUpperLabel(provider)} | retry after refresh failed: ${sanitizeErrorMessage(retryErr)}`
         );
       }
     } else {
-      log?.warn?.("TOKEN", `${provider?.toUpperCase()} | refresh failed`);
+      log?.warn?.("TOKEN", `${formatProviderUpperLabel(provider)} | refresh failed`);
       if (isUnrecoverableRefreshError(newCredentials) && onCredentialsRefreshed) {
         // Front 3 (reuse-race tolerance): before deactivating, re-read the DB.
         // If a sibling/concurrent refresh already rotated this connection's
@@ -4034,7 +4035,7 @@ export async function handleChatCore({
               alreadyRotated = true;
               log?.warn?.(
                 "TOKEN",
-                `${provider.toUpperCase()} | refresh_token already rotated by a concurrent refresh — keeping connection active`
+                `${formatProviderUpperLabel(provider)} | refresh_token already rotated by a concurrent refresh — keeping connection active`
               );
             }
           } catch {
