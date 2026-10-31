@@ -225,7 +225,9 @@ test("buildUniversalHandoffSystemMessage basic when payload null", () => {
 
 test("buildUniversalHandoffSystemMessage basic when payload summary empty", () => {
   const msg = buildUniversalHandoffSystemMessage(PREV, CURR, REASON, makePayload({ summary: "" }));
-  assert.ok(msg.includes("continuar sin perder el hilo"));
+  // Note is English now and must not claim a summary follows when none exists.
+  assert.ok(msg.includes("<note>This conversation was transferred from the previous model."));
+  assert.ok(!msg.includes("summar"));
 });
 
 test("buildUniversalHandoffSystemMessage full XML with valid payload", () => {
@@ -291,9 +293,12 @@ test("injectUniversalHandoffBody preserves original system message", () => {
     ],
   };
   const r = injectUniversalHandoffBody(body, PREV, CURR, REASON, null);
-  assert.strictEqual(r.messages.length, 3);
-  assert.strictEqual(r.messages[1].role, "system");
-  assert.strictEqual(r.messages[1].content, "Be helpful");
+  // Merged into the leading system message (no consecutive system roles).
+  assert.strictEqual(r.messages.length, 2);
+  assert.strictEqual(r.messages[0].role, "system");
+  assert.ok((r.messages[0].content as string).includes("<context_handoff>"));
+  assert.ok((r.messages[0].content as string).endsWith("\n\nBe helpful"));
+  assert.strictEqual(r.messages[1].role, "user");
 });
 
 test("injectUniversalHandoffBody Responses API with instructions", () => {

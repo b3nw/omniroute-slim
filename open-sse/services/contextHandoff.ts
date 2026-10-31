@@ -569,7 +569,7 @@ export function buildUniversalHandoffSystemMessage(
 <transfer_reason>${escapedReason}</transfer_reason>
 <previous_model>${escapedPrev}</previous_model>
 <current_model>${escapedCurr}</current_model>
-<note>A continuación se resume toda la conversacion para continuar sin perder el hilo.</note>
+<note>This conversation was transferred from the previous model. Continue from the prior turns.</note>
 </context_handoff>`;
   }
 
@@ -863,14 +863,50 @@ export function injectUniversalHandoffBody(
     return nextBody;
   }
 
+  const messages = Array.isArray(body.messages) ? [...body.messages] : [];
+  // Merge into an existing leading system message instead of stacking a second one —
+  // several upstreams reject (or mishandle) consecutive system messages.
+  const first = messages[0] as { role?: unknown; content?: unknown } | undefined;
+  if (first?.role === "system" && typeof first.content === "string") {
+    messages[0] = { ...first, content: `${handoffContent}\n\n${first.content}` };
+    return { ...body, messages };
+  }
+  if (first?.role === "system" && Array.isArray(first.content)) {
+    messages[0] = { ...first, content: [{ type: "text", text: handoffContent }, ...first.content] };
+    return { ...body, messages };
+  }
+
   const handoffMessage = {
     role: "system",
     content: handoffContent,
   };
-  const messages = Array.isArray(body.messages) ? [...body.messages] : [];
 
   return {
     ...body,
     messages: [handoffMessage, ...messages],
   };
+}
+
+const RESPONSES_PRIOR_TURN_ITEM_TYPE = /^(reasoning|.+_call|.+_call_output)$/;
+
+/**
+ * True when `body` carries at least one prior conversational turn: an assistant
+ * message (chat/Claude `messages`, Gemini `contents` role "model") or, for Responses
+ * bodies, an assistant/output input item or a `previous_response_id`. Independent
+ * single-turn requests that merely share a session tag must not get a universal
+ * handoff — there is no conversation to continue.
+ */
+export function hasPriorConversationTurn(body: unknown): boolean {
+  if (!body || typeof body !== "object") return false;
+  const record = body as Record<string, unknown>;
+  const isAssistantItem = (item: unknown): boolean => {
+    if (!item || typeof item !== "object") return false;
+    const { role, type } = item as { role?: unknown; type?: unknown };
+    if (role === "assistant" || role === "model") return true;
+    return typeof type === "string" && RESPONSES_PRIOR_TURN_ITEM_TYPE.test(type);
+  };
+  if (Array.isArray(record.messages) && record.messages.some(isAssistantItem)) return true;
+  if (Array.isArray(record.contents) && record.contents.some(isAssistantItem)) return true;
+  if (Array.isArray(record.input) && record.input.some(isAssistantItem)) return true;
+  return typeof record.previous_response_id === "string" && record.previous_response_id.length > 0;
 }

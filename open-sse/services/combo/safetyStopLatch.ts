@@ -3,7 +3,10 @@ import {
   isProviderSafetyStopsEnabled,
 } from "../../utils/providerSafety.ts";
 import { normalizeStreamFailurePayload } from "../../utils/streamErrorFormat.ts";
-import { COMBO_HEDGE_CANCELLED_REASON } from "./comboAbortReasons.ts";
+import {
+  COMBO_HEDGE_CANCELLED_REASON,
+  propagateComboTargetTimeoutDisarm,
+} from "./comboAbortReasons.ts";
 import { finishComboTrace } from "./decisionTrace.ts";
 import type { HandleComboChatOptions } from "./types.ts";
 
@@ -252,6 +255,11 @@ export async function runComboWithSafetyLatch(
     const modelAbortSignal = target?.modelAbortSignal
       ? AbortSignal.any([signal, target.modelAbortSignal])
       : signal;
+    // Keep the per-target startup-timeout disarm and selected-connection attribution
+    // reachable from the derived signal the target actually receives.
+    if (target?.modelAbortSignal) {
+      propagateComboTargetTimeoutDisarm(modelAbortSignal, target.modelAbortSignal);
+    }
     const result = await options.handleSingleModel(body, model, { ...target, modelAbortSignal });
     if (!safetyResponse && (await isSafetyRejection(result)) && !safetyResponse) {
       safetyResponse = result.clone();

@@ -44,6 +44,7 @@ import {
 } from "@omniroute/open-sse/services/combo.ts";
 import type { ComboLike, SingleModelTarget } from "@omniroute/open-sse/services/combo/types.ts";
 import { mergeAbortSignals } from "@omniroute/open-sse/executors/base.ts";
+import { recordComboTargetSelectedConnection } from "@omniroute/open-sse/services/combo/comboAbortReasons.ts";
 import { resolveRequestAutoControls } from "@omniroute/open-sse/services/autoCombo/requestControls.ts";
 import { isVerifiedNativeCodexRequest } from "@omniroute/open-sse/config/codexIdentity.ts";
 import { resolveCompressionSettings } from "@omniroute/open-sse/handlers/chatCore/compressionSettings.ts";
@@ -1740,6 +1741,10 @@ async function handleSingleModelChat(
         return withSelectedConnectionHeader(noCredsRes, lastFailedConnectionId);
       }
 
+      recordComboTargetSelectedConnection(
+        runtimeOptions.modelAbortSignal,
+        credentials.connectionId
+      );
       const accountId = credentials.connectionId.slice(0, 8);
       const releaseOAuthSession = credentials.releaseOAuthSession ?? (() => {});
       // #10348: redact the account prefix by default. Gated on the narrow

@@ -65,6 +65,7 @@ import {
   maybeGenerateHandoff,
   maybeGenerateUniversalHandoff,
   injectUniversalHandoffBody,
+  hasPriorConversationTurn,
   SKIP_UNIVERSAL_HANDOFF_FLAG,
   type MessageLike,
 } from "./contextHandoff.ts";
@@ -1801,7 +1802,8 @@ async function handleComboChatInner({
           if (
             universalHandoffConfig.enabled &&
             relayOptions?.sessionId &&
-            !(body as Record<string, unknown>)?.[SKIP_UNIVERSAL_HANDOFF_FLAG]
+            !(body as Record<string, unknown>)?.[SKIP_UNIVERSAL_HANDOFF_FLAG] &&
+            hasPriorConversationTurn(body)
           ) {
             const lastModel = getLastSessionModel(relayOptions.sessionId, combo.name);
             if (lastModel && lastModel !== modelStr) {

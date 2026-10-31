@@ -13,7 +13,9 @@ import { buildErrorBody, errorResponse, sanitizeErrorMessage } from "../../utils
 import {
   COMBO_HEDGE_CANCELLED_REASON,
   COMBO_PER_MODEL_TIMEOUT_REASON,
+  getComboTargetSelectedConnection,
   registerComboTargetTimeoutDisarm,
+  trackComboTargetSelectedConnection,
 } from "./comboAbortReasons.ts";
 import type { HandleSingleModel, SingleModelTarget, ComboLogger } from "./types.ts";
 
@@ -128,6 +130,7 @@ export function buildTargetTimeoutRunner(deps: {
     }
 
     const timeoutController = new AbortController();
+    trackComboTargetSelectedConnection(timeoutController.signal);
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     let timedOut = false;
     const timeoutPromise = new Promise<Response>((resolve) => {
@@ -149,6 +152,14 @@ export function buildTargetTimeoutRunner(deps: {
         // Typed as combo_target_timeout so request-scoped classification can keep the
         // connection eligible for fallback instead of treating it like Cloudflare 524
         // or a genuine upstream gateway timeout.
+        // Attribute the timeout to the connection actually dispatched (recorded by the
+        // chat path on a signal derived from ours), not the target's resolved one — a
+        // session-affinity pin swap can make those differ (#5903).
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        const selectedConnectionId = getComboTargetSelectedConnection(timeoutController.signal);
+        if (selectedConnectionId) {
+          headers["X-OmniRoute-Selected-Connection-Id"] = selectedConnectionId;
+        }
         resolve(
           new Response(
             JSON.stringify(
@@ -157,10 +168,7 @@ export function buildTargetTimeoutRunner(deps: {
                 code: COMBO_TARGET_TIMEOUT_CODE,
               })
             ),
-            {
-              status: 504,
-              headers: { "Content-Type": "application/json" },
-            }
+            { status: 504, headers }
           )
         );
       }, effectiveTimeoutMs);

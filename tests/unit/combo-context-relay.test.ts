@@ -429,7 +429,12 @@ test("handleComboChat universal handoff does not accumulate injected handoffs ac
 
   const result = await handleComboChat({
     body: {
-      messages: [{ role: "user", content: "Continue" }],
+      // Universal handoff only applies to bodies carrying a prior assistant turn.
+      messages: [
+        { role: "user", content: "Start" },
+        { role: "assistant", content: "Working on it" },
+        { role: "user", content: "Continue" },
+      ],
     },
     combo: {
       name: comboName,
