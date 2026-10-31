@@ -16,6 +16,12 @@ export const nvidiaProvider: RegistryEntry = {
   // of cooling down the whole connection (see accountFallback.ts
   // hasPerModelQuota doc comment; matches modelscope/synthetic/kilo-gateway).
   passthroughModels: true,
+  // NVIDIA NIM (nvcf) buffers the full reasoning + output tokens before replying
+  // when `stream: false`, so reasoning models (e.g. google/gemma-4-31b-it) hit
+  // 30s–80s TTFB and trip startup timeouts. With `stream: true` it returns
+  // HTTP 200 SSE headers in ~1.2s; OmniRoute reassembles the SSE into JSON for
+  // non-streaming callers (readNonStreamingResponseBody).
+  forceStream: true,
   models: [
     // #6108: z-ai/glm-5.1 EOL'd 2026-07-02 (direct probe returns 410) — dropped.
     // #10788: NVIDIA's hosted GLM-5.2 exposes a BINARY thinking switch

@@ -92,6 +92,17 @@ function validatePeakHourProtectionBlock(value: unknown, ctx: z.RefinementCtx): 
   });
 }
 
+// Per-connection override of the registry `forceStream` flag (chatCore
+// providerRequiresStreaming), extracted to stay under the complexity gate.
+function validateForceStream(value: unknown, ctx: z.RefinementCtx): void {
+  if (value === undefined || value === null || typeof value === "boolean") return;
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: "providerSpecificData.forceStream must be a boolean",
+    path: ["forceStream"],
+  });
+}
+
 function validateCacheBlock(data: Record<string, unknown>, ctx: z.RefinementCtx): void {
   const cache = data.cache;
   if (cache === undefined) return;
@@ -385,6 +396,7 @@ export function validateProviderSpecificData(
   }
 
   validateCacheBlock(data, ctx);
+  validateForceStream(data.forceStream, ctx);
 
   const consoleApiKey = data.consoleApiKey;
   if (consoleApiKey !== undefined && consoleApiKey !== null && typeof consoleApiKey !== "string") {

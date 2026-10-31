@@ -1121,7 +1121,13 @@ export async function handleChatCore({
   // converts it back to JSON via readNonStreamingResponseBody. Passing this
   // flag into resolveStreamFlag would force `stream=true` and skip that
   // conversion, yielding STREAM_EARLY_EOF for JSON callers. (#2081, #6126)
-  const providerRequiresStreaming = REGISTRY[provider]?.forceStream === true;
+  // A boolean providerSpecificData.forceStream on the connection overrides the
+  // registry default (e.g. opt an openai-compatible node in, or nvidia out).
+  const connectionForceStream = credentials?.providerSpecificData?.forceStream;
+  const providerRequiresStreaming =
+    typeof connectionForceStream === "boolean"
+      ? connectionForceStream
+      : REGISTRY[provider]?.forceStream === true;
   const stream =
     nativeCodexPassthrough && isCompactResponsesEndpoint(endpointPath)
       ? false
@@ -2392,6 +2398,17 @@ export async function handleChatCore({
           ...(preCompressionBody ? { preCompressionBody } : {}),
         }
       );
+      // A client-sent `stream: false` survives translation, and DefaultExecutor
+      // keeps an explicit `stream: false` even when upstreamStream is true — so
+      // forceStream providers would still receive a buffered JSON request.
+      if (
+        providerRequiresStreaming &&
+        translatedBody &&
+        typeof translatedBody === "object" &&
+        !Array.isArray(translatedBody)
+      ) {
+        (translatedBody as Record<string, unknown>).stream = true;
+      }
     }
   } catch (error) {
     // ── Plugin onError hook ──
@@ -3536,6 +3553,12 @@ export async function handleChatCore({
           );
         }
         const contentType = (responseHeaders.get("content-type") || "").toLowerCase();
+        // Upstream headers arrived: the combo per-target timeout is a startup
+        // deadline and must not abort draining a long (forced-SSE) body below.
+        if (rawResult.response.ok) {
+          disarmComboTargetTimeout(clientRawRequest?.signal);
+          disarmComboTargetTimeout(streamController.signal);
+        }
         const payload = await readNonStreamingResponseBody(
           rawResult.response,
           contentType,
