@@ -10,6 +10,7 @@ const CODEX_SCOPE_PATTERNS: Array<{ pattern: string; scope: CodexQuotaScope }> =
   { pattern: "codex-spark", scope: "spark" },
   { pattern: "spark", scope: "spark" },
   { pattern: "bengalfox", scope: "spark" },
+  { pattern: "luna", scope: "spark" },
   { pattern: "codex", scope: "codex" },
   { pattern: "gpt-5", scope: "codex" },
 ];

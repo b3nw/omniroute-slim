@@ -1734,6 +1734,31 @@ async function handleSingleModelChat(
           candidateAliases,
           isCombo
         );
+        // A single-model request rejected before its first dispatch (all accounts
+        // cooling down / expired / model-blocked) never reaches handleChatCore, so
+        // record it here — otherwise it is missing from /dashboard/logs and from the
+        // per-api-key usage_history counters. Combos log their own rejection, and once
+        // a connection was tried the executor failure path has already logged it.
+        if (!isCombo && excludedConnectionIds.size === 0 && noCredsRes && !noCredsRes.ok) {
+          try {
+            const { recordRejectedRequestUsage, describeRejectedResponse } =
+              await import("./rejectedRequestUsage");
+            await recordRejectedRequestUsage({
+              status: noCredsRes.status,
+              model,
+              requestedModel: body?.model || modelStr,
+              provider,
+              endpoint: clientRawRequest?.endpoint,
+              error: await describeRejectedResponse(noCredsRes, "No credentials available"),
+              apiKeyId: apiKeyInfo?.id ?? null,
+              apiKeyName: apiKeyInfo?.name ?? null,
+              correlationId: runtimeOptions?.correlationId ?? null,
+              sessionTag: runtimeOptions?.conversationId ?? null,
+              startTime: telemetry?.startTime,
+              requestBody: clientRawRequest?.body ?? null,
+            });
+          } catch {}
+        }
         const lastFailedConnectionId =
           excludedConnectionIds.size > 0
             ? Array.from(excludedConnectionIds)[excludedConnectionIds.size - 1]

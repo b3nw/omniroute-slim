@@ -156,9 +156,11 @@ export function assignEditApiKeyProviderSpecificData(options: {
   const o = options;
   Object.assign(o.target, {
     extraApiKeys: o.extraApiKeys.filter((key) => key.trim().length > 0),
-    tag: o.formData.tag.trim() || undefined,
-    tags: parseRoutingTagsInput(o.formData.routingTags),
-    excludedModels: parseExcludedModelsInput(o.formData.excludedModels),
+    // Explicit empty values (not undefined) so clearing a field persists —
+    // undefined is dropped by JSON.stringify and the PUT merge keeps the old value.
+    tag: (o.formData.tag ?? "").trim(),
+    tags: parseRoutingTagsInput(o.formData.routingTags) ?? [],
+    excludedModels: parseExcludedModelsInput(o.formData.excludedModels) ?? [],
     allowedModels: parseAllowedModelsInput(o.formData.allowedModels ?? "") ?? [],
     customUserAgent: o.formData.customUserAgent.trim(),
     ...o.openRouterPreset.getPatch(),

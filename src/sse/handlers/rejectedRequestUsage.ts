@@ -111,6 +111,25 @@ export async function recordRejectedRequestUsage(input: RejectedRequestUsageInpu
 }
 
 /**
+ * `[status] message` for a pre-dispatch rejection response, read from a clone so
+ * the caller can still return the original body to the client. Falls back to
+ * `[status] <fallback>` when the body is not an OpenAI-style JSON error.
+ */
+export async function describeRejectedResponse(
+  response: Response,
+  fallback: string
+): Promise<string> {
+  try {
+    const body = await response.clone().json();
+    const message = body?.error?.message;
+    if (typeof message === "string" && message.trim()) {
+      return `[${response.status}] ${message.trim()}`;
+    }
+  } catch {}
+  return `[${response.status}] ${fallback}`;
+}
+
+/**
  * Builds a readable "provider" summary for a combo-exhausted rejection from the
  * combo's own configured model list — the response's combo diagnostics don't
  * reliably cover every skip reason (e.g. a model-level resilience lockout skip

@@ -1702,24 +1702,53 @@ export async function getProviderCredentials(
     });
 
     if (availableConnections.length === 0) {
-      const cooldownStates: CooldownInspectionState[] = connections.map((connection) => {
-        const connectionCooldownMs = parseFutureDateMs(connection.rateLimitedUntil);
-        const codexScopeCooldownMs =
-          provider === "codex"
-            ? parseFutureDateMs(getCodexChildCooldown(connection, requestedModel))
-            : null;
-        const modelLockout = requestedModel
-          ? getModelLockoutInfo(provider, connection.id, requestedModel)
-          : null;
-        const retryableModelCooldownMs =
-          modelLockout &&
-          modelLockout.remainingMs > 0 &&
-          isRetryableModelLockoutReason(modelLockout.reason)
-            ? Date.now() + modelLockout.remainingMs
-            : null;
-
-        return { connection, connectionCooldownMs, codexScopeCooldownMs, retryableModelCooldownMs };
+      // Connections whose own model rules (excludedModels / allowedModels) reject the
+      // requested model can never serve it — their cooldowns are irrelevant, and
+      // reporting them as "rate limited" sends clients into pointless retry loops.
+      const modelEligibleConnections = connections.filter((connection) => {
+        const status = connectionFilterStatus.get(connection.id);
+        return status !== "modelNotAllowed" && status !== "modelExcluded";
       });
+      if (modelEligibleConnections.length === 0) {
+        const noAuthFallback = await maybeSyntheticNoAuthFallback(
+          resolvedId,
+          excludedConnectionIds,
+          allowedConnections
+        );
+        if (noAuthFallback) return noAuthFallback;
+        invalidateManagedLease(options, "MODEL_INELIGIBLE");
+        log.warn(
+          "AUTH",
+          `${provider} | model ${requestedModel} blocked by connection model rules on all ${connections.length} active accounts`
+        );
+        return null;
+      }
+
+      const cooldownStates: CooldownInspectionState[] = modelEligibleConnections.map(
+        (connection) => {
+          const connectionCooldownMs = parseFutureDateMs(connection.rateLimitedUntil);
+          const codexScopeCooldownMs =
+            provider === "codex"
+              ? parseFutureDateMs(getCodexChildCooldown(connection, requestedModel))
+              : null;
+          const modelLockout = requestedModel
+            ? getModelLockoutInfo(provider, connection.id, requestedModel)
+            : null;
+          const retryableModelCooldownMs =
+            modelLockout &&
+            modelLockout.remainingMs > 0 &&
+            isRetryableModelLockoutReason(modelLockout.reason)
+              ? Date.now() + modelLockout.remainingMs
+              : null;
+
+          return {
+            connection,
+            connectionCooldownMs,
+            codexScopeCooldownMs,
+            retryableModelCooldownMs,
+          };
+        }
+      );
 
       const cooldownCandidates = cooldownStates
         .flatMap((state) => {
@@ -1757,8 +1786,8 @@ export async function getProviderCredentials(
         log.warn(
           "AUTH",
           allBlockedByModelCooldown
-            ? `${provider} | all ${connections.length} active accounts cooling down for model ${requestedModel} (${formatRetryAfter(earliest)}) | lastErrorCode=${earliestConn?.errorCode}, lastError=${earliestConn?.lastError?.slice(0, 50)}`
-            : `${provider} | all ${connections.length} active accounts rate limited (${formatRetryAfter(earliest)}) | lastErrorCode=${earliestConn?.errorCode}, lastError=${earliestConn?.lastError?.slice(0, 50)}`
+            ? `${provider} | all ${modelEligibleConnections.length} active accounts cooling down for model ${requestedModel} (${formatRetryAfter(earliest)}) | lastErrorCode=${earliestConn?.errorCode}, lastError=${earliestConn?.lastError?.slice(0, 50)}`
+            : `${provider} | all ${modelEligibleConnections.length} active accounts rate limited (${formatRetryAfter(earliest)}) | lastErrorCode=${earliestConn?.errorCode}, lastError=${earliestConn?.lastError?.slice(0, 50)}`
         );
         invalidateManagedLease(
           options,
@@ -1772,7 +1801,7 @@ export async function getProviderCredentials(
           lastErrorCode: allBlockedByModelCooldown ? 429 : earliestConn?.errorCode || null,
           cooldownScope: allBlockedByModelCooldown ? "model" : "connection",
           cooldownModel: allBlockedByModelCooldown ? requestedModel : null,
-          connectionsCount: connections.length,
+          connectionsCount: modelEligibleConnections.length,
         };
       }
       const syntheticFallback = await maybeSyntheticNoAuthFallback(

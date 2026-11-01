@@ -716,9 +716,12 @@ export default function EditConnectionModal({
       } else {
         updates.providerSpecificData = {
           ...(connection.providerSpecificData || {}),
-          tag: formData.tag.trim() || undefined,
-          tags: parseRoutingTagsInput(formData.routingTags),
-          excludedModels: parseExcludedModelsInput(formData.excludedModels),
+          // Explicit empty values (not undefined) so clearing a field actually
+          // clears it: undefined is dropped by JSON.stringify and the server-side
+          // merge would keep the previously stored value.
+          tag: formData.tag.trim(),
+          tags: parseRoutingTagsInput(formData.routingTags) ?? [],
+          excludedModels: parseExcludedModelsInput(formData.excludedModels) ?? [],
           allowedModels: parseAllowedModelsInput(formData.allowedModels) ?? [],
         };
         if (isClaude) {
