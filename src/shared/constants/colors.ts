@@ -44,8 +44,30 @@ const PROTOCOL_KEY_ALIASES = {
   "openai-response": "openai-responses",
 };
 
-function normalizeProtocolKey(protocol) {
-  return PROTOCOL_KEY_ALIASES[protocol] || protocol;
+/**
+ * Map a protocol (or provider id used as a protocol fallback) to a PROTOCOL_COLORS key.
+ * Custom provider node ids like `openai-compatible-chat-<uuid>` or
+ * `anthropic-compatible-<uuid>` collapse to their wire protocol so the Req Protocol
+ * badge never renders the raw UUID (e.g. historical call_logs rows with NULL source_format).
+ */
+export function normalizeProtocolKey(protocol) {
+  if (typeof protocol !== "string" || protocol.length === 0) return protocol;
+  if (PROTOCOL_KEY_ALIASES[protocol]) return PROTOCOL_KEY_ALIASES[protocol];
+  const key = protocol.toLowerCase();
+  if (PROTOCOL_KEY_ALIASES[key]) return PROTOCOL_KEY_ALIASES[key];
+  if (key === "openai-compatible-responses" || key.startsWith("openai-compatible-responses-")) {
+    return "openai-responses";
+  }
+  if (key === "openai-compatible" || key.startsWith("openai-compatible-")) return "openai";
+  if (
+    key === "anthropic-compatible" ||
+    key === "anthropic" ||
+    key.startsWith("anthropic-compatible-")
+  ) {
+    return "claude";
+  }
+  if (key === "gemini-cli" || key === "gemini_cli") return "gemini";
+  return protocol;
 }
 
 // ═══════════════════════════════════════════
@@ -138,9 +160,10 @@ export function getProxyStatusStyle(status) {
  */
 export function getProtocolColor(protocol, fallbackProvider) {
   const normalized = normalizeProtocolKey(protocol);
+  const normalizedFallback = normalizeProtocolKey(fallbackProvider);
   return (
     PROTOCOL_COLORS[normalized] ||
-    PROTOCOL_COLORS[fallbackProvider] || {
+    PROTOCOL_COLORS[normalizedFallback] || {
       bg: "#6B7280",
       text: "#fff",
       label: (protocol || fallbackProvider || "-").toUpperCase(),

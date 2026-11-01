@@ -1221,6 +1221,7 @@ async function handleChatImplementation(
           sessionTag: conversationId,
           startTime: telemetry?.startTime,
           requestBody: clientRawRequest?.body ?? null,
+          sourceFormat,
         });
       } catch {}
     }
@@ -1499,6 +1500,8 @@ async function handleSingleModelChat(
         correlationId: runtimeOptions?.correlationId ?? null,
         sessionTag: runtimeOptions?.conversationId ?? null,
         startTime: telemetry?.startTime,
+        sourceFormat,
+        targetFormat,
       });
     } catch {}
     return gate;

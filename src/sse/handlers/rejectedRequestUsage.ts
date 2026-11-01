@@ -18,6 +18,7 @@
  * never turn into a second failure on the response path.
  */
 import { saveCallLog, saveRequestUsage } from "@/lib/usageDb";
+import { detectFormatFromEndpoint } from "@omniroute/open-sse/services/provider.ts";
 
 export interface RejectedRequestUsageInput {
   status: number;
@@ -44,6 +45,26 @@ export interface RejectedRequestUsageInput {
    * dashboard log detail had no request to inspect — see #7360 follow-up.
    */
   requestBody?: unknown;
+  /**
+   * Client wire protocol (e.g. "openai", "claude", "openai-responses"). Persisted to
+   * `call_logs.source_format` so the Req Protocol column shows the protocol instead of
+   * falling back to the (possibly UUID-suffixed) provider id. Derived from the endpoint
+   * and request body when omitted.
+   */
+  sourceFormat?: string | null;
+  targetFormat?: string | null;
+}
+
+function inferSourceFormat(
+  requestBody: unknown,
+  endpoint: string | null | undefined
+): string | null {
+  try {
+    const body = requestBody && typeof requestBody === "object" ? requestBody : {};
+    return detectFormatFromEndpoint(body, endpoint || "/v1/chat/completions") || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function recordRejectedRequestUsage(input: RejectedRequestUsageInput): Promise<void> {
@@ -64,7 +85,9 @@ export async function recordRejectedRequestUsage(input: RejectedRequestUsageInpu
     connectionId = undefined,
     startTime,
     requestBody = null,
+    targetFormat = null,
   } = input;
+  const sourceFormat = input.sourceFormat ?? inferSourceFormat(requestBody, endpoint);
 
   const now = Date.now();
   const duration = typeof startTime === "number" ? now - startTime : 0;
@@ -90,6 +113,8 @@ export async function recordRejectedRequestUsage(input: RejectedRequestUsageInpu
     apiKeyName,
     correlationId,
     sessionTag,
+    sourceFormat,
+    targetFormat,
   }).catch(() => {});
 
   // 2. usage_history — so the per-api-key usage counter reflects rejected

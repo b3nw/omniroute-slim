@@ -261,9 +261,10 @@ export default function ProxyLogger() {
           <option value="">{t("allProviders")}</option>
           {uniqueProviders.map((p) => {
             const pc = PROVIDER_COLORS[p];
+            const compatLabel = getProviderDisplayLabel(p, providerNodes);
             return (
               <option key={p} value={p}>
-                {pc?.label || p.toUpperCase()}
+                {compatLabel || pc?.label || p.toUpperCase()}
               </option>
             );
           })}
@@ -348,6 +349,7 @@ export default function ProxyLogger() {
 
         {uniqueProviders.map((p) => {
           const pc = PROVIDER_COLORS[p] || { bg: "#374151", text: "#fff", label: p.toUpperCase() };
+          const compatLabel = getProviderDisplayLabel(p, providerNodes);
           const isActive = selectedProvider === p;
           return (
             <button
@@ -363,7 +365,7 @@ export default function ProxyLogger() {
                 color: isActive ? pc.text : pc.bg,
               }}
             >
-              {pc.label}
+              {compatLabel || pc.label}
             </button>
           );
         })}

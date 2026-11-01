@@ -13,6 +13,7 @@ import {
 import { getProviderConnections } from "@/lib/db/providers";
 import { getProviderNodes } from "@/models";
 import { matchesSearch } from "@/shared/utils/turkishText";
+import { detectFormatFromEndpoint } from "@omniroute/open-sse/services/provider.ts";
 
 type CallLogListRowsInput = {
   logs: any[];
@@ -22,6 +23,22 @@ type CallLogListRowsInput = {
   completedDetails: Iterable<any>;
   now?: number;
 };
+
+/**
+ * In-memory pending/completed details don't carry a source format, so the Req Protocol
+ * column would otherwise fall back to the raw provider id. Derive it from the client
+ * endpoint/body the same way the request pipeline does.
+ */
+function inferDetailSourceFormat(detail: any): string | null {
+  if (!detail?.clientEndpoint && !detail?.clientRequest) return null;
+  try {
+    const body =
+      detail.clientRequest && typeof detail.clientRequest === "object" ? detail.clientRequest : {};
+    return detectFormatFromEndpoint(body, detail.clientEndpoint || "/v1/chat/completions") || null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Maximum distance between an in-memory detail's completion time and a persisted row's
@@ -161,7 +178,7 @@ export function buildCallLogListRows({
       timeToFirstTokenMs: null,
       tokens: { in: 0, out: 0 },
       cacheSource: null,
-      sourceFormat: null,
+      sourceFormat: inferDetailSourceFormat(detail),
       targetFormat: null,
       apiKeyId: null,
       apiKeyName: null,
@@ -343,7 +360,7 @@ export function buildCallLogListRows({
       timeToFirstTokenMs: null,
       tokens: { in: 0, out: 0 },
       cacheSource: null,
-      sourceFormat: null,
+      sourceFormat: inferDetailSourceFormat(detail),
       targetFormat: null,
       apiKeyId: null,
       apiKeyName: null,

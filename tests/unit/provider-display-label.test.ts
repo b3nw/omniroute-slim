@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { getProviderDisplayLabel } from "../../src/shared/utils/providerDisplayLabel.ts";
+import { getProtocolColor, normalizeProtocolKey } from "../../src/shared/constants/colors.ts";
 
 test("returns matched node name for openai-compatible UUID id", () => {
   const providerNodes = [
@@ -105,4 +106,47 @@ test("returns generic compat labels for upper-cased ids without a matching node"
     getProviderDisplayLabel("ANTHROPIC-COMPATIBLE-MSG-EA7D9940-2279-48C8-AB33-8B56CB06E1A9"),
     "ANT-COMPAT"
   );
+});
+
+const CUSTOM_OAI_ID = "openai-compatible-chat-ea7d9940-2279-48c8-ab33-8b56cb06e1a9";
+const OPENAI_CHAT_BADGE = { bg: "#1A1A2E", text: "#fff", label: "OpenAI-Chat" };
+
+test("getProtocolColor maps custom openai-compatible chat node ids to OpenAI-Chat", () => {
+  assert.deepEqual(getProtocolColor(CUSTOM_OAI_ID, CUSTOM_OAI_ID), OPENAI_CHAT_BADGE);
+});
+
+test("getProtocolColor falls back to normalized provider when protocol is null", () => {
+  assert.deepEqual(getProtocolColor(null, CUSTOM_OAI_ID), OPENAI_CHAT_BADGE);
+});
+
+test("getProtocolColor maps custom openai-compatible responses node ids to OpenAI-Responses", () => {
+  assert.deepEqual(
+    getProtocolColor("openai-compatible-responses-12345678", "openai-compatible-responses-12345678"),
+    { bg: "#1A1A2E", text: "#fff", label: "OpenAI-Responses" }
+  );
+});
+
+test("getProtocolColor maps custom anthropic-compatible node ids to Claude", () => {
+  assert.deepEqual(
+    getProtocolColor("anthropic-compatible-chat-12345678", "anthropic-compatible-chat-12345678"),
+    { bg: "#D97757", text: "#fff", label: "Claude" }
+  );
+});
+
+test("normalizeProtocolKey handles aliases case-insensitively", () => {
+  assert.equal(normalizeProtocolKey("OPENAI-COMPATIBLE-CHAT-EA7D9940"), "openai");
+  assert.equal(normalizeProtocolKey("openai-compatible"), "openai");
+  assert.equal(normalizeProtocolKey("Openai-Compatible-Responses"), "openai-responses");
+  assert.equal(normalizeProtocolKey("anthropic"), "claude");
+  assert.equal(normalizeProtocolKey("anthropic-compatible"), "claude");
+  assert.equal(normalizeProtocolKey("gemini-cli"), "gemini");
+  assert.equal(normalizeProtocolKey("GEMINI_CLI"), "gemini");
+  assert.equal(normalizeProtocolKey("openai-chat"), "openai");
+  assert.equal(normalizeProtocolKey("openai-response"), "openai-responses");
+  assert.equal(normalizeProtocolKey("warmup"), "warmup");
+  assert.equal(normalizeProtocolKey(null), null);
+});
+
+test("getProtocolColor keeps uppercase fallback for unknown protocols", () => {
+  assert.equal(getProtocolColor("mystery", null).label, "MYSTERY");
 });

@@ -163,6 +163,50 @@ test("combo-exhausted rejection without a request body still logs cleanly (no re
   assert.equal(rejected.hasRequestBody, false);
 });
 
+async function waitForCallLogByKeyName(apiKeyName: string) {
+  for (let i = 0; i < 50; i++) {
+    const logs = await callLogs.getCallLogs({});
+    const list = (logs.logs ?? logs) as Array<Record<string, unknown>>;
+    const found = (list ?? []).find((l) => l.apiKeyName === apiKeyName);
+    if (found) return found;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  return undefined;
+}
+
+// Rejected rows used to persist source_format NULL, so the Req Protocol column fell back
+// to the raw provider id (e.g. OPENAI-COMPATIBLE-CHAT-<uuid>).
+test("rejected request persists a source format derived from the endpoint", async () => {
+  await recordRejectedRequestUsage({
+    status: 503,
+    model: "m",
+    provider: "openai-compatible-chat-ea7d9940-2279-48c8-ab33-8b56cb06e1a9",
+    endpoint: "/v1/messages",
+    apiKeyName: "source-format-derived",
+    startTime: Date.now() - 1,
+  });
+  const row = await waitForCallLogByKeyName("source-format-derived");
+  assert.ok(row, "expected a call_logs row");
+  assert.equal(row.sourceFormat, "claude");
+});
+
+test("rejected request persists explicitly passed source/target formats", async () => {
+  await recordRejectedRequestUsage({
+    status: 503,
+    model: "m",
+    provider: "openai-compatible-chat-ea7d9940-2279-48c8-ab33-8b56cb06e1a9",
+    endpoint: "/v1/chat/completions",
+    apiKeyName: "source-format-explicit",
+    sourceFormat: "openai-responses",
+    targetFormat: "openai",
+    startTime: Date.now() - 1,
+  });
+  const row = await waitForCallLogByKeyName("source-format-explicit");
+  assert.ok(row, "expected a call_logs row");
+  assert.equal(row.sourceFormat, "openai-responses");
+  assert.equal(row.targetFormat, "openai");
+});
+
 test("summarizeComboAttemptedModels lists the models a combo was configured with", () => {
   assert.equal(
     summarizeComboAttemptedModels([
