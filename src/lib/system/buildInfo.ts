@@ -10,7 +10,7 @@
  * Pure and dependency-free so it is unit-testable with an injected env.
  */
 
-export const DEFAULT_UPSTREAM_BASE = "3.8.51";
+export const DEFAULT_UPSTREAM_BASE = "3.8.52";
 
 export interface BuildInfo {
   sha: string;

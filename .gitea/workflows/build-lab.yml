@@ -50,7 +50,7 @@ env:
   REGISTRY: gitea.ext.ben.io
   IMAGE_PRIMARY: gitea.ext.ben.io/homelab/omniroute-slim
   DOCKERFILE: Dockerfile
-  DEFAULT_UPSTREAM_BASE: "3.8.51"
+  DEFAULT_UPSTREAM_BASE: "3.8.52"
 
 jobs:
   build:

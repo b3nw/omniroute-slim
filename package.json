@@ -1,6 +1,6 @@
 {
   "name": "omniroute-slim",
-  "version": "3.9.0",
+  "version": "3.8.52",
   "description": "Streamlined AI gateway and intelligent model proxy with multi-provider routing, fallback chains, combo models, and OpenAI/Claude/Gemini compatibility.",
   "type": "module",
   "bin": {

@@ -12,7 +12,7 @@ test("getBuildInfo falls back to unknown / default upstream base / seq 0 with an
     seq: 0,
     builtAt: "unknown",
   });
-  assert.equal(DEFAULT_UPSTREAM_BASE, "3.8.51");
+  assert.equal(DEFAULT_UPSTREAM_BASE, "3.8.52");
 });
 
 test("getBuildInfo reads the build-time env injected by the Dockerfile", () => {
